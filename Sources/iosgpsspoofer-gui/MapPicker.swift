@@ -570,5 +570,6 @@ final class ClosureMenuItem: NSMenuItem {
         fatalError("init(coder:) is not used")
     }
 
-    @objc private func fire() { handler() }
+    // Menu actions arrive on the main thread.
+    @MainActor @objc private func fire() { handler() }
 }

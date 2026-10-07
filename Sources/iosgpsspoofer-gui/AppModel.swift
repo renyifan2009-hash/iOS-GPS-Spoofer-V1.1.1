@@ -662,19 +662,26 @@ final class AppModel {
         }
     }
 
+    /// Completion-handler form: CLGeocoder isn't Sendable, so it can't be
+    /// handed to its nonisolated async variant from the main actor. The
+    /// handler runs on the main thread and fires exactly once (also when a
+    /// newer request cancels this one).
     private func reverseGeocode(_ point: GeoPoint, using geocoder: CLGeocoder) async -> String? {
         if geocoder.isGeocoding { geocoder.cancelGeocode() }
-        do {
-            let placemarks = try await geocoder.reverseGeocodeLocation(
-                CLLocation(latitude: point.latitude, longitude: point.longitude))
-            guard let p = placemarks.first else { return nil }
-            var seen = Set<String>()
-            let parts = [p.name, p.locality, p.administrativeArea, p.country]
-                .compactMap { $0 }
-                .filter { seen.insert($0).inserted }
-            return parts.prefix(3).joined(separator: ", ")
-        } catch {
-            return nil   // over water, offline, or rate-limited
+        let location = CLLocation(latitude: point.latitude, longitude: point.longitude)
+        return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+            geocoder.reverseGeocodeLocation(location) { placemarks, _ in
+                // Nil over water, offline, rate-limited or cancelled.
+                guard let p = placemarks?.first else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                var seen = Set<String>()
+                let parts = [p.name, p.locality, p.administrativeArea, p.country]
+                    .compactMap { $0 }
+                    .filter { seen.insert($0).inserted }
+                continuation.resume(returning: parts.prefix(3).joined(separator: ", "))
+            }
         }
     }
 

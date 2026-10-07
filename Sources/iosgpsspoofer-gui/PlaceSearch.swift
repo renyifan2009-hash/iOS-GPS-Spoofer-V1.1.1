@@ -128,18 +128,16 @@ final class PlaceSearch {
 }
 
 /// Plain NSObject delegate, so the observable model doesn't have to be one.
-private final class CompleterBridge: NSObject, MKLocalSearchCompleterDelegate {
+/// MapKit calls it on the main thread; the protocol itself isn't annotated.
+@MainActor
+private final class CompleterBridge: NSObject, @preconcurrency MKLocalSearchCompleterDelegate {
     var onUpdate: (@MainActor ([MKLocalSearchCompletion]) -> Void)?
 
-    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        MainActor.assumeIsolated {
-            onUpdate?(completer.results)
-        }
+    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        onUpdate?(completer.results)
     }
 
-    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
-        MainActor.assumeIsolated {
-            onUpdate?([])
-        }
+    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        onUpdate?([])
     }
 }
