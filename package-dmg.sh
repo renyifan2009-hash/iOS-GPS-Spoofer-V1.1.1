@@ -17,7 +17,7 @@ cd "$(dirname "$0")"
 
 APP_NAME="iOS GPS Spoofer"
 BUNDLE_ID="com.iosgpsspoofer.gui"
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-2.0.0}"
 BUILD_DIR="build"
 DIST_DIR="dist"
 APP="$BUILD_DIR/$APP_NAME.app"

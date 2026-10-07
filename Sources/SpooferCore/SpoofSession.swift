@@ -208,7 +208,12 @@ public final class SpoofSession: @unchecked Sendable {
     /// immediately; the state goes `.stopping` → `.idle`.
     public func stop(clearLocation: Bool = true) {
         let teardownState = beginStop()
-        guard teardownState.wasStarted else { setState(.idle); return }
+        guard teardownState.wasStarted else {
+            // Already stopped — or still restoring from an earlier stop(), which
+            // will report .idle itself once the location is cleared.
+            if state != .stopping { setState(.idle) }
+            return
+        }
         setState(.stopping)
         teardown.async { [self] in
             finishStop(teardownState, clearLocation: clearLocation, helperWait: 6, clearTimeout: 90)
@@ -675,7 +680,7 @@ public final class SpoofSession: @unchecked Sendable {
         return !process.isRunning
     }
 
-    static func firstLine(of error: Error) -> String {
+    public static func firstLine(of error: Error) -> String {
         let text = "\(error)"
         return text.split(separator: "\n").first.map(String.init) ?? text
     }

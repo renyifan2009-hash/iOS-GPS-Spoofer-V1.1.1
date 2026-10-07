@@ -1,182 +1,260 @@
-# iosgpsspoof
+# iOS GPS Spoofer
 
-Spoof the GPS location of a **connected iPhone (iOS 17+)** for as long as the
-tool runs. The fake location is cleared automatically on exit, and re-applied
-automatically if the device disconnects and reconnects.
-
-Ships as two front-ends over a shared core (`SpooferCore`):
-
-- **`iosgpsspoofer-gui`** — a SwiftUI macOS app: auto-detected device list with a
-  refresh button, a map you click to drop the location, coordinate fields,
-  presets, transport picker, live log, and a Start/Stop toggle.
-- **`iosgpsspoof`** — the CLI (`spoof`, `route`, `list`, `clear`).
+Simulate the GPS location of a **connected iPhone** — hold it at any place on
+Earth, drive it along a route, or steer it live with a joystick. Nothing is
+installed on the phone, and the real location comes back the moment you stop.
 
 It drives Apple's developer *location-simulation* service — the same mechanism
-Xcode's **Product ▸ Scheme ▸ Simulate Location** uses. On iOS 17+ that service
-lives behind the encrypted CoreDevice tunnel, so the actual transport is handled
-by [`pymobiledevice3`](https://github.com/doronz88/pymobiledevice3); this tool is
-the user-facing wrapper (CLI, device selection, the "keep it spoofed while
-connected" supervision loop, clean teardown).
+as Xcode's **Product ▸ Scheme ▸ Simulate Location** — through
+[`pymobiledevice3`](https://github.com/doronz88/pymobiledevice3). On iOS 17+
+that service sits behind the encrypted CoreDevice tunnel; on iOS 16 and older
+it's a plain lockdown service. Both are supported.
+
+Two front-ends over a shared core (`SpooferCore`):
+
+- **iOS GPS Spoofer.app** — a SwiftUI macOS app (`iosgpsspoofer-gui`).
+- **`iosgpsspoof`** — the command-line tool.
+
+## What's new in 2.0
+
+- **Live engine** — one long-lived channel to the phone. Moves are instant
+  (no new tunnel per move), which makes smooth routes, pause / resume /
+  scrubbing, and a real-time **joystick** possible. Falls back to the classic
+  engine automatically if your pymobiledevice3 can't support it.
+- **Three modes**: **Teleport**, **Route** and **Joystick**.
+- **Place search** with autocomplete. The same box understands coordinates in
+  decimal or degrees-minutes-seconds and **Google Maps / Apple Maps /
+  OpenStreetMap links**.
+- **Road-following routes** (walking or driving, via Apple Maps directions),
+  **loop** and **back-and-forth** modes, pace by speed or by duration, live
+  progress with ETA, **GPX / KML import & export**, drag-and-drop.
+- **Favorites, recent places and saved routes** in the sidebar (the CLI can use
+  favorites as `@Name`).
+- **Live device marker** with heading, travelled-route overlay, standard /
+  satellite / hybrid maps, right-click menu, follow-device.
+- **Settings** window, **menu bar** quick controls, keyboard shortcuts,
+  realism options (speed variation, GPS wobble).
+- **iOS 16 and older** supported; marketing model names ("iPhone 15 Pro").
+- Fixed: routes now really **finish and loop** (pymobiledevice3 ≥ 10's `play`
+  never exits on its own, so "Loop" and "Arrived" never fired before).
+- CLI: `spoof "Eiffel Tower"`, `spoof <maps link>`, `route` from waypoints with
+  `--speed` / `--duration` / `--loop` / `--ping-pong`, `list --json`, `doctor`.
+- Unit tests and CI (macOS build + tests, helper tests against real
+  pymobiledevice3, DMG artifact).
 
 ## Download
 
-No build required — grab the DMG from the
-**[Releases page](https://github.com/SegFault42/iOS-GPS-Spoofer/releases/latest)**:
+Grab the DMG from the
+**[Releases page](https://github.com/SegFault42/iOS-GPS-Spoofer/releases/latest)**,
+open it and drag **iOS GPS Spoofer** to Applications. First launch:
+**right-click ▸ Open** (the app is ad-hoc signed, so Gatekeeper asks once).
+Every CI run also attaches a freshly built DMG as a workflow artifact.
 
-### [⬇ Download the latest release](https://github.com/SegFault42/iOS-GPS-Spoofer/releases/latest)
-
-Open the DMG, drag **iOS GPS Spoofer** to Applications. First launch:
-**right-click ▸ Open** (the app is ad-hoc signed, so Gatekeeper asks once). Then
-prepare your iPhone — see **[IPHONE-SETUP.md](IPHONE-SETUP.md)**.
-
-Want to build it yourself instead? See [Setup](#setup) /
-[Package as a DMG](#package-as-a-dmg).
+Then prepare your iPhone — see **[IPHONE-SETUP.md](IPHONE-SETUP.md)**.
 
 ## Screenshots
 
-### Fixed GPS location
+> These show the 1.x layout; the 2.0 window adds the search bar, mode switcher,
+> inspector and live HUD described below.
 
-Click a spot on the map (or type coordinates / pick a preset) and the connected
-iPhone reports that exact location for as long as the tool runs.
+| Fixed location | Route |
+|:---:|:---:|
+| ![Fixed-point mode](img/fix.png) | ![Route mode](img/route.png) |
 
-![Fixed-point mode](img/fix.png)
-
-The spoofed position as the iPhone itself sees it — Apple Park, the mid-Atlantic,
-and the Eiffel Tower:
+The spoofed position as the iPhone itself sees it — Apple Park, the
+mid-Atlantic, and the Eiffel Tower:
 
 | Apple Park | North Atlantic | Eiffel Tower |
 |:---:|:---:|:---:|
 | ![](img/IMG_0111.PNG) | ![](img/IMG_0112.PNG) | ![](img/IMG_0113.PNG) |
 
-### Route
-
-Drop waypoints A → B and any points in between, set a duration (h : m : s) or a
-speed (km/h), and the iPhone moves along the path at constant speed. Optionally
-loops.
-
-![Route mode](img/route.png)
-
 ## Requirements
 
-- macOS with Xcode / Swift 6 toolchain
-- Python 3 (for the bundled `pymobiledevice3` venv)
-- An iPhone (iOS 17+) that is **paired & trusted** and has **Developer Mode**
-  enabled — see **[IPHONE-SETUP.md](IPHONE-SETUP.md)** for the step-by-step
-  device prep and troubleshooting.
-- On the default `--transport native`, **no root is required** — it piggybacks
-  Apple's own `remotepairingd` tunnel.
+- macOS 14 Sonoma or newer (building needs Xcode 16 / Swift 6).
+- [`pymobiledevice3`](https://github.com/doronz88/pymobiledevice3) — `./setup.sh`
+  installs it into `./.venv`; `pipx install pymobiledevice3` or Homebrew work
+  too. Version 11 or newer is recommended (it's what the default `native`
+  tunnel needs).
+- An iPhone that is **paired & trusted** with **Developer Mode** on — see
+  **[IPHONE-SETUP.md](IPHONE-SETUP.md)**.
+- With the default `native` tunnel, **no root / password** is needed.
 
-## Setup
-
-```bash
-./setup.sh          # creates .venv with pymobiledevice3, builds release binary
-```
-
-The binary lands at `.build/release/iosgpsspoof`. Copy it onto your `PATH` if you
-like (`cp .build/release/iosgpsspoof /usr/local/bin/`). It looks for
-`pymobiledevice3` in `./.venv/bin`, then next to the binary, then on `$PATH`; use
-`--python-path` to point at a specific one.
-
-## GUI
+## Setup (build it yourself)
 
 ```bash
-./run-gui.sh          # or: .build/release/iosgpsspoofer-gui
+./setup.sh          # creates .venv with pymobiledevice3, builds CLI + GUI (release)
+./run-gui.sh        # build (if needed) and launch the app
 ```
 
-- The left column lists connected iPhones and **auto-refreshes every 3 s**; the
-  **Refresh** button forces an immediate scan.
-- Two modes, switched with the segmented control:
-  - **Fixed point** — click the map (draggable pin, fills coordinates, shows the
-    place name), or type lat/lon, pick a **preset**, or paste `"lat, lon"`.
-    **Start spoofing** holds the device there; while running, move the pin and
-    hit **Move to new coordinates** to relocate without stopping.
-  - **Route** — click the map to drop point A, point B, then any points in
-    between. Pins are draggable; the waypoint list lets you reorder, insert a
-    midpoint, or delete. Pace it either **by time** (hr : min : sec) or **by
-    speed** (km/h) — the other value is shown live — set **Loop** if you want,
-    then **Start route**. The device moves along the line at constant speed.
-    Edit waypoints while it runs and hit **Apply route changes** to restart.
-- **Stop**, or quitting the app, restores the real GPS.
+The CLI lands at `.build/release/iosgpsspoof` — copy it onto your `PATH` if you
+like. Both front-ends look for `pymobiledevice3` in: an explicit path
+(`--python-path` / Settings), `$PYMOBILEDEVICE3`, a venv bundled in the app,
+`./.venv`, `$PATH`, then Homebrew (`/opt/homebrew/bin`, `/usr/local/bin`), pipx
+(`~/.local/bin`) and `pip --user` locations.
 
-Stopping is immediate, and cleanup is robust: closing the window / Cmd-Q clears
-the simulated location; a `kill` (SIGTERM/SIGINT) still kills the tunnel child;
-and if the app is ever `kill -9`'d, the next launch reaps the orphaned
-`pymobiledevice3` process automatically.
+## Using the app
+
+The window is the map. The **sidebar** lists connected devices (auto-refreshed),
+your **favorites**, **recent** places and **saved routes**. The **inspector** on
+the right holds the controls for the current mode, connection settings and the
+activity log; **⌥⌘I** hides it.
+
+Search with **⌘F**: type a place or address, or paste `48.8584, 2.2945`,
+`48°51'30"N 2°17'40"E`, or a Google / Apple Maps link. **Right-click** anywhere
+on the map for *Teleport Here*, *Add Waypoint Here*, *Start Joystick Here*,
+*Add to Favorites…* and *Copy Coordinates*. Drop a `.gpx` / `.kml` file on the
+map to import it.
+
+### Teleport (⌘1)
+
+Click the map (the pin is draggable), search, pick a favorite or type
+coordinates, then **Teleport** (⌘↩). While spoofing, pick somewhere else and hit
+**Move Here** — with the live engine that's instant. Turn on *Move as soon as I
+click the map* to skip the button. **⌘D** stars the place.
+
+### Route (⌘2)
+
+Click to drop the start, the destination, then any stops in between (pins are
+draggable; hover a row in the list to reorder, insert or delete). Options:
+
+- **Follow roads & paths** — snaps each leg to real walking or driving routes.
+- **At the end** — *Once* (stay at the destination), *Loop* (drive back to the
+  start and repeat) or *Back & forth*.
+- **Pace** — a speed (with walk / run / cycle / drive / highway presets) or a
+  total duration.
+
+**Start Route** and watch the HUD: progress, ETA, lap count. With the live
+engine you can **pause / resume** (⇧⌘P), **drag the progress bar** to jump, and
+change the speed on the fly. Edit waypoints mid-route and **Apply Changes**
+without losing your place. Save routes to the library (⌘S), or export / import
+GPX and KML (⌘O, ⇧⌘E).
+
+### Joystick (⌘3)
+
+Start from the teleport target or wherever the device already is, then drag the
+on-screen pad or use **arrow keys / WASD** (hold **⇧** to go 2.5× faster).
+"Up" is screen-up, so it follows map rotation. Pick a top speed with the preset
+chips. Needs the live engine.
+
+### Stopping
+
+**Stop & Restore Real Location** (⌘↩), quitting the app, or closing the window
+restores the real GPS. Cleanup is robust: a `kill` still clears it, and if the
+app is ever force-killed the live helper notices and clears the location by
+itself (the next launch also reaps any stray `pymobiledevice3`). Rebooting the
+phone always clears a simulated location.
+
+### Settings (⌘,)
+
+Units (metric / imperial), map style, follow-device, menu bar icon, scan
+interval; **engine** (Automatic / Live / Classic) with a live status check,
+tunnel transport, and which `pymobiledevice3` to use; movement update rate,
+**speed variation** and **GPS wobble** for more natural-looking movement.
 
 **Automation:** set `SPOOF_UDID=<udid>` and/or `SPOOF_START="lat,lon"` in the
-environment to preselect a device and auto-start spoofing on launch.
+environment to preselect a device and teleport on launch.
 
-### Package as a DMG
+## Engines: live vs classic
 
-```bash
-./package-dmg.sh              # → dist/iOS-GPS-Spoofer-<version>.dmg
-./package-dmg.sh --no-venv    # lean build; app expects pymobiledevice3 on PATH
-```
+| | Live | Classic |
+|---|---|---|
+| Moving the device | one message (~instant) | new pymobiledevice3 process + tunnel (seconds) |
+| Routes | driven by the app: pause, seek, live speed | GPX replayed by pymobiledevice3 |
+| Joystick | ✅ | ❌ |
+| Works with | pymobiledevice3 whose CLI the helper can patch (tested 11.0 → latest) | any pymobiledevice3 |
 
-Builds `iOS GPS Spoofer.app` (generated icon, ad-hoc signed) and a drag-to-install
-DMG. By default it bundles `./.venv` inside the app, so the app finds
-`pymobiledevice3` on its own — it looks for `Contents/Resources/venv`, then
-`$PYMOBILEDEVICE3`, then a `.venv` beside it, then `$PATH`.
-
-The bundled venv's Python still references this machine's Homebrew Python, so the
-default DMG runs on this Mac and Macs with the same `brew install python@3.x`.
-For a portable build use `--no-venv` and have users install `pymobiledevice3`
-themselves. First launch of an ad-hoc-signed app: **right-click ▸ Open**.
-
-**Publishing a release** (maintainer):
-
-```bash
-VERSION=1.0.0 ./package-dmg.sh
-gh release create v1.0.0 "dist/iOS-GPS-Spoofer-1.0.0.dmg" \
-  --title "v1.0.0" --notes "iOS GPS Spoofer 1.0.0"
-```
-
-The **[Download](#download)** link points at `releases/latest`, so it always
-resolves to the newest published release.
+The live engine is a ~300-line Python helper embedded in the app
+([`LiveHelperScript.swift`](Sources/SpooferCore/LiveHelperScript.swift)). It
+runs pymobiledevice3's **own** `simulate-location set` command in-process — so
+device selection and every tunnel transport behave exactly like the installed
+pymobiledevice3 — and only changes one thing: after the first fix it keeps the
+channel open and reads further coordinates from stdin. If it can't find what it
+needs to patch, the app says so (Settings ▸ Engine) and uses the classic engine.
 
 ## CLI
 
 ```bash
-# list paired devices
-iosgpsspoof list
+iosgpsspoof list                        # paired devices (add --json for scripts)
+iosgpsspoof doctor                      # check pymobiledevice3, the live engine, devices, Developer Mode
 
-# spoof to a fixed point (Eiffel Tower). Holds until Ctrl-C, then restores real GPS.
+# Hold a location until Ctrl-C, then restore the real GPS
 iosgpsspoof spoof 48.8584 2.2945
-iosgpsspoof spoof "48.8584,2.2945"          # single-token form also works
-
-# choose a device / link explicitly
+iosgpsspoof spoof "48.8584,2.2945"
+iosgpsspoof spoof "48°51'30\"N 2°17'40\"E"
+iosgpsspoof spoof "https://maps.apple.com/?ll=37.3349,-122.009"
+iosgpsspoof spoof @Home                 # a favorite saved in the app
+iosgpsspoof spoof "Sydney Opera House"  # place names are geocoded
 iosgpsspoof spoof 37.3349 -122.0090 --udid 00008110-000815C10CD1801E --connection usb
 
-# drive the device along a GPX track, looping forever
-iosgpsspoof route ./drive.gpx --loop --timing-randomness 200
+# Routes: a GPX/KML file, or waypoints
+iosgpsspoof route ./walk.gpx                           # keeps the file's own timing
+iosgpsspoof route ./drive.kml --speed 50 --loop
+iosgpsspoof route 48.8584,2.2945 48.8606,2.3376 --speed 5
+iosgpsspoof route @Home @Work --duration 25m --ping-pong
 
-# manually clear a simulated location (e.g. if a previous run was killed hard)
-iosgpsspoof clear
+iosgpsspoof clear                       # if a previous run was killed hard
 ```
 
-While `spoof` / `route` is running it:
+While `spoof` / `route` runs it re-establishes the session if the device
+disconnects and returns, and on Ctrl-C (or SIGTERM) clears the simulated
+location. Pass `--no-clear-on-exit` to leave it in place.
 
-- checks the device is still connected; if not, waits and retries
-- (re)starts the location-simulation session and holds it open
-- on `Ctrl-C` (or `SIGTERM`): stops the session, runs `simulate-location clear`,
-  exits. Pass `--no-clear-on-exit` to leave the fake location in place.
-
-### Options (spoof / route)
-
-| option | default | meaning |
+| option (spoof / route) | default | meaning |
 |---|---|---|
 | `--udid <id>` | first device | target device |
 | `--connection any\|usb\|network` | `any` | which link to use / require |
-| `--transport native\|tunneld\|userspace` | `native` | tunnel mechanism. `native` = no root (macOS). `tunneld` needs `sudo pymobiledevice3 remote tunneld` running. `userspace` = in-process, no root, slower |
-| `--retry-interval <s>` | `5` | delay before re-establishing after a drop |
+| `--transport native\|tunneld\|userspace` | `native` | iOS 17+ tunnel. `native` = no root (macOS). `tunneld` needs `sudo pymobiledevice3 remote tunneld`. `userspace` = in-process, no root, slower |
+| `--python-path <path>` | auto | explicit `pymobiledevice3` executable |
 | `--no-clear-on-exit` | off | keep the fake location after exit |
-| `--python-path <path>` | auto | explicit `pymobiledevice3` binary |
+| `--retry-interval <s>` (spoof) | `5` | delay before re-establishing after a drop |
+| `--speed <km/h>` / `--duration <t>` (route) | recorded pace, else 5 km/h | pace; durations like `90`, `1:30`, `25m`, `1h30m` |
+| `--loop` / `--ping-pong` (route) | off | repeat forever |
+| `--timing-randomness <ms>` (route) | `0` | jitter between points |
 
-## Notes / limitations
+## Package as a DMG
 
-- **iOS 17+ only** for the `native`/`tunneld` transports. For iOS ≤ 16 you'd use
-  `pymobiledevice3 developer simulate-location` directly over usbmux.
-- First run may take a few seconds while the DeveloperDiskImage is mounted and the
-  tunnel is established.
-- Altitude, course and speed aren't set — only latitude/longitude, same as Xcode.
-- This is for development and testing of your own apps/devices.
+```bash
+./package-dmg.sh              # → dist/iOS-GPS-Spoofer-<version>.dmg (bundles ./.venv)
+./package-dmg.sh --no-venv    # lean build; the app finds pymobiledevice3 on its own
+```
+
+Builds `iOS GPS Spoofer.app` (generated icon, ad-hoc signed) and a
+drag-to-install DMG. The bundled venv's Python still references this machine's
+Homebrew Python, so that DMG runs on this Mac and Macs with the same
+`brew install python@3.x`; for a portable build use `--no-venv` (users can point
+the app at their pymobiledevice3 from the setup card or Settings).
+
+**Publishing a release** (maintainer):
+
+```bash
+VERSION=2.0.0 ./package-dmg.sh
+gh release create v2.0.0 "dist/iOS-GPS-Spoofer-2.0.0.dmg" --title "v2.0.0" --notes "iOS GPS Spoofer 2.0.0"
+```
+
+## Development
+
+```bash
+swift build                                  # debug build of everything
+swift test                                   # SpooferCore unit tests
+python3 Tests/LiveHelperTests/test_live_helper.py   # live helper (needs pymobiledevice3 installed)
+```
+
+The helper tests extract the script straight from `LiveHelperScript.swift`, so
+they run without a Swift toolchain; the end-to-end ones drive pymobiledevice3's
+real CLI with a mocked device to catch upstream API drift. CI
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs them against
+pymobiledevice3 11.0.0 and the latest release, builds and tests on macOS,
+re-tests the helper as compiled into the binary, smoke-tests the CLI, and
+uploads a DMG.
+
+Layout: `Sources/SpooferCore` (engines, geodesy, routes, GPX/KML, parsing,
+library), `Sources/iosgpsspoof` (CLI), `Sources/iosgpsspoofer-gui` (app).
+
+## Notes & limitations
+
+- The first run on a device may take a few seconds while the developer disk
+  image is mounted (needs internet once per iOS version) and the tunnel opens.
+- Only latitude / longitude are simulated (altitude, course and speed are
+  derived by iOS), exactly like Xcode.
+- Some apps cache location or run their own checks; force-quit and reopen them.
+- This is for developing and testing location-aware apps on your own devices.

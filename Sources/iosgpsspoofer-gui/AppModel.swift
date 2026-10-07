@@ -473,7 +473,7 @@ final class AppModel {
     /// Stop everything and restore the real location.
     func stop() {
         if isStarting { startCancelled = true }
-        guard let session else { return }
+        guard let session, sessionState != .stopping else { return }
         activity = .none
         playback = nil
         isPaused = false

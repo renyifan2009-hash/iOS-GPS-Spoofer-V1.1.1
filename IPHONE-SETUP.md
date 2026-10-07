@@ -21,7 +21,7 @@ table is at the end.
 | iOS version | Supported | Transport |
 |---|---|---|
 | iOS 17, 18, 26 … | ✅ yes | CoreDevice tunnel (`--transport native`, no root) |
-| iOS 16 and older | ⚠️ not by this build | would use plain usbmux (`pymobiledevice3 developer simulate-location`) |
+| iOS 16 and older | ✅ yes | lockdown `simulatelocation` service over usbmux — no tunnel needed |
 
 You also need, on the Mac:
 
@@ -88,11 +88,12 @@ effect on normal use while it's on.
 
 The first time you spoof a given iPhone, the tool runs
 `pymobiledevice3 mounter auto-mount`, which downloads and mounts the matching
-**DeveloperDiskImage** on the device. On iOS 17+ this is a *personalised* image:
+**DeveloperDiskImage** on the device (iOS 16 and older use the classic,
+per-version image). On iOS 17+ this is a *personalised* image:
 
 - The Mac needs **internet access** for this one-time download.
-- It takes a few seconds; the GUI shows *"Preparing…"* and the log shows the
-  mount progress.
+- It takes a few seconds; the GUI shows *"Mounting the developer disk image…"*
+  and the log shows the progress.
 - It persists until the phone reboots, so subsequent runs are instant.
 
 Then the tool opens the CoreDevice tunnel via Apple's `remotepairingd`
@@ -102,16 +103,25 @@ Then the tool opens the CoreDevice tunnel via Apple's `remotepairingd`
 
 ## 4. Verify
 
+**Quick check:**
+
+```bash
+./.build/release/iosgpsspoof doctor
+```
+
+It confirms pymobiledevice3 is found, whether the fast *live* engine works with
+it, which devices are connected, and whether Developer Mode is on.
+
 **GUI:**
 
 ```bash
 ./run-gui.sh
 ```
 
-The iPhone should appear in the left column. Select it, click a spot on the map,
-hit **Start spoofing** — the status badge turns green and the log shows
-`● holding at <lat>, <lon>`. Open **Maps** on the iPhone; the blue dot jumps to
-the spot. Hit **Stop** and it returns to the real location.
+The iPhone should appear in the sidebar. Select it, click a spot on the map (or
+search for a place), and hit **Teleport** — the status pill turns green and the
+log shows `● live channel open`. Open **Maps** on the iPhone; the blue dot jumps
+to the spot. Hit **Stop & Restore Real Location** and it returns.
 
 **CLI:**
 
@@ -193,3 +203,18 @@ toggle must be confirmed *after* the reboot.
 
 That's the automatic *clear* on stop/disconnect. To keep a fake location in place
 after the CLI exits, pass `--no-clear-on-exit`.
+
+### "Live engine unavailable" / joystick is disabled
+
+The app couldn't use its fast live engine with your pymobiledevice3 (Settings ▸
+Engine shows why) and is using the classic engine: everything works, but each
+move opens a new tunnel and the joystick and route pause are unavailable.
+Upgrading helps: `./.venv/bin/pip install -U pymobiledevice3` (or
+`pipx upgrade pymobiledevice3`), then **Re-check** in Settings ▸ Engine.
+
+### The app says pymobiledevice3 wasn't found
+
+Apps started from Finder don't see your shell's `PATH`. Install it with
+`./setup.sh` or `pipx install pymobiledevice3`, or click **Choose
+pymobiledevice3…** on the setup card (also in Settings ▸ Engine) and pick the
+executable.

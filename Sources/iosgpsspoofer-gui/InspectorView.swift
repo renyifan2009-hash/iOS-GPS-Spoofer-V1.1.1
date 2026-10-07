@@ -522,7 +522,7 @@ struct ActionBar: View {
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
             .tint(model.hasSession ? .red : .accentColor)
-            .disabled(!model.hasSession && !model.canStart)
+            .disabled((!model.hasSession && !model.canStart) || model.sessionState == .stopping)
             .help("Start / stop (⌘↩)")
             if let hint {
                 Text(hint).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
