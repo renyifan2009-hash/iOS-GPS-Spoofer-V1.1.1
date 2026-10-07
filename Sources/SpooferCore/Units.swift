@@ -39,7 +39,7 @@ public enum Format {
     }
 
     public static func speed(_ metresPerSecond: Double, units: UnitSystem = .metric) -> String {
-        guard metresPerSecond.isFinite else { return "—" }
+        guard metresPerSecond.isFinite, abs(metresPerSecond) < 1e9 else { return "—" }
         let value = units.displaySpeed(fromMetresPerSecond: metresPerSecond)
         let text = value < 10 ? String(format: "%.1f", value) : String(Int(value.rounded()))
         return "\(text) \(units.speedUnit)"
@@ -47,7 +47,7 @@ public enum Format {
 
     /// `45s`, `4m 05s`, `1h 07m`, `2d 3h`.
     public static func duration(_ seconds: TimeInterval) -> String {
-        guard seconds.isFinite, seconds >= 0 else { return "—" }
+        guard seconds.isFinite, seconds >= 0, seconds < 1e12 else { return "—" }
         let total = Int(seconds.rounded())
         if total < 60 { return "\(total)s" }
         let d = total / 86_400, h = (total % 86_400) / 3600, m = (total % 3600) / 60, s = total % 60

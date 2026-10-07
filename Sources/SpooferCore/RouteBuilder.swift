@@ -38,7 +38,7 @@ public enum RouteBuilder {
             throw SpoofError("route duration must be greater than 0")
         }
         let path = RoutePath(waypoints)
-        let steps = max(2, min(3000, Int((duration / max(0.05, sampleInterval)).rounded(.up))))
+        let steps = Int(max(2, min(3000, (duration / max(0.05, sampleInterval)).rounded(.up))))
 
         // Degenerate: all waypoints coincide — just sit there for the duration.
         guard path.length > 0 else {

@@ -93,7 +93,7 @@ struct Route: ParsableCommand {
     func validate() throws {
         if loop && pingPong { throw ValidationError("--loop and --ping-pong are mutually exclusive") }
         if speed != nil && duration != nil { throw ValidationError("give --speed or --duration, not both") }
-        if let speed, !(speed > 0) { throw ValidationError("--speed must be greater than 0") }
+        if let speed, !(0.01...2000).contains(speed) { throw ValidationError("--speed must be between 0.01 and 2000 km/h") }
         if inputs.isEmpty { throw ValidationError("give a GPX/KML file or at least two waypoints") }
     }
 
@@ -135,7 +135,7 @@ struct Route: ParsableCommand {
             if let speed {
                 metresPerSecond = speed / 3.6
             } else if let duration {
-                guard let seconds = parseDuration(duration), seconds > 0 else {
+                guard let seconds = parseDuration(duration), seconds > 0, seconds < 1e9 else {
                     throw ValidationError("could not read --duration \"\(duration)\"")
                 }
                 metresPerSecond = max(0.01, oneWay / seconds)

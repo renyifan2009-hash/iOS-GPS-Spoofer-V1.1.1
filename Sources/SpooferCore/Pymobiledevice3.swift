@@ -217,13 +217,15 @@ public enum ProcessRunner {
         process.standardOutput = out
         process.standardError = err
 
-        let collector = OutputCollector()
-        collector.attach(out.fileHandleForReading, isStdout: true)
-        collector.attach(err.fileHandleForReading, isStdout: false)
-
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
         try process.run()
+
+        // Attached after a successful launch so the collector's DispatchGroup
+        // is never left unbalanced; output just waits in the pipe meanwhile.
+        let collector = OutputCollector()
+        collector.attach(out.fileHandleForReading, isStdout: true)
+        collector.attach(err.fileHandleForReading, isStdout: false)
 
         let deadline: DispatchTime = timeout.map { .now() + $0 } ?? .distantFuture
         if exited.wait(timeout: deadline) == .timedOut {

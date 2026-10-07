@@ -93,7 +93,7 @@ private final class RouteXMLDelegate: NSObject, XMLParserDelegate {
 
     func result() -> ImportedRoute? {
         func fromFixes(_ fixes: [Fix], waypointList: Bool) -> ImportedRoute {
-            ImportedRoute(name: name, points: fixes.map(\.point), timestamps: fixes.map(\.time),
+            ImportedRoute(name: name, points: fixes.map { $0.point }, timestamps: fixes.map { $0.time },
                           isWaypointList: waypointList)
         }
         func fromPoints(_ points: [GeoPoint], waypointList: Bool) -> ImportedRoute {
@@ -135,7 +135,7 @@ private final class RouteXMLDelegate: NSObject, XMLParserDelegate {
         case "trkpt", "rtept", "wpt":
             if let lat = attributeDict["lat"].flatMap(Double.init),
                let lon = attributeDict["lon"].flatMap(Double.init) {
-                current = (element, (GeoPoint(lat, lon), nil))
+                current = (kind: element, fix: (point: GeoPoint(lat, lon), time: nil))
             }
         default:
             break
