@@ -34,6 +34,10 @@ struct Supervisor {
     let describe: String
     let retryInterval: TimeInterval
     let clearOnExit: Bool
+    /// A child that exits successfully has done its job and the location
+    /// persists (iOS ≤ 16 `set`, or a finished route): hold until Ctrl-C,
+    /// re-applying only if the device goes away and comes back.
+    var holdAfterSuccessfulExit = false
 
     func run() throws {
         let watcher = ShutdownWatcher()
@@ -64,6 +68,13 @@ struct Supervisor {
             childBox.set(nil)
 
             if watcher.isRequested { break }
+            if holdAfterSuccessfulExit && child.terminationStatus == 0 {
+                log("● holding. Press Ctrl-C to stop and restore the real location.")
+                waitWhilePresent(watcher)
+                if watcher.isRequested { break }
+                log("device reconnected — re-applying")
+                continue
+            }
             warn("session ended (status \(child.terminationStatus)) — re-establishing in \(Int(retryInterval))s")
             sleepInterruptibly(retryInterval, watcher)
         }
@@ -74,16 +85,30 @@ struct Supervisor {
         if clearOnExit {
             log("restoring real GPS…")
             do {
-                _ = try ctx.pmd.run(
-                    ["developer", "dvt", "simulate-location", "clear"] + ctx.transportFlags + ["--udid", ctx.device.udid],
-                    timeout: 90
-                )
+                _ = try ctx.pmd.run(ctx.clearArguments, timeout: 90)
                 log("real GPS restored.")
             } catch {
-                warn("could not clear simulated location: \(error)\nRun `iosgpsspoof clear` to restore it.")
+                warn("could not clear simulated location: \(firstLine(error))\nRun `iosgpsspoof clear` to restore it.")
             }
         }
         log("stopped.")
+    }
+
+    /// Return when shutdown is requested, or once the device has disappeared
+    /// and come back (so the caller re-applies the location).
+    private func waitWhilePresent(_ watcher: ShutdownWatcher) {
+        var wentAway = false
+        while !watcher.isRequested {
+            sleepInterruptibly(5, watcher)
+            if watcher.isRequested { return }
+            let present = ctx.pmd.isPresent(udid: ctx.device.udid, connection: ctx.connection)
+            if !present && !wentAway {
+                wentAway = true
+                log("device disconnected — will re-apply when it returns")
+            } else if present && wentAway {
+                return
+            }
+        }
     }
 }
 

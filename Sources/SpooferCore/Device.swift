@@ -1,7 +1,7 @@
 import Foundation
 
 /// A paired iOS device as reported by `pymobiledevice3 usbmux list`.
-public struct Device: Decodable, Identifiable, Hashable, Sendable {
+public struct Device: Codable, Identifiable, Hashable, Sendable {
     public let deviceName: String
     public let identifier: String
     public let connectionType: String
@@ -16,22 +16,54 @@ public struct Device: Decodable, Identifiable, Hashable, Sendable {
         case productVersion = "ProductVersion"
     }
 
+    public init(deviceName: String, identifier: String, connectionType: String,
+                productType: String, productVersion: String) {
+        self.deviceName = deviceName
+        self.identifier = identifier
+        self.connectionType = connectionType
+        self.productType = productType
+        self.productVersion = productVersion
+    }
+
+    /// Tolerates missing fields: a device that hasn't been trusted yet reports
+    /// little more than its UDID.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        identifier = try c.decode(String.self, forKey: .identifier)
+        deviceName = (try? c.decodeIfPresent(String.self, forKey: .deviceName)) ?? "iOS device"
+        connectionType = (try? c.decodeIfPresent(String.self, forKey: .connectionType)) ?? "USB"
+        productType = (try? c.decodeIfPresent(String.self, forKey: .productType)) ?? "unknown"
+        productVersion = (try? c.decodeIfPresent(String.self, forKey: .productVersion)) ?? "0"
+    }
+
     public var id: String { identifier }
     public var udid: String { identifier }
 
-    /// Major iOS version, e.g. `18` for `"18.5"`.
+    /// Major iOS version, e.g. `18` for `"18.5"` (0 when unknown).
     public var majorVersion: Int {
         Int(productVersion.split(separator: ".").first ?? "") ?? 0
     }
 
+    /// iOS 16 and older: location simulation goes through the lockdown
+    /// `com.apple.dt.simulatelocation` service instead of the CoreDevice tunnel.
+    public var isLegacy: Bool { majorVersion > 0 && majorVersion < 17 }
+
     public var connectionLabel: String { connectionType.lowercased() }
+    public var isUSB: Bool { connectionLabel == "usb" }
 
     public var summary: String {
-        "\(deviceName) — iOS \(productVersion) (\(productType), \(connectionLabel))"
+        "\(deviceName) — iOS \(productVersion) (\(modelName), \(connectionLabel))"
     }
 
-    /// Marketing-ish model name from the identifier (best effort).
-    public var modelName: String { productType }
+    /// Marketing name when known ("iPhone 15 Pro"), else the identifier.
+    public var modelName: String { DeviceModels.marketingName(for: productType) ?? productType }
+
+    /// SF Symbol for the device family.
+    public var symbolName: String {
+        if productType.hasPrefix("iPad") { return "ipad" }
+        if productType.hasPrefix("iPod") { return "ipodtouch" }
+        return "iphone"
+    }
 }
 
 public enum ConnectionFilter: String, CaseIterable, Sendable {
@@ -50,16 +82,15 @@ extension Pymobiledevice3 {
     /// All currently reachable paired devices, de-duplicated by UDID (a device
     /// paired over both USB and Wi-Fi is listed once, preferring the USB link).
     public func listDevices() throws -> [Device] {
-        let json = try run(["usbmux", "list"], timeout: 15)
-        guard let data = json.data(using: .utf8) else { return [] }
+        let json = try run(["usbmux", "list"], timeout: 20)
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { return [] }
         let raw = try JSONDecoder().decode([Device].self, from: data)
 
         var byUDID: [String: Device] = [:]
         for device in raw {
             if let existing = byUDID[device.udid] {
-                if existing.connectionLabel != "usb" && device.connectionLabel == "usb" {
-                    byUDID[device.udid] = device
-                }
+                if !existing.isUSB && device.isUSB { byUDID[device.udid] = device }
             } else {
                 byUDID[device.udid] = device
             }
@@ -67,8 +98,7 @@ extension Pymobiledevice3 {
         // Preserve first-seen order.
         var seen = Set<String>()
         return raw.compactMap { d in
-            guard !seen.contains(d.udid) else { return nil }
-            seen.insert(d.udid)
+            guard seen.insert(d.udid).inserted else { return nil }
             return byUDID[d.udid]
         }
     }

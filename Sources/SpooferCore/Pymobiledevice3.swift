@@ -1,8 +1,9 @@
 import Foundation
 
-public struct SpoofError: Error, CustomStringConvertible {
+public struct SpoofError: Error, CustomStringConvertible, LocalizedError {
     public let description: String
     public init(_ description: String) { self.description = description }
+    public var errorDescription: String? { description }
 }
 
 /// Thin wrapper around the `pymobiledevice3` executable.
@@ -21,24 +22,31 @@ public struct Pymobiledevice3: Sendable {
         self.argPrefix = argPrefix
     }
 
+    /// Human-readable location, e.g. for a settings screen.
+    public var displayPath: String {
+        argPrefix.isEmpty ? executableURL.path : "\(executableURL.path) \(argPrefix.joined(separator: " "))"
+    }
+
     /// Locate `pymobiledevice3`.
     ///
     /// Order: explicit path, `$PYMOBILEDEVICE3`, a venv bundled in the .app,
-    /// a `.venv` beside the cwd / running binary / repo root, then `$PATH`.
+    /// a `.venv` beside the cwd / running binary / repo root, `$PATH`, then the
+    /// usual install locations (Homebrew, pipx, `pip --user`) — apps launched
+    /// from Finder get a minimal `$PATH` that misses all of those.
     public static func resolve(explicit: String? = nil) throws -> Pymobiledevice3 {
-        if let explicit {
-            let url = URL(fileURLWithPath: explicit)
-            guard FileManager.default.isExecutableFile(atPath: url.path) else {
+        let fm = FileManager.default
+
+        if let explicit, !explicit.isEmpty {
+            let path = (explicit as NSString).expandingTildeInPath
+            guard fm.isExecutableFile(atPath: path) else {
                 throw SpoofError("not an executable file: \(explicit)")
             }
-            return Pymobiledevice3(executableURL: url)
+            return fromExecutable(URL(fileURLWithPath: path))
         }
-
-        let fm = FileManager.default
 
         if let env = ProcessInfo.processInfo.environment["PYMOBILEDEVICE3"],
            fm.isExecutableFile(atPath: env) {
-            return Pymobiledevice3(executableURL: URL(fileURLWithPath: env))
+            return fromExecutable(URL(fileURLWithPath: env))
         }
 
         // Bundled venv inside a packaged .app: run it as `python3 -m pymobiledevice3`
@@ -53,7 +61,7 @@ public struct Pymobiledevice3: Sendable {
         var candidates: [URL] = []
         let cwd = fm.currentDirectoryPath
         candidates.append(URL(fileURLWithPath: cwd).appendingPathComponent(".venv/bin/pymobiledevice3"))
-        if let exeDir = Bundle.main.executableURL?.deletingLastPathComponent() {
+        if let exeDir = Bundle.main.executableURL?.resolvingSymlinksInPath().deletingLastPathComponent() {
             candidates.append(exeDir.appendingPathComponent(".venv/bin/pymobiledevice3"))
             candidates.append(exeDir.deletingLastPathComponent().deletingLastPathComponent()
                 .appendingPathComponent(".venv/bin/pymobiledevice3"))
@@ -62,44 +70,80 @@ public struct Pymobiledevice3: Sendable {
             return Pymobiledevice3(executableURL: c)
         }
         if let onPath = which("pymobiledevice3") {
-            return Pymobiledevice3(executableURL: URL(fileURLWithPath: onPath))
+            return fromExecutable(URL(fileURLWithPath: onPath))
+        }
+        for c in wellKnownLocations() where fm.isExecutableFile(atPath: c.path) {
+            return fromExecutable(c)
         }
         throw SpoofError("""
             could not find `pymobiledevice3`.
             Install it with:  python3 -m venv .venv && .venv/bin/pip install pymobiledevice3
-            or set $PYMOBILEDEVICE3 to its path.
+            (or `pipx install pymobiledevice3`), or set $PYMOBILEDEVICE3 to its path.
             """)
     }
 
-    /// Run to completion, capturing stdout. Throws on non-zero exit.
-    @discardableResult
-    public func run(_ args: [String], timeout: TimeInterval? = nil) throws -> String {
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = argPrefix + args
-        let out = Pipe()
-        let err = Pipe()
-        process.standardOutput = out
-        process.standardError = err
-        try process.run()
+    /// A `pymobiledevice3` script, or a Python interpreter (run as `-m pymobiledevice3`).
+    private static func fromExecutable(_ url: URL) -> Pymobiledevice3 {
+        let name = url.lastPathComponent
+        if name.hasPrefix("python") {
+            return Pymobiledevice3(executableURL: url, argPrefix: ["-m", "pymobiledevice3"])
+        }
+        return Pymobiledevice3(executableURL: url)
+    }
 
-        if let timeout {
-            let deadline = Date().addingTimeInterval(timeout)
-            while process.isRunning && Date() < deadline { usleep(100_000) }
-            if process.isRunning {
-                process.terminate()
-                throw SpoofError("`pymobiledevice3 \(args.joined(separator: " "))` timed out after \(Int(timeout))s")
+    static func wellKnownLocations() -> [URL] {
+        let home = URL(fileURLWithPath: NSHomeDirectory())
+        var urls = [
+            URL(fileURLWithPath: "/opt/homebrew/bin/pymobiledevice3"),
+            URL(fileURLWithPath: "/usr/local/bin/pymobiledevice3"),
+            home.appendingPathComponent(".local/bin/pymobiledevice3"),
+        ]
+        // `pip install --user` → ~/Library/Python/3.x/bin
+        let userPython = home.appendingPathComponent("Library/Python")
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: userPython.path) {
+            for v in versions.sorted(by: >) {
+                urls.append(userPython.appendingPathComponent(v).appendingPathComponent("bin/pymobiledevice3"))
             }
         }
-        process.waitUntilExit()
+        return urls
+    }
 
-        let outData = out.fileHandleForReading.readDataToEndOfFile()
-        let errData = err.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus == 0 else {
-            let msg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw SpoofError("`pymobiledevice3 \(args.joined(separator: " "))` failed (\(process.terminationStatus))\n\(msg)")
+    /// The Python interpreter that runs this pymobiledevice3, needed by the
+    /// live helper. Checks a sibling `python3` (venvs, pipx, Homebrew's
+    /// libexec), then the script's shebang.
+    public var pythonInterpreter: URL? {
+        let fm = FileManager.default
+        if argPrefix == ["-m", "pymobiledevice3"] { return executableURL }
+
+        let script = executableURL.resolvingSymlinksInPath()
+        let dir = script.deletingLastPathComponent()
+        for name in ["python3", "python"] {
+            let candidate = dir.appendingPathComponent(name)
+            if fm.isExecutableFile(atPath: candidate.path) { return candidate }
         }
-        return String(data: outData, encoding: .utf8) ?? ""
+        guard let handle = try? FileHandle(forReadingFrom: script) else { return nil }
+        defer { try? handle.close() }
+        let head: Data? = try? handle.read(upToCount: 512)
+        guard let head, let text = String(data: head, encoding: .utf8),
+              text.hasPrefix("#!"), let firstLine = text.split(separator: "\n").first else { return nil }
+        let parts = firstLine.dropFirst(2).split(separator: " ").map(String.init)
+        guard let interpreter = parts.first else { return nil }
+        if interpreter.hasSuffix("/env"), parts.count > 1, let resolved = which(parts[1]) {
+            return URL(fileURLWithPath: resolved)
+        }
+        return fm.isExecutableFile(atPath: interpreter) ? URL(fileURLWithPath: interpreter) : nil
+    }
+
+    // MARK: - Running
+
+    /// Run to completion, capturing stdout. Throws on non-zero exit or timeout.
+    @discardableResult
+    public func run(_ args: [String], timeout: TimeInterval? = nil) throws -> String {
+        let result = try ProcessRunner.run(executableURL, arguments: argPrefix + args, timeout: timeout)
+        guard result.status == 0 else {
+            throw SpoofError("`pymobiledevice3 \(args.joined(separator: " "))` failed (\(result.status))\n\(result.errorSummary)")
+        }
+        return result.stdout
     }
 
     /// Async wrapper for `run`, so callers on the main actor don't block.
@@ -107,11 +151,19 @@ public struct Pymobiledevice3: Sendable {
         try await Task.detached(priority: .utility) { try self.run(args, timeout: timeout) }.value
     }
 
+    /// `pymobiledevice3 version`, or nil if it can't be run.
+    public func version() -> String? {
+        guard let out = try? run(["version"], timeout: 30) else { return nil }
+        let v = out.trimmingCharacters(in: .whitespacesAndNewlines)
+        return v.isEmpty ? nil : v
+    }
+
     /// Spawn a long-running process (e.g. `simulate-location set`, which holds
     /// the channel open until it receives SIGINT/SIGTERM). `stderr` is streamed
-    /// line-by-line to `onOutput`; `stdout` goes to the parent. The caller owns
-    /// the returned `Process`.
-    public func spawn(_ args: [String], onOutput: (@Sendable (String) -> Void)? = nil) throws -> Process {
+    /// line-by-line to `onOutput`; `stdout` goes to the parent; `onExit` runs
+    /// when it terminates. The caller owns the returned `Process`.
+    public func spawn(_ args: [String], onOutput: (@Sendable (String) -> Void)? = nil,
+                      onExit: (@Sendable (Process) -> Void)? = nil) throws -> Process {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = argPrefix + args
@@ -120,29 +172,160 @@ public struct Pymobiledevice3: Sendable {
             let errPipe = Pipe()
             process.standardError = errPipe
             process.standardOutput = FileHandle.nullDevice
-            errPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {   // EOF — process gone; detach to avoid a leak
-                    handle.readabilityHandler = nil
-                    return
-                }
-                guard let text = String(data: data, encoding: .utf8) else { return }
-                for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-                    onOutput(String(line))
-                }
-            }
+            LineSplitter(onOutput).attach(to: errPipe.fileHandleForReading)
         } else {
             process.standardOutput = FileHandle.standardError
             process.standardError = FileHandle.standardError
         }
-        try process.run()
-        ChildProcessRegistry.shared.add(process)
-        let existing = process.terminationHandler
+        // Installed before launch so even an instant exit is reported.
         process.terminationHandler = { p in
             ChildProcessRegistry.shared.remove(p)
-            existing?(p)
+            onExit?(p)
         }
+        try process.run()
+        ChildProcessRegistry.shared.add(process)
         return process
+    }
+}
+
+/// Result of a finished child process.
+public struct ProcessResult: Sendable {
+    public let status: Int32
+    public let stdout: String
+    public let stderr: String
+
+    /// The most useful part of stderr: error lines if any, else the tail.
+    public var errorSummary: String {
+        let lines = stderr.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let errors = lines.filter { $0.contains("ERROR") || $0.contains("Error") || $0.contains("error:") }
+        return (errors.isEmpty ? Array(lines.suffix(6)) : Array(errors.suffix(6))).joined(separator: "\n")
+    }
+}
+
+public enum ProcessRunner {
+    /// Run a process to completion without deadlocking on full pipes (both
+    /// streams are drained concurrently) and without pumping a run loop.
+    public static func run(_ executable: URL, arguments: [String], timeout: TimeInterval? = nil,
+                           environment: [String: String]? = nil) throws -> ProcessResult {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        if let environment { process.environment = environment }
+        process.standardInput = FileHandle.nullDevice
+        let out = Pipe(), err = Pipe()
+        process.standardOutput = out
+        process.standardError = err
+
+        let collector = OutputCollector()
+        collector.attach(out.fileHandleForReading, isStdout: true)
+        collector.attach(err.fileHandleForReading, isStdout: false)
+
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        try process.run()
+
+        let deadline: DispatchTime = timeout.map { .now() + $0 } ?? .distantFuture
+        if exited.wait(timeout: deadline) == .timedOut {
+            process.interrupt()
+            if exited.wait(timeout: .now() + 2) == .timedOut {
+                process.terminate()
+                if exited.wait(timeout: .now() + 2) == .timedOut { kill(process.processIdentifier, SIGKILL) }
+            }
+            throw SpoofError("`\(executable.lastPathComponent) \(arguments.joined(separator: " "))` timed out after \(Int(timeout ?? 0))s")
+        }
+        collector.waitForEOF(timeout: 3)
+        let (stdout, stderr) = collector.strings()
+        return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
+    }
+}
+
+/// Accumulates a child's stdout/stderr from readability handlers.
+final class OutputCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var out = Data()
+    private var err = Data()
+    private let group = DispatchGroup()
+
+    func attach(_ handle: FileHandle, isStdout: Bool) {
+        group.enter()
+        handle.readabilityHandler = { [self] h in
+            let data = h.availableData
+            if data.isEmpty {
+                h.readabilityHandler = nil
+                group.leave()
+                return
+            }
+            lock.lock()
+            if isStdout { out.append(data) } else { err.append(data) }
+            lock.unlock()
+        }
+    }
+
+    func waitForEOF(timeout: TimeInterval) {
+        _ = group.wait(timeout: .now() + timeout)
+    }
+
+    func strings() -> (String, String) {
+        lock.lock(); defer { lock.unlock() }
+        return (String(decoding: out, as: UTF8.self), String(decoding: err, as: UTF8.self))
+    }
+}
+
+/// Splits a byte stream into lines, delivering each (without the newline) in
+/// order. `finish()` flushes a trailing partial line.
+public final class LineSplitter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var buffer = Data()
+    private var finished = false
+    private let done = DispatchSemaphore(value: 0)
+    private let onLine: @Sendable (String) -> Void
+
+    public init(_ onLine: @escaping @Sendable (String) -> Void) {
+        self.onLine = onLine
+    }
+
+    public func attach(to handle: FileHandle) {
+        handle.readabilityHandler = { [self] h in
+            let data = h.availableData
+            if data.isEmpty {
+                h.readabilityHandler = nil
+                finish()
+            } else {
+                feed(data)
+            }
+        }
+    }
+
+    public func feed(_ data: Data) {
+        lock.lock()
+        buffer.append(data)
+        var lines: [String] = []
+        while let newline = buffer.firstIndex(of: 0x0A) {
+            lines.append(String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self))
+            buffer.removeSubrange(buffer.startIndex...newline)
+        }
+        lock.unlock()
+        for line in lines { onLine(line.hasSuffix("\r") ? String(line.dropLast()) : line) }
+    }
+
+    public func finish() {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true
+        let rest = buffer
+        buffer = Data()
+        lock.unlock()
+        if !rest.isEmpty { onLine(String(decoding: rest, as: UTF8.self)) }
+        done.signal()
+    }
+
+    /// Block until the stream hit EOF (and every line was delivered).
+    @discardableResult
+    public func waitUntilFinished(timeout: TimeInterval) -> Bool {
+        guard done.wait(timeout: .now() + timeout) == .success else { return false }
+        done.signal()   // let later waiters through too
+        return true
     }
 }
 

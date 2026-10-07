@@ -27,5 +27,9 @@ let package = Package(
             dependencies: ["SpooferCore"],
             path: "Sources/iosgpsspoofer-gui"
         ),
+        .testTarget(
+            name: "SpooferCoreTests",
+            dependencies: ["SpooferCore"]
+        ),
     ]
 )

@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-helper:
+    name: Live helper · pymobiledevice3 ${{ matrix.pymobiledevice3 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # 11.0.0 is the first release with --native (what the app uses by default).
+        pymobiledevice3: ["11.0.0", "latest"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pymobiledevice3
+        run: |
+          if [ "${{ matrix.pymobiledevice3 }}" = "latest" ]; then
+            pip install pymobiledevice3
+          else
+            pip install "pymobiledevice3==${{ matrix.pymobiledevice3 }}"
+          fi
+          pip show pymobiledevice3 | head -2
+      - name: Helper tests (extracted from LiveHelperScript.swift)
+        run: python Tests/LiveHelperTests/test_live_helper.py
+
+  macos:
+    name: Build & test · macOS
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Build (debug, with tests)
+        run: swift build --build-tests
+
+      - name: Unit tests
+        run: swift test --skip-build
+
+      - name: Build (release: CLI + GUI)
+        run: swift build -c release
+
+      - name: Set up pymobiledevice3
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet pymobiledevice3
+          .venv/bin/pymobiledevice3 version
+
+      - name: The compiled-in helper passes the helper tests
+        run: |
+          .build/release/iosgpsspoof dump-helper > "$RUNNER_TEMP/live_helper.py"
+          LIVE_HELPER_PATH="$RUNNER_TEMP/live_helper.py" .venv/bin/python Tests/LiveHelperTests/test_live_helper.py
+
+      - name: CLI smoke test
+        run: |
+          set -x
+          .build/release/iosgpsspoof --help
+          .build/release/iosgpsspoof route --help
+          .build/release/iosgpsspoof list --json || true
+          # No iPhone on the runner, so doctor reports a problem — but the live
+          # engine probe must succeed against a real pymobiledevice3 on macOS.
+          .build/release/iosgpsspoof doctor | tee "$RUNNER_TEMP/doctor.txt" || true
+          grep -q "supported (pymobiledevice3" "$RUNNER_TEMP/doctor.txt"
+
+      - name: Package the app
+        run: |
+          VERSION="2.0.0-ci.${GITHUB_RUN_NUMBER}" ./package-dmg.sh --no-venv
+          ls -la dist
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-GPS-Spoofer-dmg
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: 14
