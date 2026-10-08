@@ -367,13 +367,23 @@ struct SearchBar: View {
         .contentShape(Rectangle())
     }
 
+    /// Return picks the highlighted suggestion; with no suggestions yet it
+    /// searches for the typed text directly, like a classic search field.
     private func choose(_ index: Int) {
-        guard search.suggestions.indices.contains(index) else { return }
-        let suggestion = search.suggestions[index]
+        let suggestion = search.suggestions.indices.contains(index) ? search.suggestions[index] : nil
+        let typed = search.query
+        guard suggestion != nil || !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         Task {
-            guard let place = await search.resolve(suggestion) else {
+            var found: PlaceSearch.Place?
+            if let suggestion {
+                found = await search.resolve(suggestion)
+            }
+            if found == nil {
+                found = await search.search(typed)
+            }
+            guard let place = found else {
                 model.showToast(Toast(symbol: "questionmark.circle.fill", title: "Couldn't locate that place",
-                                      subtitle: suggestion.title, style: .warning))
+                                      subtitle: suggestion?.title ?? typed, style: .warning))
                 return
             }
             model.placeChosen(place.point, name: place.name)

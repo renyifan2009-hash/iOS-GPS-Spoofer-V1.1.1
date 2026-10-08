@@ -17,6 +17,12 @@ Two front-ends over a shared core (`SpooferCore`):
 
 ## What's new in 2.0
 
+- **A brand-new look** — a full-window map with a floating search bar and mode
+  switcher, a "Now simulating" HUD with live speed, distance, ETA and a
+  draggable progress bar, a gradient route line that fills in as you travel,
+  toasts for every action, a new app icon, and a first-launch **welcome &
+  setup checklist** that checks pymobiledevice3, the live engine, your iPhone
+  and Developer Mode for you.
 - **Live engine** — one long-lived channel to the phone. Moves are instant
   (no new tunnel per move), which makes smooth routes, pause / resume /
   scrubbing, and a real-time **joystick** possible. Falls back to the classic
@@ -54,8 +60,8 @@ Then prepare your iPhone — see **[IPHONE-SETUP.md](IPHONE-SETUP.md)**.
 
 ## Screenshots
 
-> These show the 1.x layout; the 2.0 window adds the search bar, mode switcher,
-> inspector and live HUD described below.
+> These show the 1.x layout; the 2.0 window is redesigned around a full-window
+> map with a floating search bar, mode switcher, inspector and live HUD.
 
 | Fixed location | Route |
 |:---:|:---:|
@@ -82,9 +88,26 @@ mid-Atlantic, and the Eiffel Tower:
 ## Setup (build it yourself)
 
 ```bash
-./setup.sh          # creates .venv with pymobiledevice3, builds CLI + GUI (release)
-./run-gui.sh        # build (if needed) and launch the app
+cd ~/Downloads/iOS-GPS-Spoofer   # wherever you cloned or unzipped the repo
+./setup.sh                       # first time: creates .venv with pymobiledevice3, builds CLI + GUI
+swift build -c release           # rebuild after pulling changes
+./run-gui.sh                     # build (if needed) and launch the app
 ```
+
+### Open in Xcode
+
+It's a plain Swift package, so Xcode opens it directly — no project file needed:
+
+```bash
+open Package.swift               # or: xed .
+```
+
+Pick the **iosgpsspoofer-gui** scheme and **My Mac**, then **⌘R**. Debug builds
+find the repo's `.venv` on their own; otherwise choose pymobiledevice3 in the
+app's setup card or Settings (or set `PYMOBILEDEVICE3` in the scheme's
+environment). The **iosgpsspoof** scheme is the CLI (add arguments under
+*Edit Scheme ▸ Run ▸ Arguments*); **⌘U** on the **iosgpsspoof-Package** scheme
+runs the unit tests.
 
 The CLI lands at `.build/release/iosgpsspoof` — copy it onto your `PATH` if you
 like. Both front-ends look for `pymobiledevice3` in: an explicit path
@@ -99,8 +122,9 @@ your **favorites**, **recent** places and **saved routes**. The **inspector** on
 the right holds the controls for the current mode, connection settings and the
 activity log; **⌥⌘I** hides it.
 
-Search with **⌘F**: type a place or address, or paste `48.8584, 2.2945`,
-`48°51'30"N 2°17'40"E`, or a Google / Apple Maps link. **Right-click** anywhere
+Search with **⌘F**: type a place or address and press **Return** (or pick a
+suggestion as you type), or paste `48.8584, 2.2945`, `48°51'30"N 2°17'40"E`, or
+a Google / Apple Maps link. **Right-click** anywhere
 on the map for *Teleport Here*, *Add Waypoint Here*, *Start Joystick Here*,
 *Add to Favorites…* and *Copy Coordinates*. Drop a `.gpx` / `.kml` file on the
 map to import it.

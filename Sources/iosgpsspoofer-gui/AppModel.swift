@@ -490,6 +490,7 @@ final class AppModel {
 
     private func endSession() {
         session = nil
+        pendingToast = nil
         sessionEngine = nil
         activity = .none
         playback = nil
@@ -599,7 +600,10 @@ final class AppModel {
         }
         pendingToast = teleportToast(point, name: name)
         Task {
-            guard let obtained = await obtainSession(requireStreaming: false) else { return }
+            guard let obtained = await obtainSession(requireStreaming: false) else {
+                pendingToast = nil
+                return
+            }
             if obtained.isNew { obtained.session.start(at: point) } else { obtained.session.move(to: point) }
             activity = .holding
             recordRecent(point, name: name)

@@ -66,6 +66,13 @@ public struct Pymobiledevice3: Sendable {
             candidates.append(exeDir.deletingLastPathComponent().deletingLastPathComponent()
                 .appendingPathComponent(".venv/bin/pymobiledevice3"))
         }
+        #if DEBUG
+        // Run from Xcode the binary lives in DerivedData, so also try the
+        // checkout it was built from (this file is Sources/SpooferCore/…).
+        let checkout = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        candidates.append(checkout.appendingPathComponent(".venv/bin/pymobiledevice3"))
+        #endif
         for c in candidates where fm.isExecutableFile(atPath: c.path) {
             return Pymobiledevice3(executableURL: c)
         }

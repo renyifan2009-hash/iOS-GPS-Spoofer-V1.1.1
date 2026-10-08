@@ -111,17 +111,36 @@ final class PlaceSearch {
             defer { isResolving = false }
             let request = MKLocalSearch.Request(completion: completion)
             let search = MKLocalSearch(request: request)
-            let fallbackName = suggestion.title
-            return await withCheckedContinuation { (continuation: CheckedContinuation<Place?, Never>) in
-                search.start { response, _ in
-                    guard let item = response?.mapItems.first else {
-                        continuation.resume(returning: nil)
-                        return
-                    }
-                    let c = item.placemark.coordinate
-                    continuation.resume(returning: Place(name: item.name ?? fallbackName,
-                                                         point: GeoPoint(c.latitude, c.longitude)))
+            return await Self.firstPlace(of: search, fallbackName: suggestion.title)
+        }
+    }
+
+    /// Plain "type a place and press Return" search, used when no suggestion
+    /// has arrived yet or a suggestion can't be resolved.
+    func search(_ text: String) async -> Place? {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        if let point = Coordinate.parsePoint(text), point.isValid {
+            return Place(name: Coordinate.format(point, precision: 5), point: point)
+        }
+        isResolving = true
+        defer { isResolving = false }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = text
+        request.region = completer.region
+        return await Self.firstPlace(of: MKLocalSearch(request: request), fallbackName: text)
+    }
+
+    private static func firstPlace(of search: MKLocalSearch, fallbackName: String) async -> Place? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Place?, Never>) in
+            search.start { response, _ in
+                guard let item = response?.mapItems.first else {
+                    continuation.resume(returning: nil)
+                    return
                 }
+                let c = item.placemark.coordinate
+                continuation.resume(returning: Place(name: item.name ?? fallbackName,
+                                                     point: GeoPoint(c.latitude, c.longitude)))
             }
         }
     }
