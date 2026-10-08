@@ -362,6 +362,7 @@ struct EngineBadge: View {
         .padding(.vertical, 2)
         .background(d.color.opacity(0.14), in: Capsule())
         .foregroundStyle(d.color)
+        .fixedSize()
         .help(d.help)
     }
 

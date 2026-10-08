@@ -11,6 +11,7 @@ import SwiftUI
 ///                        windows. `screencapture -l <id>` still captures them;
 ///                        their ids are printed as "SNAPSHOT-WINDOW <id> <title>".
 ///   SPOOFER_APPEARANCE=dark|light   force the look.
+///   SPOOFER_WINDOW_SIZE=1040x692    the main window's size.
 ///   SPOOFER_DEMO=…       play a scene: `teleport`, `route`, `joystick` (once
 ///                        an iPhone shows up), or `settings` (opens Settings).
 ///
@@ -52,6 +53,12 @@ enum DebugSnapshot {
             window.collectionBehavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary])
             window.orderFrontRegardless()
             if announced.insert(window.windowNumber).inserted {
+                // SPOOFER_WINDOW_SIZE=1040x692: a small laptop screen.
+                if let size = ProcessInfo.processInfo.environment["SPOOFER_WINDOW_SIZE"]?.split(separator: "x"),
+                   size.count == 2, let w = Double(size[0]), let h = Double(size[1]), !window.isSheet,
+                   window.title != "Settings" {
+                    window.setFrame(NSRect(x: 40, y: 40, width: w, height: h), display: true)
+                }
                 print("SNAPSHOT-WINDOW \(window.windowNumber) \(window.title.isEmpty ? "(untitled)" : window.title)")
                 fflush(stdout)
             }
@@ -105,7 +112,11 @@ enum DebugSnapshot {
             model.loopMode = .loop
             model.pacing = .speed
             model.routeSpeed = 31   // about 70 mph, like a tester's drive
-            model.startRoute()
+            // After the mode switch has framed the route, like a person would.
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                model.startRoute()
+            }
         case "joystick":
             model.mode = .joystick
             model.setTarget(GeoPoint(40.7580, -73.9855), name: "Times Square, New York", focus: true)

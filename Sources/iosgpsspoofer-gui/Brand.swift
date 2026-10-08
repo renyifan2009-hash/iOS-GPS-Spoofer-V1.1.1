@@ -265,6 +265,34 @@ struct StatTile: View {
     }
 }
 
+/// Children side by side in equal-width columns. Unlike an HStack of
+/// flexible views, its ideal width is what the widest child needs in every
+/// column, so a ViewThatFits around it moves on before any column truncates.
+struct EqualColumns: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let column = sizes.map(\.width).max() ?? 0
+        let gaps = spacing * CGFloat(subviews.count - 1)
+        let ideal = column * CGFloat(subviews.count) + gaps
+        let width = proposal.width.flatMap { $0.isFinite ? max($0, ideal) : nil } ?? ideal
+        return CGSize(width: width, height: sizes.map(\.height).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let count = CGFloat(subviews.count)
+        let column = (bounds.width - spacing * (count - 1)) / count
+        for (index, subview) in subviews.enumerated() {
+            let x = bounds.minX + CGFloat(index) * (column + spacing)
+            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: column, height: bounds.height))
+        }
+    }
+}
+
 /// A slim gradient progress bar you can drag to seek.
 struct ScrubBar: View {
     let fraction: Double

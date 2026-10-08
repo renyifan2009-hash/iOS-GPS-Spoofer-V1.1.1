@@ -50,6 +50,9 @@ struct MapPicker: NSViewRepresentable {
     var focus: MapFocusRequest?
     /// Keep the device centred, like Maps' tracking mode.
     var follow: Bool
+    /// How much of the map's edges floating panels cover. Following keeps the
+    /// dot in the middle of the rest.
+    var coveredInsets = NSEdgeInsets()
     var contextActions: [MapContextAction]
     var onClick: (GeoPoint) -> Void
     var onDragPin: (UUID, GeoPoint) -> Void
@@ -85,6 +88,7 @@ struct MapPicker: NSViewRepresentable {
     func updateNSView(_ map: SpoofMapView, context: Context) {
         let c = context.coordinator
         c.parent = self
+        c.coveredInsets = coveredInsets
         c.applyStyle(style)
         c.sync(pins: pins)
         // The dot first: the route's travelled line glides along with it.
@@ -103,7 +107,7 @@ struct MapPicker: NSViewRepresentable {
                 Task { @MainActor in stop() }
                 c.setFollowing(false)
             }
-            c.apply(focus)
+            c.scheduleFocus(focus)
         }
         c.setFollowing(wantsFollow && !c.awaitingFollowStop)
     }
@@ -225,7 +229,21 @@ struct MapPicker: NSViewRepresentable {
             }
         }
 
-        func apply(_ focus: MapFocusRequest) {
+        private var pendingFocus: MapFocusRequest?
+
+        /// Move the camera just after this SwiftUI update, not during it.
+        /// MapKit lays out the whole window when its camera moves, and a
+        /// layout inside an update re-enters SwiftUI and never returns.
+        func scheduleFocus(_ focus: MapFocusRequest) {
+            pendingFocus = focus
+            Task { @MainActor [weak self] in
+                guard let self, let focus = self.pendingFocus else { return }
+                self.pendingFocus = nil
+                self.apply(focus)
+            }
+        }
+
+        private func apply(_ focus: MapFocusRequest) {
             guard let map = mapView else { return }
             cameraBusyUntil = CACurrentMediaTime() + 0.6
             switch focus.kind {
@@ -280,10 +298,13 @@ struct MapPicker: NSViewRepresentable {
 
         private var following = false
         private var cameraReportPending = false
+        var coveredInsets = NSEdgeInsets()
         /// A camera glide onto the dot: where it started, and when.
         private var cameraGlide: (from: CLLocationCoordinate2D, start: CFTimeInterval)?
         /// While MapKit animates a zoom for a recentre, don't steer the camera.
         private var cameraBusyUntil: CFTimeInterval = 0
+        /// A recentre waiting for the next frame.
+        private var recenterPending = false
 
         func setFollowing(_ on: Bool) {
             guard on != following else { return }
@@ -291,14 +312,22 @@ struct MapPicker: NSViewRepresentable {
             if on {
                 recenter()
             } else {
+                recenterPending = false
                 cameraGlide = nil
             }
         }
 
-        /// Bring the camera back to the dot: a short glide at the current zoom,
-        /// a cut when the dot is far off screen (after a teleport), or a zoom
-        /// to street level when the map is far out or in.
+        /// Bring the camera back to the dot on the next frame. Not right away:
+        /// this is called during SwiftUI updates (see `scheduleFocus`).
         private func recenter() {
+            recenterPending = true
+            startTicking()
+        }
+
+        /// A short glide at the current zoom, a cut when the dot is far off
+        /// screen (after a teleport), or a zoom to street level when the map is
+        /// far out or in.
+        private func performRecenter() {
             guard let map = mapView, let device = displayedDevice else { return }
             let span = map.region.span.latitudeDelta
             let visible = map.visibleMapRect
@@ -311,10 +340,26 @@ struct MapPicker: NSViewRepresentable {
             } else if !nearby.contains(MKMapPoint(device)) {
                 cameraGlide = nil
                 map.setCenter(device, animated: false)
+                map.setCenter(cameraCenter(showing: device), animated: false)
             } else {
                 cameraGlide = (map.centerCoordinate, CACurrentMediaTime())
             }
             startTicking()
+        }
+
+        /// The camera centre that puts `device` in the middle of the part of
+        /// the map no panel covers (the HUD and joystick sit along the bottom).
+        private func cameraCenter(showing device: CLLocationCoordinate2D) -> CLLocationCoordinate2D {
+            guard let map = mapView else { return device }
+            let b = map.bounds
+            let i = coveredInsets
+            let desiredX = (b.minX + i.left + b.maxX - i.right) / 2
+            // NSView y grows upwards unless the view is flipped.
+            let desiredY = map.isFlipped ? (b.minY + i.top + b.maxY - i.bottom) / 2
+                                         : (b.minY + i.bottom + b.maxY - i.top) / 2
+            let dot = map.convert(device, toPointTo: map)
+            let shifted = CGPoint(x: dot.x + b.midX - desiredX, y: dot.y + b.midY - desiredY)
+            return map.convert(shifted, toCoordinateFrom: map)
         }
 
         private func centerCamera(on coordinate: CLLocationCoordinate2D) {
@@ -348,13 +393,18 @@ struct MapPicker: NSViewRepresentable {
             #if DEBUG
             DebugSnapshot.frameTicks += 1
             if let map = mapView, let device = displayedDevice {
-                DebugSnapshot.cameraOffset = Geo.distance(GeoPoint(map.centerCoordinate), GeoPoint(device))
+                DebugSnapshot.cameraOffset = Geo.distance(GeoPoint(map.centerCoordinate),
+                                                          GeoPoint(cameraCenter(showing: device)))
                 DebugSnapshot.following = following
                 DebugSnapshot.gliding = deviceGlide != nil
             }
             #endif
             let now = CACurrentMediaTime()
             var busy = false
+            if recenterPending {
+                recenterPending = false
+                if following { performRecenter() }
+            }
             if let glide = deviceGlide {
                 let t = min(1, (now - glide.start) / glide.duration)
                 let coordinate = Self.lerp(glide.from, glide.to, t)
@@ -378,12 +428,13 @@ struct MapPicker: NSViewRepresentable {
                 if t >= 1 { travelledGlide = nil } else { busy = true }
             }
             if following, let device = displayedDevice, now >= cameraBusyUntil {
+                let target = cameraCenter(showing: device)
                 if let glide = cameraGlide {
                     let t = min(1, (now - glide.start) / 0.55)
-                    centerCamera(on: Self.lerp(glide.from, device, t * t * (3 - 2 * t)))
+                    centerCamera(on: Self.lerp(glide.from, target, t * t * (3 - 2 * t)))
                     if t >= 1 { cameraGlide = nil } else { busy = true }
                 } else {
-                    centerCamera(on: device)
+                    centerCamera(on: target)
                 }
             }
             if now < cameraBusyUntil { busy = true }

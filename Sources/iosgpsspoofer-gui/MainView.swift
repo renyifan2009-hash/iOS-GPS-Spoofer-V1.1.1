@@ -112,6 +112,8 @@ struct MainView: View {
     @Environment(Preferences.self) private var prefs
     @State private var search = PlaceSearch()
     @State private var dropTargeted = false
+    /// Height of the panels along the bottom of the map (joystick, HUD).
+    @State private var bottomPanelsHeight: CGFloat = 0
 
     var body: some View {
         @Bindable var model = model
@@ -128,27 +130,36 @@ struct MainView: View {
                 .padding(.top, 72)
                 .animation(.spring(duration: 0.35), value: model.toast)
             }
+            // One stack along the bottom, so the joystick, Re-center and the
+            // HUD never overlap, however narrow the window.
             .overlay(alignment: .bottom) {
                 VStack(spacing: 10) {
+                    if model.mode == .joystick {
+                        HStack {
+                            JoystickPanel()
+                            Spacer(minLength: 0)
+                        }
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
                     if model.canRecenter {
                         RecenterButton()
                             .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
                     }
                     if model.hasSession {
                         HUDView()
-                            .padding(.horizontal, 16)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
+                .padding(.horizontal, 16)
                 .padding(.bottom, 16)
                 .animation(.spring(duration: 0.35, bounce: 0.2), value: model.canRecenter)
-            }
-            .overlay(alignment: .bottomLeading) {
-                if model.mode == .joystick {
-                    JoystickPanel()
-                        .padding(16)
-                        .padding(.bottom, model.hasSession ? 128 : 0)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
+                // onGeometryChange, not a preference: Xcode 16's
+                // onPreferenceChange takes a @Sendable closure, which can't
+                // set @State under Swift 6.
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { height in
+                    bottomPanelsHeight = height
                 }
             }
             .overlay(alignment: .top) {
@@ -215,6 +226,8 @@ struct MainView: View {
             style: prefs.mapStyle,
             focus: model.mapFocus,
             follow: model.isFollowingDevice && model.session != nil,
+            // The search bar and map controls at the top, the panels at the bottom.
+            coveredInsets: NSEdgeInsets(top: 70, left: 0, bottom: bottomPanelsHeight, right: 0),
             contextActions: [.teleportHere, .setTarget, .addWaypoint, .joystickHere, .addFavorite, .copyCoordinates],
             onClick: { model.mapClicked($0) },
             onDragPin: { id, point in model.pinDragged(id, to: point) },
@@ -299,10 +312,12 @@ struct SearchBar: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Brand.gradient)
-                TextField("Search a place, paste coordinates or a maps link", text: $search.query)
+                // Short enough for a 13-inch screen with both side panels open.
+                TextField("Search or paste coordinates", text: $search.query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13.5))
                     .focused($focused)
+                    .help("A place or an address. You can also paste coordinates, like 37.3349, -122.0090, or a Google Maps or Apple Maps link.")
                     .onSubmit { choose(search.highlighted) }
                     .onKeyPress(.downArrow) {
                         search.moveHighlight(1)

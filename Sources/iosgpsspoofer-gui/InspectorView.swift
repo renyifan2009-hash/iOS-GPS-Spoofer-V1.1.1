@@ -117,30 +117,12 @@ struct TeleportSection: View {
                     Label("Latitude −90…90, longitude −180…180", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(Brand.warning)
                 }
-                HStack(spacing: 8) {
-                    Button {
-                        model.pasteFromClipboard()
-                    } label: {
-                        Label("Paste", systemImage: "doc.on.clipboard")
-                    }
-                    .help("Paste coordinates or a Google / Apple Maps link (⇧⌘V)")
-                    Button {
-                        if let t = model.target { model.copyCoordinates(t) }
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                    }
-                    .disabled(model.target == nil)
-                    Menu {
-                        Button("Apple Maps") { if let t = model.target { model.openInMaps(t, google: false) } }
-                        Button("Google Maps") { if let t = model.target { model.openInMaps(t, google: true) } }
-                    } label: {
-                        Label("Open in", systemImage: "arrow.up.forward.app")
-                    }
-                    .fixedSize()
-                    .disabled(model.target == nil)
+                // Titles when they fit; just the icons in a narrow inspector.
+                ViewThatFits(in: .horizontal) {
+                    targetButtons.labelStyle(.titleAndIcon)
+                    targetButtons.labelStyle(.iconOnly)
                 }
                 .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
-                .labelStyle(.titleAndIcon)
             }
 
             if let device = model.devicePosition, let target = model.target, model.session != nil,
@@ -177,6 +159,33 @@ struct TeleportSection: View {
                 .toggleStyle(.switch)
                 .controlSize(.small)
             }
+        }
+    }
+
+    private var targetButtons: some View {
+        HStack(spacing: 8) {
+            Button {
+                model.pasteFromClipboard()
+            } label: {
+                Label("Paste", systemImage: "doc.on.clipboard").fixedSize()
+            }
+            .help("Paste coordinates or a Google / Apple Maps link (⇧⌘V)")
+            Button {
+                if let t = model.target { model.copyCoordinates(t) }
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc").fixedSize()
+            }
+            .help("Copy the coordinates (⇧⌘C)")
+            .disabled(model.target == nil)
+            Menu {
+                Button("Apple Maps") { if let t = model.target { model.openInMaps(t, google: false) } }
+                Button("Google Maps") { if let t = model.target { model.openInMaps(t, google: true) } }
+            } label: {
+                Label("Open in", systemImage: "arrow.up.forward.app").fixedSize()
+            }
+            .fixedSize()
+            .help("Open in Apple Maps or Google Maps")
+            .disabled(model.target == nil)
         }
     }
 
@@ -273,10 +282,14 @@ struct RouteSection: View {
 
             if model.waypoints.count >= 2 {
                 Card {
+                    // A loop drives back to the start, so a lap is longer
+                    // than start → end. Show the same lap the HUD counts.
+                    let looping = model.loopMode == .loop
                     HStack(spacing: 12) {
-                        StatTile(label: "Distance", value: Format.distance(model.routeLength, units: prefs.units),
+                        StatTile(label: looping ? "Lap" : "Distance",
+                                 value: Format.distance(looping ? model.lapLength : model.routeLength, units: prefs.units),
                                  symbol: "ruler")
-                        StatTile(label: model.loopMode == .loop ? "Per lap" : "Time",
+                        StatTile(label: looping ? "Lap time" : "Time",
                                  value: model.routePassDuration.map { Format.duration($0) } ?? "—", symbol: "clock")
                         StatTile(label: "Stops", value: "\(model.waypoints.count)", symbol: "mappin.and.ellipse")
                     }

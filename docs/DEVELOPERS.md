@@ -195,6 +195,19 @@ activity log.
 - **Automation.** `SPOOF_UDID=<udid>` and `SPOOF_START="lat,lon"` preselect a
   device and teleport on launch.
 
+Two rules in the map code (`MapPicker.swift`) that each fixed a freeze:
+
+- **Never move MapKit's camera inside `updateNSView`.** `setCenter`,
+  `setRegion` and `setVisibleMapRect` make MapKit lay out the whole window
+  right away. Inside a SwiftUI update, that layout re-enters SwiftUI and never
+  returns. It only happens when a panel is changing size at that moment, so it
+  looks random. Focus requests run in a `Task` just after the update; recentres
+  run on the next display-link frame.
+- **Don't build a `TimelineView` with a schedule that starts at `.now` inside
+  `ViewThatFits`.** Each candidate layout builds its own copy, the schedule
+  changes on every evaluation, and they keep invalidating each other. Use one
+  `TimelineView` with a fixed start around the `ViewThatFits`.
+
 ## The command-line tool
 
 The CLI is inside the app bundle. Add it to your `PATH`, or call it directly:
@@ -295,12 +308,38 @@ The helper tests pull the script straight out of `LiveHelperScript.swift`, so
 they run without Swift. The end-to-end ones drive pymobiledevice3's real CLI
 with a mocked device, to catch upstream changes.
 
+### Running the app without an iPhone
+
+`Tests/Fixtures/fake-pymobiledevice3` pretends to be pymobiledevice3 with one
+iPhone plugged in. It answers the commands the app sends and logs each one.
+Debug builds also have a snapshot mode that shows the real app, in real
+states, without taking over the screen:
+
+```bash
+swift build
+SPOOFER_SNAPSHOT=1 SPOOFER_DEMO=route \
+  PYMOBILEDEVICE3="$PWD/Tests/Fixtures/fake-pymobiledevice3" FAKE_PMD_LOG=/tmp/pmd.log \
+  "$(swift build --show-bin-path)/iosgpsspoofer-gui"
+```
+
+| Variable | Does |
+|---|---|
+| `SPOOFER_SNAPSHOT=1` | No Dock icon, never activates, every window parked behind all others. Prints `SNAPSHOT-WINDOW <id> <title>` for `screencapture -l <id>`, and `SNAPSHOT-STATS` (map frames drawn, follow state, camera offset) every 2 seconds. |
+| `SPOOFER_DEMO` | `teleport`, `route`, `joystick` or `settings`: plays that scene once the pretend iPhone shows up. |
+| `SPOOFER_WINDOW_SIZE` | The main window's size, like `1040x692` for a 13-inch laptop. The window otherwise remembers its last size. |
+| `SPOOFER_APPEARANCE` | `dark` or `light`. |
+| `FAKE_PMD_DEVMODE=false`, `FAKE_PMD_NO_DEVICE=1`, `FAKE_PMD_FAIL_SET=1`, `FAKE_PMD_IOS=17.5` | Pretend Developer Mode is off, no iPhone is plugged in, setting the location fails, or a different iOS version (the default, 16.7.10, makes the app send every move itself). |
+
+MapKit doesn't draw map tiles in a window that other windows cover, so local
+captures can show a blank map. CI runners have nothing on screen, so the
+screenshots CI uploads include the map.
+
 [CI](../.github/workflows/ci.yml) runs on every push and pull request:
 
 | Job | Checks |
 |---|---|
 | Live helper | the helper against pymobiledevice3 11.0.0 and the latest release (Linux) |
-| Build & test · macOS | Xcode 16: build, unit tests, the helper as compiled into the binary, a CLI smoke test, and a DMG artifact |
+| Build & test · macOS | Xcode 16: build, unit tests, the app playing a route and a joystick session on the pretend iPhone, screenshots of five scenes (artifact `app-screenshots`), the helper as compiled into the binary, a CLI smoke test, and a DMG artifact |
 | Build · Xcode 26 | the Liquid Glass code path, build and tests |
 | Build · swift.org toolchain + macOS 15 SDK | a new Swift with an old SDK, as on a tester's Mac where the build once broke |
 | Installer · clean Mac | `./setup.sh`, the installed app finding its helper from `/`, running it again to update, the piped `install.sh`, and `--uninstall` |

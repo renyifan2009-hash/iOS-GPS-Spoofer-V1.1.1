@@ -12,15 +12,20 @@ struct HUDView: View {
             HStack(alignment: .center, spacing: 12) {
                 badge(status)
                 VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        Text("NOW SIMULATING")
-                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
-                            .kerning(0.8)
-                            .foregroundStyle(.secondary)
-                        StatusPill(status: status)
-                        if let engine = model.sessionEngine {
-                            EngineBadge(engine: engine, status: model.engineStatus)
+                    // Narrow window (a 13-inch laptop with both side panels
+                    // open): drop the label, then the engine badge, rather
+                    // than wrapping letters.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            nowSimulating
+                            StatusPill(status: status)
+                            engineBadge
                         }
+                        HStack(spacing: 8) {
+                            StatusPill(status: status)
+                            engineBadge
+                        }
+                        StatusPill(status: status)
                     }
                     Text(primaryLine(status))
                         .font(Brand.title(status.live ? 17 : 15, weight: .semibold))
@@ -45,6 +50,21 @@ struct HUDView: View {
         .padding(14)
         .frame(maxWidth: 680)
         .glassPanel(cornerRadius: 18)
+    }
+
+    private var nowSimulating: some View {
+        Text("NOW SIMULATING")
+            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+            .kerning(0.8)
+            .foregroundStyle(.secondary)
+            .fixedSize()
+    }
+
+    @ViewBuilder
+    private var engineBadge: some View {
+        if let engine = model.sessionEngine {
+            EngineBadge(engine: engine, status: model.engineStatus)
+        }
     }
 
     private func badge(_ status: StatusDisplay) -> some View {
@@ -82,27 +102,9 @@ struct HUDView: View {
         return parts.joined(separator: "  ·  ")
     }
 
-    @ViewBuilder
+    /// The buttons keep their size; the place name truncates instead.
     private var controls: some View {
         HStack(spacing: 8) {
-            if model.canPauseRoute, !(model.routeProgress?.finished ?? false) {
-                Button {
-                    model.togglePause()
-                } label: {
-                    Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
-                }
-                .buttonStyle(CircleIconButtonStyle(size: 34))
-                .help(model.isPaused ? "Resume (⇧⌘P)" : "Pause (⇧⌘P)")
-            }
-            if model.activity == .routing {
-                Button {
-                    model.restartRoute()
-                } label: {
-                    Image(systemName: "backward.end.fill")
-                }
-                .buttonStyle(CircleIconButtonStyle(size: 34))
-                .help("Back to the start of the route")
-            }
             if model.canRetryConnection {
                 Button {
                     model.retryConnection()
@@ -125,26 +127,71 @@ struct HUDView: View {
             .disabled(model.sessionState == .stopping)
             .help("Stop and restore the real location (⌘↩)")
         }
+        .fixedSize()
     }
 
+    /// Pause and back-to-start sit with the progress bar, like a player.
+    private var routeTransport: some View {
+        HStack(spacing: 6) {
+            if model.canPauseRoute, !(model.routeProgress?.finished ?? false) {
+                Button {
+                    model.togglePause()
+                } label: {
+                    Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(CircleIconButtonStyle(size: 30))
+                .help(model.isPaused ? "Resume (⇧⌘P)" : "Pause (⇧⌘P)")
+            }
+            if model.activity == .routing {
+                Button {
+                    model.restartRoute()
+                } label: {
+                    Image(systemName: "backward.end.fill")
+                }
+                .buttonStyle(CircleIconButtonStyle(size: 30))
+                .help("Back to the start of the route")
+            }
+        }
+        .fixedSize()
+    }
+
+    /// One clock around both layouts, on a fixed schedule. A TimelineView
+    /// inside ViewThatFits is built once per candidate layout, and a schedule
+    /// starting at `.now` changes on every evaluation: together they kept
+    /// invalidating each other and froze the app.
     private var statsRow: some View {
-        HStack(spacing: 14) {
-            StatTile(label: "Speed", value: Format.speed(model.deviceSpeed, units: prefs.units), symbol: "speedometer")
-            StatTile(label: "Heading", value: headingText, symbol: "location.north.line")
-            elapsedTile
+        TimelineView(.periodic(from: model.sessionStartedAt ?? .distantPast, by: 1)) { context in
+            let elapsed = StatTile(label: "Elapsed", value: elapsed(at: context.date), symbol: "clock")
+            ViewThatFits(in: .horizontal) {
+                EqualColumns(spacing: 14) {
+                    speedTile
+                    headingTile
+                    elapsed
+                }
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 8) {
+                    GridRow {
+                        speedTile
+                        headingTile
+                    }
+                    GridRow { elapsed }
+                }
+            }
         }
         .padding(.top, 2)
+    }
+
+    private var headingTile: some View {
+        StatTile(label: "Heading", value: headingText, symbol: "location.north.line")
+    }
+
+    private var speedTile: some View {
+        StatTile(label: "Speed", value: Format.speed(model.deviceSpeed, units: prefs.units), symbol: "speedometer")
     }
 
     private var headingText: String {
         guard model.deviceSpeed > 0.05, let heading = model.deviceHeading else { return "—" }
         return "\(Int(heading.rounded()))° \(Geo.compassPoint(heading))"
-    }
-
-    private var elapsedTile: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            StatTile(label: "Elapsed", value: elapsed(at: context.date), symbol: "clock")
-        }
     }
 
     private func elapsed(at date: Date) -> String {
@@ -154,25 +201,55 @@ struct HUDView: View {
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
 
+    @ViewBuilder
+    private func routeTiles(_ p: RouteProgressInfo) -> some View {
+        coveredTile(p)
+        speedTile
+        timeTile(p)
+        if p.loopMode != .once { lapTile(p) }
+    }
+
+    private func coveredTile(_ p: RouteProgressInfo) -> some View {
+        StatTile(label: "Covered",
+                 value: "\(Format.distance(p.lapDistance, units: prefs.units)) / \(Format.distance(p.lapLength, units: prefs.units))",
+                 symbol: "point.topleft.down.to.point.bottomright.curvepath")
+    }
+
+    @ViewBuilder
+    private func timeTile(_ p: RouteProgressInfo) -> some View {
+        if p.finished {
+            StatTile(label: "Status", value: "Arrived", symbol: "flag.checkered")
+        } else {
+            StatTile(label: p.loopMode == .once ? "ETA" : "Lap ends",
+                     value: p.eta.map { Format.duration($0) } ?? "—", symbol: "timer")
+        }
+    }
+
+    private func lapTile(_ p: RouteProgressInfo) -> some View {
+        StatTile(label: "Lap", value: "\(p.lap + 1)", symbol: p.loopMode.symbolName)
+    }
+
     private func progressSection(_ p: RouteProgressInfo) -> some View {
         VStack(spacing: 8) {
-            ScrubBar(fraction: p.fraction, interactive: model.canPauseRoute) { value in
-                model.seekRoute(toFraction: value)
-            }
-            .help(model.canPauseRoute ? "Drag to jump along the route" : "")
-            HStack(spacing: 14) {
-                StatTile(label: "Covered",
-                         value: "\(Format.distance(p.lapDistance, units: prefs.units)) / \(Format.distance(p.lapLength, units: prefs.units))",
-                         symbol: "point.topleft.down.to.point.bottomright.curvepath")
-                StatTile(label: "Speed", value: Format.speed(model.deviceSpeed, units: prefs.units), symbol: "speedometer")
-                if p.finished {
-                    StatTile(label: "Status", value: "Arrived", symbol: "flag.checkered")
-                } else {
-                    StatTile(label: p.loopMode == .once ? "ETA" : "Lap ends",
-                             value: p.eta.map { Format.duration($0) } ?? "—", symbol: "timer")
+            HStack(spacing: 10) {
+                routeTransport
+                ScrubBar(fraction: p.fraction, interactive: model.canPauseRoute) { value in
+                    model.seekRoute(toFraction: value)
                 }
-                if p.loopMode != .once {
-                    StatTile(label: "Lap", value: "\(p.lap + 1)", symbol: p.loopMode.symbolName)
+                .help(model.canPauseRoute ? "Drag to jump along the route" : "")
+            }
+            // One row when there's room; two when the window is narrow.
+            ViewThatFits(in: .horizontal) {
+                EqualColumns(spacing: 14) { routeTiles(p) }
+                Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 8) {
+                    GridRow {
+                        coveredTile(p)
+                        speedTile
+                    }
+                    GridRow {
+                        timeTile(p)
+                        if p.loopMode != .once { lapTile(p) }
+                    }
                 }
             }
         }
