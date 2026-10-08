@@ -96,6 +96,47 @@ public enum RouteBuilder {
         return points
     }
 
+    /// A timed track that moves like `trip`: speeding up, braking and waiting at
+    /// stops. A stop is the same point repeated over time, which pymobiledevice3
+    /// holds. A one-way route ends when the trip reaches its destination.
+    public static func timedTrack(path: RoutePath, loopMode: LoopMode, trip: TripController,
+                                  drift: GPSDrift? = nil, step: TimeInterval = 1,
+                                  maxDuration: TimeInterval = 8 * 3600, maxPoints: Int = 40_000) throws -> [RoutePoint] {
+        guard path.points.count >= 2 else { throw SpoofError("a route needs at least 2 points") }
+        var playback = RoutePlayback(path: path, loopMode: loopMode)
+        var trip = trip
+        var drift = drift
+        func position() -> GeoPoint {
+            let p = playback.current.point
+            return drift?.apply(to: p, dt: step) ?? p
+        }
+        let first = position()
+        var points = [RoutePoint(latitude: first.latitude, longitude: first.longitude, offset: 0)]
+        var t = 0.0
+        var holding = false
+        while t < maxDuration && points.count < maxPoints {
+            let moved = trip.step(dt: step, lapDistance: playback.lapDistance, lap: playback.lap)
+            t += step
+            playback.advance(by: moved)
+            if moved == 0 && drift == nil {
+                holding = true
+            } else {
+                if holding, let last = points.last {
+                    // End of a wait: the same place until a moment ago.
+                    points.append(RoutePoint(latitude: last.latitude, longitude: last.longitude, offset: t - step))
+                }
+                holding = false
+                let p = position()
+                points.append(RoutePoint(latitude: p.latitude, longitude: p.longitude, offset: t))
+            }
+            if case .stopped(.destination, _) = trip.status { break }
+        }
+        if holding, let last = points.last, last.offset < t {
+            points.append(RoutePoint(latitude: last.latitude, longitude: last.longitude, offset: t))
+        }
+        return points
+    }
+
     /// GPX 1.1 track. `pymobiledevice3` paces between points using the gaps
     /// between their `<time>` stamps, so the absolute base time is irrelevant.
     public static func gpx(_ points: [RoutePoint],
