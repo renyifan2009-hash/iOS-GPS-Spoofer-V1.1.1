@@ -218,7 +218,8 @@ struct ExportPairing: ParsableCommand {
         commandName: "export-pairing",
         abstract: "Save the iPhone's pairing file, for an app on the iPhone to reach its own developer services.",
         discussion: """
-            The file lets whoever holds it act as this Mac towards the iPhone.             Give it only to that iPhone (AirDrop works). See docs/PHONE-ONLY.md.
+            The file lets whoever holds it act as this Mac towards the iPhone. \
+            Give it only to that iPhone (AirDrop works). See docs/PHONE-ONLY.md.
             """
     )
 

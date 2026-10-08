@@ -62,6 +62,8 @@ struct AppCommands: Commands {
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             Button("Save Route to Library…") { model.saveRouteToLibrary() }
                 .keyboardShortcut("s")
+            Divider()
+            PairingFileMenuItem()
         }
         CommandGroup(after: .sidebar) {
             Button("Toggle Inspector") { model.showInspector.toggle() }
@@ -78,6 +80,15 @@ struct AppCommands: Commands {
             Divider()
             Button("Copy Diagnostics") { model.copyDiagnostics() }
         }
+    }
+}
+
+/// For the SpoofRemote app's iPhone-only mode.
+struct PairingFileMenuItem: View {
+    var body: some View {
+        let model = AppModel.shared
+        Button("Save iPhone Pairing File…") { model.savePairingFile() }
+            .disabled(!model.canSavePairingFile)
     }
 }
 

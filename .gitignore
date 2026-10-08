@@ -7,3 +7,4 @@ dist/
 .swiftpm/
 __pycache__/
 *.pyc
+iPhoneRemote/Vendor/

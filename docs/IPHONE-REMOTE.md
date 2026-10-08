@@ -4,6 +4,11 @@ Control the simulated location entirely from your iPhone. Your Mac stays in a
 bag, a car or another room and keeps the location alive; the **SpoofRemote**
 app on the iPhone picks places and tells it to start, move or stop.
 
+SpoofRemote also has an **iPhone-only mode (beta)**: after a one-time setup
+with the Mac, it sets the location by itself, with no Mac, on Wi-Fi or
+cellular. The switch at the top of its bottom card picks **Mac** or **This
+iPhone**. That mode has its own guide: [PHONE-ONLY.md](PHONE-ONLY.md).
+
 ## The constraint, stated plainly
 
 iOS has **no public API that lets an installed app change the location the
@@ -13,8 +18,12 @@ Xcode's *Simulate Location* works and how this project works. So:
 
 - the **Mac** holds the developer connection to the iPhone (USB, or Wi-Fi after
   pairing) and sets the location through `pymobiledevice3`, exactly as before;
-- the **iPhone app is a remote control**. It never touches the location
-  itself.
+- the **iPhone app is a remote control**. In this mode it never touches the
+  location itself.
+
+The iPhone-only mode uses the same developer service, not a public API: with
+the iPhone's pairing file and a loopback VPN, the app makes the developer
+connection to its own iPhone, the way a Mac would.
 
 No jailbreak, private entitlement, or system modification is used or needed.
 
@@ -70,8 +79,11 @@ iPhoneRemote/
     IntroView.swift                   # animated introduction
     Glass.swift                       # Liquid Glass helpers + fallbacks
     KeychainStore.swift               # token storage
-    Info.plist                        # Local Network / Bonjour / ATS keys
+    OnDevice/                         # the iPhone-only mode (see PHONE-ONLY.md)
+    Info.plist                        # Local Network / Bonjour / ATS / background / file keys
     Assets.xcassets                   # app icon, accent colour
+  scripts/fetch-idevice.sh            # downloads idevice for the iPhone-only mode
+  Vendor/                             # where it goes (not in git)
 ```
 
 ## Which SpooferCore code the server calls
@@ -178,14 +190,19 @@ can use. Leave it running. Ctrl-C stops it and restores the real location.
 You need Xcode 16 or later (Xcode 26 or later for the Liquid Glass look) and
 an Apple ID. A free one is enough to run on your own iPhone.
 
-### Option A: XcodeGen (one command)
+### Option A: XcodeGen
 
 ```bash
 brew install xcodegen
+iPhoneRemote/scripts/fetch-idevice.sh
 cd iPhoneRemote
 xcodegen
 open SpoofRemote.xcodeproj
 ```
+
+`fetch-idevice.sh` downloads [idevice](https://github.com/jkcoxson/idevice), the
+library the iPhone-only mode uses (about 210 MB, once). It checks the download
+against a pinned SHA-256 and puts it in `iPhoneRemote/Vendor/`.
 
 Select the **SpoofRemote** target ▸ *Signing & Capabilities* ▸ choose your
 **Team**, pick your iPhone as the run destination, and press **⌘R**.
@@ -201,26 +218,32 @@ Select the **SpoofRemote** target ▸ *Signing & Capabilities* ▸ choose your
 4. **File ▸ Add Package Dependencies… ▸ Add Local…**, choose the repository
    folder (the one with `Package.swift`), and add the **RemoteAPI** library to
    the SpoofRemote target.
-5. Target ▸ **Build Settings**:
+5. Run `iPhoneRemote/scripts/fetch-idevice.sh`, then drag
+   `iPhoneRemote/Vendor/IDevice.xcframework` into the project and add it to
+   the target under *Frameworks, Libraries, and Embedded Content* with
+   **Do Not Embed** (it's a static library).
+6. Target ▸ **Build Settings**:
    - *Info.plist File* = `SpoofRemote/Info.plist` (keep *Generate Info.plist
      File* = Yes; Xcode merges the two)
    - *iOS Deployment Target* = 17.0
    - *Swift Language Version* = Swift 6
    - On Xcode 26: *Default Actor Isolation* = **nonisolated** (the template
      sets MainActor; the code is written for nonisolated)
-6. Target ▸ *Signing & Capabilities* ▸ your Team. Run on the iPhone (⌘R).
+7. Target ▸ *Signing & Capabilities* ▸ your Team. Run on the iPhone (⌘R).
 
 ### Info.plist keys
 
 Already in `iPhoneRemote/SpoofRemote/Info.plist`; add them on the *Info* tab
-if you skip step 5:
+if you skip step 6:
 
 | Key | Value | Why |
 |---|---|---|
 | `NSLocalNetworkUsageDescription` | "SpoofRemote finds your Mac on this network…" | iOS asks before an app talks to the local network |
 | `NSBonjourServices` | `_iosgpsspoof._tcp` | required to browse for the Mac |
 | `NSAppTransportSecurity` ▸ `NSAllowsLocalNetworking` | YES | plain HTTP to local addresses |
-| `NSLocationWhenInUseUsageDescription` | "Shows where iOS currently reports this iPhone to be…" | the optional blue dot that confirms the simulated location |
+| `NSLocationWhenInUseUsageDescription` | "Shows where iOS reports this iPhone to be…" | the optional blue dot that confirms the simulated location, and the iPhone-only mode's background session |
+| `UIBackgroundModes` | `location` | the iPhone-only mode stays awake while it holds a location |
+| `CFBundleDocumentTypes`, `UTImportedTypeDeclarations` | `com.iosgpsspoof.mobiledevicepairing` (`.mobiledevicepairing`) | pairing files from the Mac open in SpoofRemote |
 
 The Mac app's bundle (`package-dmg.sh`) also declares
 `NSLocalNetworkUsageDescription` and `NSBonjourServices`.

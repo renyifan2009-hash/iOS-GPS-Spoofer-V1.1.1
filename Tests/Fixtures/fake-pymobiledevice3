@@ -42,10 +42,19 @@ elif args[:2] == ["amfi", "developer-mode-status"]:
 elif "simulate-location" in args and "set" in args and os.environ.get("FAKE_PMD_FAIL_SET") == "1":
     print("ERROR ConnectionTerminatedError: Connection closed", file=sys.stderr)
     sys.exit(1)
+elif args[:2] == ["lockdown", "save-pair-record"] and len(args) > 2:
+    # A pairing record with the keys a real one has (the values are not real).
+    import plistlib
+    record = {key: b"fake" for key in ("DeviceCertificate", "HostCertificate", "HostPrivateKey",
+                                       "RootCertificate", "RootPrivateKey", "EscrowBag")}
+    record.update(HostID="FAKE-HOST-ID", SystemBUID="FAKE-SYSTEM-BUID", WiFiMACAddress="00:00:00:00:00:00")
+    with open(args[2], "wb") as out:
+        plistlib.dump(record, out)
 elif args[:3] == ["developer", "dvt", "simulate-location"] and args[3:4] != ["clear"]:
     # iOS 17+ `set` / `play`: hold the location until interrupted.
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: sys.exit(0))
     while True:
         time.sleep(1)
-# Everything else (mounter auto-mount, iOS 16 set/clear, amfi reveal…) succeeds at once.
+# Everything else (mounter auto-mount, iOS 16 set/clear, amfi reveal,
+# lockdown wifi-connections…) succeeds at once.

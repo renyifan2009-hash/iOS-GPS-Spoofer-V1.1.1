@@ -192,6 +192,10 @@ activity log.
   goes to `~/Library/Logs/iOS GPS Spoofer/update.log`.
 - **Unplugged.** If the iPhone disappears mid-session, the status says
   "Unplugged" and the session waits for it, without clearing anything.
+- **iPhone-only mode.** File ▸ Save iPhone Pairing File… saves the selected
+  iPhone's pairing record (after turning on lockdown's network connections)
+  and opens AirDrop with it. SpoofRemote on that iPhone then sets its own
+  location with no Mac. See [PHONE-ONLY.md](PHONE-ONLY.md).
 - **Automation.** `SPOOF_UDID=<udid>` and `SPOOF_START="lat,lon"` preselect a
   device and teleport on launch.
 
@@ -238,6 +242,9 @@ iosgpsspoof clear                       # if a previous run was killed hard
 # Let the SpoofRemote iPhone app control the location (prints a pairing code)
 iosgpsspoof serve
 iosgpsspoof serve --install-agent       # …and start it at every login
+
+# The iPhone's pairing file, for SpoofRemote's iPhone-only mode (docs/PHONE-ONLY.md)
+iosgpsspoof export-pairing              # writes "<iPhone name>.mobiledevicepairing" here
 ```
 
 While `spoof` or `route` runs, it re-establishes the session if the device
@@ -343,7 +350,7 @@ screenshots CI uploads include the map.
 | Build · Xcode 26 | the Liquid Glass code path, build and tests |
 | Build · swift.org toolchain + macOS 15 SDK | a new Swift with an old SDK, as on a tester's Mac where the build once broke |
 | Installer · clean Mac | `./setup.sh`, the installed app finding its helper from `/`, running it again to update, the piped `install.sh`, and `--uninstall` |
-| Build · SpoofRemote | the iPhone remote app for the simulator |
+| Build · SpoofRemote | the iPhone app for the simulator, with idevice (fetched, checked against its SHA-256, and cached) |
 
 ## Project layout
 

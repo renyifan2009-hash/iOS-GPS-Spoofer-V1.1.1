@@ -2,17 +2,31 @@ import MapKit
 import RemoteAPI
 import SwiftUI
 
+/// Who holds the simulated location.
+enum LocationSource: String {
+    /// The Mac, over USB or Wi-Fi; this app tells it where to go.
+    case mac
+    /// This iPhone by itself (the iPhone-only mode).
+    case thisPhone
+}
+
 /// The map, a floating status pill and controls, and a glass card to start,
 /// move or stop the simulated location.
 struct ContentView: View {
     @Environment(ConnectionManager.self) private var connection
     @Environment(LocationController.self) private var locations
+    @Environment(OnDeviceController.self) private var phone
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasSeenIntro") private var hasSeenIntro = false
+    @AppStorage("locationSource") private var source: LocationSource = .mac
     @State private var showIntro = false
     @State private var showSearch = false
     @State private var showPairing = false
+    @State private var showPhoneSetup = false
     @State private var pairAfterIntro = false
+
+    /// Either source holds a location right now.
+    private var isSpoofing: Bool { connection.isSpoofing || phone.isSpoofing }
 
     var body: some View {
         ZStack {
@@ -33,6 +47,23 @@ struct ContentView: View {
         .sheet(isPresented: $showPairing) {
             PairingView()
         }
+        .sheet(isPresented: $showPhoneSetup) {
+            PhoneOnlySetupView()
+        }
+        .onOpenURL { url in
+            // A pairing file opened from AirDrop, Files or Mail.
+            if phone.importPairingFile(from: url), !isSpoofing { source = .thisPhone }
+            guard showPairing else {
+                showPhoneSetup = true
+                return
+            }
+            // One sheet at a time: let the Mac sheet go first.
+            showPairing = false
+            Task {
+                try? await Task.sleep(for: .milliseconds(500))
+                showPhoneSetup = true
+            }
+        }
         .fullScreenCover(isPresented: $showIntro, onDismiss: {
             if pairAfterIntro {
                 pairAfterIntro = false
@@ -49,12 +80,34 @@ struct ContentView: View {
             if !hasSeenIntro { showIntro = true }
             connection.startBrowsing()
             connection.startPolling()
+            #if DEBUG
+            // For screenshots in the Simulator: `-SpoofRemoteShow phoneSetup`
+            // opens the setup sheet; `phoneStart` starts at Apple Park.
+            switch UserDefaults.standard.string(forKey: "SpoofRemoteShow") {
+            case "phoneSetup":
+                showPhoneSetup = true
+            case "phoneStart":
+                let place = Place(name: "Apple Park", subtitle: "Cupertino", latitude: 37.3349, longitude: -122.0090)
+                locations.selection = place
+                locations.focus(on: place.coordinate, meters: 2500)
+                setPhone(place)
+            default:
+                break
+            }
+            #endif
+        }
+        .task(id: source) {
+            // Is LocalDevVPN on? The status pill says so before you tap Start.
+            if source == .thisPhone, phone.isSetUp, !phone.isSpoofing { await phone.checkLoopback() }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
                 connection.startBrowsing()
                 connection.startPolling()
+                if source == .thisPhone, phone.isSetUp, !phone.isSpoofing {
+                    Task { await phone.checkLoopback() }
+                }
             case .background:
                 connection.stopPolling()
                 connection.stopBrowsing()
@@ -69,7 +122,7 @@ struct ContentView: View {
             }
         }
         .sensoryFeedback(.selection, trigger: locations.selection?.id)
-        .sensoryFeedback(trigger: connection.isSpoofing) { _, isSpoofing in
+        .sensoryFeedback(trigger: isSpoofing) { _, isSpoofing in
             isSpoofing ? .success : .impact(weight: .light)
         }
     }
@@ -77,9 +130,14 @@ struct ContentView: View {
     // MARK: - Map
 
     private var spoofedCoordinate: CLLocationCoordinate2D? {
+        if source == .thisPhone { return phone.current }
         guard let status = connection.status, status.spoofing,
               let latitude = status.latitude, let longitude = status.longitude else { return nil }
         return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+
+    private var markerPhase: SpoofPhase {
+        source == .thisPhone ? (phone.isSpoofing ? .active : .starting) : (connection.status?.phase ?? .idle)
     }
 
     private var map: some View {
@@ -88,7 +146,7 @@ struct ContentView: View {
             Map(position: $locations.camera) {
                 if let spoofed = spoofedCoordinate {
                     Annotation("Simulated location", coordinate: spoofed, anchor: .center) {
-                        DeviceMarker(phase: connection.status?.phase ?? .idle)
+                        DeviceMarker(phase: markerPhase)
                     }
                     .annotationTitles(.hidden)
                 }
@@ -120,8 +178,14 @@ struct ContentView: View {
 
     private var topBar: some View {
         HStack(spacing: 10) {
-            Button { showPairing = true } label: {
-                StatusPill(connection: connection)
+            Button {
+                if source == .thisPhone { showPhoneSetup = true } else { showPairing = true }
+            } label: {
+                if source == .thisPhone {
+                    PhonePill(phone: phone)
+                } else {
+                    StatusPill(connection: connection)
+                }
             }
             .buttonStyle(.plain)
             Spacer(minLength: 8)
@@ -142,47 +206,174 @@ struct ContentView: View {
 
     private var bottomCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            if !connection.isPaired {
-                connectPrompt
-                    .transition(.rise)
+            sourcePicker
+            if source == .thisPhone {
+                phoneCard
             } else {
-                if connection.isSpoofing, let status = connection.status {
-                    NowSimulatingRow(status: status)
-                        .transition(.rise)
-                }
-                if let status = connection.status, !status.connected, connection.isOnline {
-                    Label("The Mac can't see this iPhone. Connect them with a cable and tap Trust.",
-                          systemImage: "cable.connector")
-                        .font(.footnote)
-                        .foregroundStyle(Brand.warning)
-                        .transition(.rise)
-                }
-                if let place = locations.selection {
-                    selectionRow(place)
-                        .transition(.rise)
-                } else if !connection.isSpoofing {
-                    Label("Tap the map or search to pick a place.", systemImage: "hand.tap.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .transition(.rise)
-                }
-                actions
-                if let error = connection.lastError {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(Brand.warning)
-                        .transition(.rise)
-                }
+                macCard
             }
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassSurface(cornerRadius: 32)
+        .animation(Brand.spring, value: source)
         .animation(Brand.spring, value: connection.isPaired)
-        .animation(Brand.spring, value: connection.isSpoofing)
+        .animation(Brand.spring, value: isSpoofing)
         .animation(Brand.spring, value: locations.selection)
         .animation(Brand.spring, value: connection.lastError)
+        .animation(Brand.spring, value: phone.lastError)
         .animation(Brand.spring, value: connection.status?.connected)
+    }
+
+    private var sourcePicker: some View {
+        Picker("Change the location from", selection: $source) {
+            Text("Mac").tag(LocationSource.mac)
+            Text("This iPhone").tag(LocationSource.thisPhone)
+        }
+        .pickerStyle(.segmented)
+        // One at a time: stop the current location before switching.
+        .disabled(isSpoofing)
+    }
+
+    @ViewBuilder
+    private var macCard: some View {
+        if !connection.isPaired {
+            connectPrompt
+                .transition(.rise)
+        } else {
+            if connection.isSpoofing, let status = connection.status {
+                NowSimulatingRow(status: status)
+                    .transition(.rise)
+            }
+            if let status = connection.status, !status.connected, connection.isOnline {
+                Label("The Mac can't see this iPhone. Connect them with a cable and tap Trust.",
+                      systemImage: "cable.connector")
+                    .font(.footnote)
+                    .foregroundStyle(Brand.warning)
+                    .transition(.rise)
+            }
+            if let place = locations.selection {
+                selectionRow(place)
+                    .transition(.rise)
+            } else if !connection.isSpoofing {
+                Label("Tap the map or search to pick a place.", systemImage: "hand.tap.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .transition(.rise)
+            }
+            actions
+            if let error = connection.lastError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Brand.warning)
+                    .transition(.rise)
+            }
+        }
+    }
+
+    // MARK: - This iPhone
+
+    @ViewBuilder
+    private var phoneCard: some View {
+        if !OnDeviceController.isSupported || !phone.isSetUp {
+            phoneSetupPrompt
+                .transition(.rise)
+        } else {
+            if phone.isSpoofing, let current = phone.current {
+                PhoneSimulatingRow(name: phone.currentName, coordinate: current)
+                    .transition(.rise)
+            }
+            if let place = locations.selection {
+                selectionRow(place)
+                    .transition(.rise)
+            } else if !phone.isSpoofing {
+                Label("Tap the map or search to pick a place.", systemImage: "hand.tap.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .transition(.rise)
+            }
+            phoneActions
+            if let error = phone.lastError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Brand.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.rise)
+            }
+        }
+    }
+
+    private var phoneSetupPrompt: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                IconTile(symbol: "iphone.gen3.radiowaves.left.and.right", size: 46)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Use this iPhone on its own").font(Brand.rounded(.title3))
+                    Text(OnDeviceController.isSupported
+                         ? "Set it up once with your Mac. Then change the location anywhere, even on cellular."
+                         : "Needs iOS 17.4 or later. Use your Mac instead, or update this iPhone.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Button {
+                showPhoneSetup = true
+            } label: {
+                Label("Set Up", systemImage: "checklist")
+                    .frame(maxWidth: .infinity)
+            }
+            .prominentButton()
+            .disabled(!OnDeviceController.isSupported)
+        }
+    }
+
+    private var phoneActions: some View {
+        GlassGroup(spacing: 10) {
+            HStack(spacing: 10) {
+                if phone.isSpoofing {
+                    if let place = locations.selection, !phoneIsAt(place) {
+                        Button {
+                            setPhone(place)
+                        } label: {
+                            Label("Move Here", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .prominentButton()
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                    Button {
+                        Task { await phone.stop() }
+                    } label: {
+                        Label("Stop", systemImage: "stop.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .prominentButton(tint: Brand.danger)
+                } else {
+                    Button {
+                        if let place = locations.selection { setPhone(place) }
+                    } label: {
+                        Label(phone.isWorking ? "Starting…" : "Start Here", systemImage: "location.fill")
+                            .frame(maxWidth: .infinity)
+                            .contentTransition(.opacity)
+                    }
+                    .prominentButton()
+                    .disabled(locations.selection == nil || phone.isWorking)
+                }
+            }
+        }
+        .disabled(phone.isWorking)
+    }
+
+    private func setPhone(_ place: Place) {
+        Task {
+            if await phone.set(place.coordinate, name: place.name) { locations.recordRecent(place) }
+        }
+    }
+
+    private func phoneIsAt(_ place: Place) -> Bool {
+        guard let current = phone.current else { return false }
+        return abs(current.latitude - place.latitude) < 1e-5 && abs(current.longitude - place.longitude) < 1e-5
     }
 
     private var connectPrompt: some View {
@@ -327,13 +518,45 @@ private struct StatusPill: View {
 
     var body: some View {
         let display = self.display
+        PillContent(text: display.text, color: display.color, live: display.live)
+    }
+}
+
+/// The iPhone-only mode's status, in the same capsule.
+private struct PhonePill: View {
+    let phone: OnDeviceController
+
+    private var display: (text: String, color: Color, live: Bool) {
+        guard OnDeviceController.isSupported else { return ("This iPhone · Needs iOS 17.4", Brand.warning, false) }
+        guard phone.isSetUp else { return ("This iPhone · Tap to set up", .gray, false) }
+        switch phone.phase {
+        case .active: return ("Simulating · This iPhone", Brand.live, true)
+        case .connecting: return ("Connecting · This iPhone", Brand.sky, false)
+        case .idle:
+            if phone.loopbackReachable == false { return ("Turn on LocalDevVPN", Brand.warning, false) }
+            return ("Ready · This iPhone", Brand.live, false)
+        }
+    }
+
+    var body: some View {
+        let display = self.display
+        PillContent(text: display.text, color: display.color, live: display.live)
+    }
+}
+
+private struct PillContent: View {
+    let text: String
+    let color: Color
+    let live: Bool
+
+    var body: some View {
         HStack(spacing: 8) {
-            if display.live {
-                PulsingDot(color: display.color, size: 8)
+            if live {
+                PulsingDot(color: color, size: 8)
             } else {
-                Circle().fill(display.color).frame(width: 8, height: 8)
+                Circle().fill(color).frame(width: 8, height: 8)
             }
-            Text(display.text)
+            Text(text)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .contentTransition(.opacity)
@@ -341,7 +564,40 @@ private struct StatusPill: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         .glassCapsule(interactive: true)
-        .animation(Brand.spring, value: display.text)
+        .animation(Brand.spring, value: text)
+    }
+}
+
+/// What the iPhone-only mode is holding.
+private struct PhoneSimulatingRow: View {
+    let name: String?
+    let coordinate: CLLocationCoordinate2D
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(Brand.gradient).frame(width: 44, height: 44)
+                    .shadow(color: Brand.indigo.opacity(0.5), radius: 10, y: 4)
+                Image(systemName: "location.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("NOW SIMULATING · THIS IPHONE")
+                    .font(.caption2.weight(.bold))
+                    .kerning(0.8)
+                    .foregroundStyle(.secondary)
+                Text(name ?? "Custom location")
+                    .font(Brand.rounded(.headline))
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+                Text(String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
+            Spacer(minLength: 0)
+        }
     }
 }
 

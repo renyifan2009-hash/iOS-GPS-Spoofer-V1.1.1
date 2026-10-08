@@ -252,6 +252,17 @@ jobs:
       - name: Toolchain
         run: xcodebuild -version
 
+      # idevice, the iPhone-only mode's library: a 210 MB download, kept
+      # between runs.
+      - name: Cache the idevice download
+        uses: actions/cache@v4
+        with:
+          path: ~/idevice-cache
+          key: idevice-${{ hashFiles('iPhoneRemote/scripts/fetch-idevice.sh') }}
+
+      - name: Fetch idevice
+        run: IDEVICE_CACHE_DIR="$HOME/idevice-cache" iPhoneRemote/scripts/fetch-idevice.sh
+
       - name: Generate the Xcode project
         run: |
           brew install xcodegen

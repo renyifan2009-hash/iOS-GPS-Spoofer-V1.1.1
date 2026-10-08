@@ -4,7 +4,7 @@
 <dict>
 	<!-- Merged with the keys Xcode generates (GENERATE_INFOPLIST_FILE = YES). -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>SpoofRemote finds your Mac on this network and sends it the places you pick.</string>
+	<string>SpoofRemote finds your Mac on this network, and in the iPhone-only mode reaches this iPhone's own developer services.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_iosgpsspoof._tcp</string>
@@ -15,6 +15,48 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Shows where iOS currently reports this iPhone to be, so you can check the simulated location.</string>
+	<string>Shows where iOS reports this iPhone to be, so you can check the simulated location. In the iPhone-only mode it also keeps SpoofRemote running while it holds a location.</string>
+	<!-- The iPhone-only mode: the location lasts while the app runs, so a
+	     background location session keeps it running. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<!-- Pairing files saved by the Mac app open in SpoofRemote (AirDrop, Files, Mail). -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>iPhone Pairing File</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.iosgpsspoof.mobiledevicepairing</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.iosgpsspoof.mobiledevicepairing</string>
+			<key>UTTypeDescription</key>
+			<string>iPhone Pairing File</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>mobiledevicepairing</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
 </dict>
 </plist>

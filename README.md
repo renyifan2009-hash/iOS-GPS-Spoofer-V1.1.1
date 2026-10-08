@@ -171,6 +171,7 @@ don't need them.
 ## For developers
 
 How it works, the command-line tool, building from source, tests and
-packaging: [docs/DEVELOPERS.md](docs/DEVELOPERS.md). The iPhone remote app:
-[docs/IPHONE-REMOTE.md](docs/IPHONE-REMOTE.md). The plan for spoofing from the
-iPhone alone, on cellular: [docs/PHONE-ONLY.md](docs/PHONE-ONLY.md).
+packaging: [docs/DEVELOPERS.md](docs/DEVELOPERS.md). The iPhone app,
+SpoofRemote: [docs/IPHONE-REMOTE.md](docs/IPHONE-REMOTE.md). Its iPhone-only
+mode (beta), which works with no Mac nearby and on cellular:
+[docs/PHONE-ONLY.md](docs/PHONE-ONLY.md).

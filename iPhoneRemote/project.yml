@@ -1,5 +1,6 @@
 # XcodeGen spec for the SpoofRemote iPhone app.
 #   brew install xcodegen
+#   iPhoneRemote/scripts/fetch-idevice.sh     # once: the iPhone-only mode's library
 #   cd iPhoneRemote && xcodegen && open SpoofRemote.xcodeproj
 # Then pick your team under Signing & Capabilities and run on your iPhone.
 name: SpoofRemote
@@ -19,6 +20,9 @@ targets:
     dependencies:
       - package: iOSGPSSpoofer
         product: RemoteAPI
+      # idevice, for the iPhone-only mode. Static, so nothing to embed.
+      - framework: Vendor/IDevice.xcframework
+        embed: false
     settings:
       base:
         PRODUCT_NAME: SpoofRemote
