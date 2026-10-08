@@ -59,7 +59,6 @@ struct PairingView: View {
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
-            .environment(\.colorScheme, .dark)
             .navigationTitle("Your Mac")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -74,6 +73,7 @@ struct PairingView: View {
             .sensoryFeedback(.error, trigger: shakes)
             .sensoryFeedback(.success, trigger: paired)
         }
+        .environment(\.colorScheme, .dark)
         .onAppear {
             connection.lastError = nil
             connection.startBrowsing()
@@ -299,7 +299,7 @@ struct PairingView: View {
     }
 
     private func submit(mac: ConnectionManager.DiscoveredMac?) {
-        guard code.count == RemoteAPI.pairingCodeLength, !connection.isWorking else { return }
+        guard code.count == RemoteAPI.pairingCodeLength, !connection.isWorking, !paired else { return }
         Task {
             let ok: Bool
             if let mac {

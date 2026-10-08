@@ -48,22 +48,24 @@ struct IntroView: View {
                 VStack(spacing: 18) {
                     PageDots(count: pageCount, current: page)
                     GlassGroup(spacing: 10) {
-                        Button {
-                            if page == pageCount - 1 { onFinish(true) } else { go(to: page + 1) }
-                        } label: {
-                            Text(page == pageCount - 1 ? "Find My Mac" : "Continue")
-                                .contentTransition(.opacity)
-                                .frame(maxWidth: .infinity)
-                        }
-                        .prominentButton()
-                        if page == pageCount - 1 {
+                        VStack(spacing: 10) {
                             Button {
-                                onFinish(false)
+                                if page == pageCount - 1 { onFinish(true) } else { go(to: page + 1) }
                             } label: {
-                                Text("Later").frame(maxWidth: .infinity)
+                                Text(page == pageCount - 1 ? "Find My Mac" : "Continue")
+                                    .contentTransition(.opacity)
+                                    .frame(maxWidth: .infinity)
                             }
-                            .glassButton()
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .prominentButton()
+                            if page == pageCount - 1 {
+                                Button {
+                                    onFinish(false)
+                                } label: {
+                                    Text("Later").frame(maxWidth: .infinity)
+                                }
+                                .glassButton()
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
                         }
                     }
                 }

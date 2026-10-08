@@ -22,7 +22,7 @@ final class ConnectionManager {
         let addresses: [String]
         let port: UInt16?
 
-        var id: String { "\(serviceName).\(domain)" }
+        nonisolated var id: String { "\(serviceName).\(domain)" }
     }
 
     struct Server: Codable, Equatable, Sendable {
@@ -44,7 +44,7 @@ final class ConnectionManager {
         case http(Int, String)
         case message(String)
 
-        var errorDescription: String? {
+        nonisolated var errorDescription: String? {
             switch self {
             case .notPaired: return "Pair with your Mac first."
             case .http(_, let message): return message
@@ -296,7 +296,10 @@ final class ConnectionManager {
             let data = try await send("GET", RemoteAPI.Path.status)
             let fresh = try RemoteAPI.makeDecoder().decode(RemoteStatus.self, from: data)
             if fresh != status { status = fresh }
-            if link != .online { link = .online }
+            if link != .online {
+                link = .online
+                lastError = nil
+            }
             failures = 0
         } catch ClientError.http(401, let message) {
             lastError = message
