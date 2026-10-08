@@ -211,6 +211,32 @@ struct ClearCmd: ParsableCommand {
     }
 }
 
+// MARK: - export-pairing
+
+struct ExportPairing: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "export-pairing",
+        abstract: "Save the iPhone's pairing file, for an app on the iPhone to reach its own developer services.",
+        discussion: """
+            The file lets whoever holds it act as this Mac towards the iPhone.             Give it only to that iPhone (AirDrop works). See docs/PHONE-ONLY.md.
+            """
+    )
+
+    @OptionGroup var common: CommonOptions
+
+    @Option(name: [.short, .long], help: "Where to write it (default: <device name>.mobiledevicepairing in this folder).")
+    var output: String?
+
+    func run() throws {
+        let ctx = try common.makeContext()
+        let name = output ?? "\(ctx.device.deviceName.replacingOccurrences(of: "/", with: "-")).mobiledevicepairing"
+        let url = URL(fileURLWithPath: (name as NSString).expandingTildeInPath)
+        try ctx.pmd.exportPairingFile(udid: ctx.device.udid, to: url)
+        log("saved the pairing file for \(ctx.device.deviceName) to \(url.path)")
+        log("it grants developer access to that iPhone: send it only to that iPhone.")
+    }
+}
+
 // MARK: - doctor
 
 struct Doctor: ParsableCommand {

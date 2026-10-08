@@ -139,6 +139,24 @@ extension Pymobiledevice3 {
         return chosen
     }
 
+    /// Write the iPhone's lockdown pairing record to `url`, for an app on the
+    /// iPhone itself to reach its own developer services (see
+    /// docs/PHONE-ONLY.md). It also turns on Wi-Fi connections, so lockdown
+    /// listens on the network, which is how such an app reaches it.
+    ///
+    /// The file lets whoever holds it act as this Mac towards the iPhone:
+    /// give it only to that iPhone.
+    public func exportPairingFile(udid: String, to url: URL) throws {
+        _ = try? run(["lockdown", "wifi-connections", "on", "--udid", udid], timeout: 30)
+        try? FileManager.default.removeItem(at: url)
+        _ = try run(["lockdown", "save-pair-record", url.path, "--udid", udid], timeout: 30)
+        // save-pair-record only logs "no pairing record was found" and exits 0.
+        guard let data = try? Data(contentsOf: url), !data.isEmpty,
+              (try? PropertyListSerialization.propertyList(from: data, format: nil)) is [String: Any] else {
+            throw SpoofError("this Mac has no pairing record for the iPhone. Unplug it, plug it back in, tap Trust, then try again.")
+        }
+    }
+
     /// Is a device with this UDID currently reachable?
     public func isPresent(udid: String, connection: ConnectionFilter = .any) -> Bool {
         guard let devices = try? listDevices() else { return false }

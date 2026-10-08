@@ -25,7 +25,8 @@ struct IosGpsSpoof: ParsableCommand {
             Run `iosgpsspoof doctor` to check your setup.
             """,
         version: "2.0.0",
-        subcommands: [Spoof.self, Route.self, Serve.self, List.self, ClearCmd.self, Doctor.self, DumpHelper.self],
+        subcommands: [Spoof.self, Route.self, Serve.self, List.self, ClearCmd.self, Doctor.self, ExportPairing.self,
+                      DumpHelper.self],
         defaultSubcommand: Spoof.self
     )
 }
