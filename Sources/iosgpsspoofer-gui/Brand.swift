@@ -195,15 +195,17 @@ struct PulsingDot: View {
             .frame(width: size, height: size)
             .background {
                 if active {
+                    // Started by the ripple itself, so a dot that turns live
+                    // after appearing still pulses.
                     Circle()
                         .fill(color.opacity(0.45))
                         .scaleEffect(ripple ? 2.8 : 1)
                         .opacity(ripple ? 0 : 0.9)
+                        .onAppear {
+                            withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { ripple = true }
+                        }
+                        .onDisappear { ripple = false }
                 }
-            }
-            .onAppear {
-                guard active else { return }
-                withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { ripple = true }
             }
     }
 }

@@ -11,10 +11,12 @@ struct SettingsView: View {
                 .tabItem { Label("Engine", systemImage: "bolt.horizontal") }
             MovementSettings()
                 .tabItem { Label("Movement", systemImage: "figure.walk.motion") }
+            RemoteSettings()
+                .tabItem { Label("iPhone Remote", systemImage: "iphone.radiowaves.left.and.right") }
             AboutSettings()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 560)
+        .frame(width: 620)
         .scenePadding()
     }
 }
@@ -164,6 +166,90 @@ private struct MovementSettings: View {
             }
             Section {
                 Button("Restore All Defaults", role: .destructive) { prefs.resetAll() }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct RemoteSettings: View {
+    var body: some View {
+        @Bindable var host = RemoteHost.shared
+        Form {
+            Section {
+                Toggle("Let the SpoofRemote iPhone app control this Mac", isOn: $host.isEnabled)
+                Text("""
+                    Start, move and stop the simulated location from your iPhone, without touching \
+                    the Mac. The iPhone finds this Mac over Bonjour on your Wi-Fi or its own Personal \
+                    Hotspot, and only paired iPhones can send commands. Keep this window's Mac awake.
+                    """)
+                    .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Status") {
+                    HStack(spacing: 6) {
+                        switch host.state {
+                        case .off:
+                            Image(systemName: "circle").foregroundStyle(.secondary)
+                            Text("Off")
+                        case .starting:
+                            ProgressView().controlSize(.small)
+                            Text("Starting…")
+                        case .running:
+                            PulsingDot(color: Brand.live, size: 7)
+                            Text("Listening as “\(host.serverName)”")
+                        case .failed(let message):
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            Text(message).lineLimit(3).help(message)
+                        }
+                    }
+                }
+            }
+            if host.state == .running || host.state == .starting {
+                Section("Pair an iPhone") {
+                    HStack(alignment: .center, spacing: 14) {
+                        IconTile(symbol: "lock.shield.fill", colors: TileColors.brand, size: 34)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(host.pairingCode)
+                                .font(.system(size: 26, weight: .semibold, design: .monospaced))
+                                .contentTransition(.numericText())
+                                .textSelection(.enabled)
+                            Text("In SpoofRemote, pick “\(host.serverName)” and enter this code.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("New Code") { withAnimation(.snappy) { host.newCode() } }
+                    }
+                    LabeledContent("If it isn't found automatically") {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            if host.addresses.isEmpty {
+                                Text("Not on a network").foregroundStyle(.secondary)
+                            }
+                            ForEach(host.addresses, id: \.self) { address in
+                                Text("\(address.address):\(String(host.port))  ·  \(address.label)")
+                                    .font(.caption.monospaced())
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+                    .onAppear { host.refreshAddresses() }
+                }
+                Section("Paired iPhones") {
+                    if host.clients.isEmpty {
+                        Text("None yet.").foregroundStyle(.secondary)
+                    }
+                    ForEach(host.clients) { client in
+                        HStack(spacing: 10) {
+                            IconTile(symbol: "iphone", colors: TileColors.purple, size: 26)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(client.name)
+                                Text(client.lastSeen.map { "Last seen \($0.formatted(.relative(presentation: .named)))" }
+                                     ?? "Paired \(client.pairedAt.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Unpair", role: .destructive) { host.unpair(client) }
+                        }
+                    }
+                }
             }
         }
         .formStyle(.grouped)

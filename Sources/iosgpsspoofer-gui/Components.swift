@@ -116,10 +116,26 @@ struct Card<Content: View>: View {
     }
 }
 
-/// Floating frosted panel used over the map.
+/// Floating panels over the map. On macOS 26 (built with Xcode 26) they're
+/// real Liquid Glass; before that, a frosted material with a lit edge.
 struct GlassPanel: ViewModifier {
     var cornerRadius: CGFloat = 14
+
+    @ViewBuilder
     func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            materialPanel(content)
+        }
+        #else
+        materialPanel(content)
+        #endif
+    }
+
+    private func materialPanel(_ content: Content) -> some View {
         content
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay {

@@ -54,7 +54,7 @@ jobs:
       - name: Unit tests
         run: swift test --skip-build
 
-      - name: Build (release: CLI + GUI)
+      - name: "Build (release: CLI + GUI)"
         run: swift build -c release
 
       - name: Set up pymobiledevice3
@@ -73,6 +73,7 @@ jobs:
           set -x
           .build/release/iosgpsspoof --help
           .build/release/iosgpsspoof route --help
+          .build/release/iosgpsspoof serve --help
           .build/release/iosgpsspoof list --json || true
           # No iPhone on the runner, so doctor reports a problem — but the live
           # engine probe must succeed against a real pymobiledevice3 on macOS.
@@ -91,3 +92,24 @@ jobs:
           path: dist/*.dmg
           if-no-files-found: error
           retention-days: 14
+
+  iphone-remote:
+    name: Build · SpoofRemote iPhone app
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: xcodebuild -version
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          cd iPhoneRemote && xcodegen
+
+      - name: Build for the iOS Simulator (unsigned)
+        run: |
+          xcodebuild -project iPhoneRemote/SpoofRemote.xcodeproj -scheme SpoofRemote \
+            -destination 'generic/platform=iOS Simulator' -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO build

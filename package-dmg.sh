@@ -58,6 +58,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Uses Apple developer location-simulation via pymobiledevice3.</string>
   <key>ITSAppUsesNonExemptEncryption</key><false/>
+  <key>NSLocalNetworkUsageDescription</key><string>The iPhone Remote setting lets the SpoofRemote app on your iPhone control this Mac over your local network.</string>
+  <key>NSBonjourServices</key><array><string>_iosgpsspoof._tcp</string></array>
 </dict></plist>
 PLIST
 

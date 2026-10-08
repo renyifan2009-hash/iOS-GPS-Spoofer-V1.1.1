@@ -23,6 +23,12 @@ Two front-ends over a shared core (`SpooferCore`):
   toasts for every action, a new app icon, and a first-launch **welcome &
   setup checklist** that checks pymobiledevice3, the live engine, your iPhone
   and Developer Mode for you.
+- **iPhone Remote** — control everything from your phone. The new
+  **SpoofRemote** iPhone app (Apple Maps, search, favorites, Liquid Glass
+  design) finds your Mac over Bonjour, pairs with a one-time code, and tells
+  it where to put the location; the Mac keeps the developer connection alive.
+  Run `iosgpsspoof serve` or turn on Settings ▸ iPhone Remote. See
+  **[docs/IPHONE-REMOTE.md](docs/IPHONE-REMOTE.md)**.
 - **Live engine** — one long-lived channel to the phone. Moves are instant
   (no new tunnel per move), which makes smooth routes, pause / resume /
   scrubbing, and a real-time **joystick** possible. Falls back to the classic
@@ -217,6 +223,10 @@ iosgpsspoof route 48.8584,2.2945 48.8606,2.3376 --speed 5
 iosgpsspoof route @Home @Work --duration 25m --ping-pong
 
 iosgpsspoof clear                       # if a previous run was killed hard
+
+# Let the SpoofRemote iPhone app control the location (prints a pairing code)
+iosgpsspoof serve
+iosgpsspoof serve --install-agent       # …and start it at every login
 ```
 
 While `spoof` / `route` runs it re-establishes the session if the device
@@ -272,7 +282,10 @@ re-tests the helper as compiled into the binary, smoke-tests the CLI, and
 uploads a DMG.
 
 Layout: `Sources/SpooferCore` (engines, geodesy, routes, GPX/KML, parsing,
-library), `Sources/iosgpsspoof` (CLI), `Sources/iosgpsspoofer-gui` (app).
+library), `Sources/SpooferRemote` + `Sources/RemoteAPI` (the iPhone remote
+server and its wire format), `Sources/iosgpsspoof` (CLI),
+`Sources/iosgpsspoofer-gui` (app), `iPhoneRemote/` (the SpoofRemote iPhone
+app), `docs/` (landing page and guides).
 
 ## Notes & limitations
 

@@ -109,8 +109,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = AppIconRenderer.image(size: 512)
         }
         NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        MainActor.assumeIsolated { AppModel.shared.bootstrap() }
+        NSApp.activate()
+        MainActor.assumeIsolated {
+            AppModel.shared.bootstrap()
+            RemoteHost.shared.bootstrap()
+        }
 
         // Mop up children orphaned by a previous force-kill. Off-main: it
         // runs pgrep/ps and waits for them.

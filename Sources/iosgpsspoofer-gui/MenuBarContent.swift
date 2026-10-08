@@ -96,7 +96,7 @@ struct MenuBarContent: View {
             HStack {
                 Button("Open iOS GPS Spoofer") {
                     openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.activate()
                 }
                 .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
                 Spacer()
