@@ -35,7 +35,7 @@ public struct TripController: Sendable {
         self.speed = speed
         plan = planner.lapPlan(lap: lap, seed: seed)
         var rng = SplitMix64(seed: seed ^ 0xB4EA_C0DE_0000_0001)
-        breakDue = TripOdds.breakInterval(&rng)
+        breakDue = planner.settings.profile.isOnFoot ? TripOdds.pauseInterval(&rng) : TripOdds.breakInterval(&rng)
         self.rng = rng
         resync(to: lapDistance)
     }
@@ -167,11 +167,20 @@ public struct TripController: Sendable {
     }
 
     /// About every two hours of driving, a 10–20 minute break: at the next stop
-    /// within 5 km if there is one, else by pulling over.
+    /// within 5 km if there is one, else by pulling over. On foot, a short pause
+    /// every few minutes.
     private mutating func scheduleBreakIfDue(at s: Double, dt: TimeInterval) {
-        guard planner.settings.breaks, profile.kind == .drive, speed > 0.5 else { return }
+        guard planner.settings.breaks, profile.kind != .cycle, speed > 0.3 else { return }
         drivenSinceBreak += dt
         guard drivenSinceBreak >= breakDue else { return }
+        if profile.isOnFoot {
+            drivenSinceBreak = 0
+            breakDue = TripOdds.pauseInterval(&rng)
+            let at = min(plan.length - 1, s + speed * speed / (2 * profile.braking) + 1)
+            guard at > s, nextStop >= plan.stops.count || plan.stops[nextStop].distance > at + 3 else { return }
+            plan.stops.insert(TripStop(distance: at, wait: TripOdds.pauseLength(&rng), reason: .pause), at: nextStop)
+            return
+        }
         drivenSinceBreak = 0
         breakDue = TripOdds.breakInterval(&rng)
         let rest = TripOdds.breakLength(&rng)
@@ -200,6 +209,9 @@ public struct TripController: Sendable {
         if planner.settings.breaks, profile.kind == .drive {
             let upcoming = Int((drivenSinceBreak + total) / TripOdds.meanBreakInterval)
             total += Double(upcoming) * TripOdds.meanBreakLength
+        } else if planner.settings.breaks, profile.isOnFoot {
+            let upcoming = Int((drivenSinceBreak + total) / TripOdds.meanPauseInterval)
+            total += Double(upcoming) * TripOdds.meanPauseLength
         }
         return total
     }

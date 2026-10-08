@@ -282,6 +282,7 @@ struct TripText {
         case .destination: return "Arrived"
         case .turnaround: return "Turning around"
         case .rest: return "Break"
+        case .pause: return "Pause"
         }
     }
 
@@ -295,6 +296,7 @@ struct TripText {
         case .destination: return "flag.checkered"
         case .turnaround: return "arrow.uturn.left"
         case .rest: return "cup.and.saucer.fill"
+        case .pause: return "pause.circle.fill"
         }
     }
 

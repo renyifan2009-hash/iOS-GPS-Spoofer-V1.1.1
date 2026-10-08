@@ -15,7 +15,7 @@ positions the iPhone sees looks like a real drive or walk:
 - it **drives at each road's speed limit**, with the chosen speed as the top
   speed;
 - it **waits at the stops you choose** (for example 5 minutes at Stop 1);
-- on long drives it **takes breaks**;
+- on long drives it **takes breaks**, and on foot it **pauses now and then**;
 - a walker **waits at crossing lights**;
 - the GPS position **drifts slowly** like a real receiver, instead of jumping
   randomly every update.
@@ -111,7 +111,7 @@ to 9 m/s, drive above that.
 | slowest turn speed (m/s) | – | – | 3.0 | 3.5 |
 | traffic lights | wait at red | wait at red | wait at red | wait at red |
 | stop signs | – | – | slow to 2 m/s | full stop |
-| breaks | – | – | – | every ~2 h |
+| breaks | 5–25 s pause every 3–8 min | same as walking | – | 10–20 min every ~2 h |
 
 Lights and signs:
 

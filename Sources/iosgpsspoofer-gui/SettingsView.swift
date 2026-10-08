@@ -168,7 +168,7 @@ private struct MovementSettings: View {
                     Toggle("Stop at stop signs, slow at yield signs", isOn: $prefs.tripStopSigns)
                     Toggle("Slow down for turns and curves", isOn: $prefs.tripSlowForTurns)
                     Toggle("Keep to each road's speed limit", isOn: $prefs.tripSpeedLimits)
-                    Toggle("Take a break about every 2 hours of driving", isOn: $prefs.tripBreaks)
+                    Toggle("Take breaks: every 2 hours when driving, short pauses on foot", isOn: $prefs.tripBreaks)
                 }
                 .padding(.leading, 18)
                 .disabled(!prefs.realisticTrips)

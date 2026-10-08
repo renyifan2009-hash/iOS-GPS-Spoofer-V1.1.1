@@ -119,6 +119,18 @@ public enum TripOdds {
         Double.random(in: 600...1200, using: &rng)
     }
 
+    /// On foot: a short pause (a phone, a shop window) every few minutes of walking.
+    public static let meanPauseInterval: TimeInterval = 330
+    public static let meanPauseLength: TimeInterval = 15
+
+    public static func pauseInterval(_ rng: inout SplitMix64) -> TimeInterval {
+        Double.random(in: 180...480, using: &rng)
+    }
+
+    public static func pauseLength(_ rng: inout SplitMix64) -> TimeInterval {
+        Double.random(in: 5...25, using: &rng)
+    }
+
     static func triangular(_ rng: inout SplitMix64, low: Double, mode: Double, high: Double) -> Double {
         let u = Double.random(in: 0..<1, using: &rng)
         let cut = (mode - low) / (high - low)
@@ -178,6 +190,8 @@ public struct TripStop: Sendable, Equatable {
         case destination, turnaround
         /// A break on a long drive.
         case rest
+        /// A short pause on foot.
+        case pause
     }
 
     /// Metres into the lap.

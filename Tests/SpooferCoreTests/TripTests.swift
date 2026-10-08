@@ -316,3 +316,31 @@ final class LoopStopTests: XCTestCase {
         XCTAssertTrue(withData.lapPlan(lap: 0, seed: 2).stops.allSatisfy { $0.reason != .redLight })
     }
 }
+
+final class PauseTests: XCTestCase {
+    func testWalkersPauseNowAndThen() {
+        let planner = TripPlanner(path: TripPlannerTests.line(5000), loopMode: .once,
+                                  settings: TripSettings(topSpeed: 1.4))
+        var playback = RoutePlayback(path: planner.path, loopMode: .once)
+        var trip = TripController(planner: planner, seed: 3)
+        var pauses = 0
+        var pausedFor = 0.0
+        var wasPaused = false
+        var t = 0.0
+        while t < 1800 && !playback.isFinished {
+            playback.advance(by: trip.step(dt: 0.5, lapDistance: playback.lapDistance, lap: playback.lap))
+            t += 0.5
+            if case .stopped(.pause, _) = trip.status {
+                if !wasPaused { pauses += 1 }
+                pausedFor += 0.5
+                wasPaused = true
+            } else {
+                wasPaused = false
+            }
+        }
+        XCTAssertGreaterThanOrEqual(pauses, 3)           // 30 minutes of walking, one every 3–8 min
+        XCTAssertLessThanOrEqual(pauses, 10)
+        XCTAssertGreaterThan(pausedFor / Double(pauses), 4)
+        XCTAssertLessThan(pausedFor / Double(pauses), 26)
+    }
+}
