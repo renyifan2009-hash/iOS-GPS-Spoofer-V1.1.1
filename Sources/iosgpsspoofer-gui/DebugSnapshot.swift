@@ -77,6 +77,7 @@ enum DebugSnapshot {
                   + "route=\(model.routeGeometry.count)+\(model.closingLeg?.count ?? 0) directions=\(model.directionsState) "
                   + "speed=\(String(format: "%.1f", model.deviceSpeed)) trip=\(model.tripStatus) roadData=\(model.roadDataState) "
                   + "lights=\(model.roadFeatures.uniqueCount(of: .trafficSignal)) signs=\(model.roadFeatures.uniqueCount(of: .stopSign)) "
+                  + "bumps=\(model.roadFeatures.uniqueCount(of: .trafficCalming)) "
                   + "zones=\(model.roadFeatures.zones.count) eta=\(model.routeProgress?.eta.map { String(format: "%.0f", $0) } ?? "-")")
             fflush(stdout)
         }

@@ -76,10 +76,12 @@ The app shows a checklist. Each step gets a green tick when it's done.
   and any stops. Pick a speed, then click **Start Route**. Turn on **Follow
   roads & paths** to stay on real streets.
 - **Drive like a real person** (on by default): with Follow roads & paths on, a
-  route stops at some red lights and at every stop sign, slows down for turns,
-  and keeps to each road's speed limit. The speed you pick is the top speed.
-  Long drives take a break about every two hours; walks pause now and then.
-  While it's stopped, the status panel says why ("Red light 0:26").
+  route stops at some red lights, stops or rolls slowly through stop signs,
+  slows down for turns and speed bumps, and keeps to each road's speed limit.
+  It only stops for lights and signs that face its own direction. The speed you
+  pick is the top speed. Long drives take a break about every two hours; walks
+  pause now and then. While it's stopped, the status panel says why ("Red
+  light 0:26").
 - **Wait at a stop:** hover over a stop in the route panel, click the timer
   and pick how long, from 30 seconds to 30 minutes.
 - **Joystick:** click **Joystick**, then **Start Joystick**. Steer with

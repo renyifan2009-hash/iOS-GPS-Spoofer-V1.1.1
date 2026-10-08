@@ -163,7 +163,8 @@ extension AppModel {
                 self.roadDataState = .ready
                 self.roadDataRetries = 3
                 self.lapTimeCache = nil
-                self.appendLog(Self.describe(features, length: path.length), level: .info)
+                self.appendLog(Self.describe(features, length: path.length, wayBack: self.loopMode == .pingPong),
+                               level: .info)
                 // Some pieces couldn't be checked: try them again later (the rest is cached).
                 if !features.complete { self.scheduleRoadDataRetry(for: pending) }
                 if var trip = self.trip, Self.pathKey(trip.planner.path) == key {
@@ -206,12 +207,14 @@ extension AppModel {
         refreshRoadData()
     }
 
-    static func describe(_ features: RoadFeatures, length: Double) -> String {
-        let lights = features.uniqueCount(of: .trafficSignal)
-        let signs = features.uniqueCount(of: .stopSign)
+    static func describe(_ features: RoadFeatures, length: Double, wayBack: Bool = false) -> String {
+        let lights = features.uniqueCount(of: .trafficSignal, wayBack: wayBack)
+        let signs = features.uniqueCount(of: .stopSign, wayBack: wayBack)
+        let bumps = features.uniqueCount(of: .trafficCalming, wayBack: wayBack)
         let coverage = Int((features.speedLimitCoverage(of: length) * 100).rounded())
         var text = "OpenStreetMap: \(lights) traffic light\(lights == 1 ? "" : "s"), "
-            + "\(signs) stop sign\(signs == 1 ? "" : "s") on this route"
+            + "\(signs) stop sign\(signs == 1 ? "" : "s")"
+            + (bumps > 0 ? ", \(bumps) speed bump\(bumps == 1 ? "" : "s")" : "") + " on this route"
         if coverage > 0 { text += ", speed limits for \(coverage)% of it" }
         if !features.complete { text += " (some of the route couldn't be checked)" }
         return text + "."
@@ -237,10 +240,14 @@ extension AppModel {
     var roadMarkers: [RoadMarker] {
         guard prefs.realisticTrips, mode == .route || activity == .routing, roadDataReady else { return [] }
         var seen = Set<GeoPoint>()
+        let wayBack = loopMode == .pingPong
         return roadFeatures.features.compactMap { feature in
+            // Signs only for the other direction don't matter unless the route comes back.
+            guard wayBack || feature.facing != .backward else { return nil }
             switch feature.kind {
             case .trafficSignal, .signalCrossing: guard prefs.tripTrafficLights else { return nil }
             case .stopSign, .giveWay: guard prefs.tripStopSigns else { return nil }
+            case .trafficCalming: guard prefs.tripSlowForTurns, travelMode == .driving else { return nil }
             }
             guard seen.insert(feature.point).inserted else { return nil }
             return RoadMarker(point: feature.point, kind: feature.kind)

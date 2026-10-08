@@ -166,7 +166,7 @@ private struct MovementSettings: View {
                 Group {
                     Toggle("Stop at some red lights", isOn: $prefs.tripTrafficLights)
                     Toggle("Stop at stop signs, slow at yield signs", isOn: $prefs.tripStopSigns)
-                    Toggle("Slow down for turns and curves", isOn: $prefs.tripSlowForTurns)
+                    Toggle("Slow down for turns, curves and speed bumps", isOn: $prefs.tripSlowForTurns)
                     Toggle("Keep to each road's speed limit", isOn: $prefs.tripSpeedLimits)
                     Toggle("Take breaks: every 2 hours when driving, short pauses on foot", isOn: $prefs.tripBreaks)
                 }
@@ -174,8 +174,8 @@ private struct MovementSettings: View {
                 .disabled(!prefs.realisticTrips)
                 Text("""
                     Routes speed up and brake gradually, and wait at the stops you choose. Traffic lights, \
-                    signs and speed limits come from OpenStreetMap. About 45% of lights are red, with waits of \
-                    8 to 60 seconds. Your chosen speed becomes the top speed.
+                    signs, speed bumps and speed limits come from OpenStreetMap. About half the lights are \
+                    red, and most waits are under a minute. Your chosen speed becomes the top speed.
                     """)
                     .font(.caption).foregroundStyle(.secondary)
             }

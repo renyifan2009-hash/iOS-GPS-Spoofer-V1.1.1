@@ -18,9 +18,9 @@ public struct OverpassAnswer: Sendable, Equatable {
     public var ways: [OSMWay]
 }
 
-/// Loads traffic lights, stop and yield signs, signal crossings and speed
-/// limits near a route from OpenStreetMap's public Overpass API: in pieces of
-/// about 15 km, one request at a time, cached on disk for 30 days.
+/// Loads traffic lights, stop and yield signs, signal crossings, speed bumps and
+/// speed limits near a route from OpenStreetMap's public Overpass API: in pieces
+/// of about 15 km, one request at a time, cached on disk for 30 days.
 public struct OverpassLoader: Sendable {
     public typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
@@ -74,7 +74,8 @@ public struct OverpassLoader: Sendable {
     /// signs must be on the route's own road, not a side street.
     static let signalRadius = 18.0, signRadius = 6.0, crossingRadius = 12.0, roadRadius = 6.0
 
-    /// Everything known along `path`. `roads` also loads speed limits (for driving).
+    /// Everything known along `path`. `roads` also loads the roads themselves
+    /// (for driving): their speed limits, and which signs are for which direction.
     public func features(along path: RoutePath, roads: Bool,
                          progress: (@Sendable (Double) -> Void)? = nil) async throws -> RoadFeatures {
         if let cacheDirectory { Self.pruneCache(cacheDirectory) }
@@ -136,6 +137,7 @@ public struct OverpassLoader: Sendable {
             "node(around:\(r(signalRadius)),\(line))[highway=traffic_signals];",
             "node(around:\(r(signRadius)),\(line))[highway~\"^(stop|give_way)$\"];",
             "node(around:\(r(crossingRadius)),\(line))[highway=crossing][crossing=traffic_signals];",
+            "node(around:\(r(signRadius)),\(line))[traffic_calming~\"^(bump|hump|table|cushion|yes)$\"];",
         ]
         if roads {
             parts.append("way(around:\(r(roadRadius)),\(line))"
@@ -156,6 +158,7 @@ public struct OverpassLoader: Sendable {
             let lon: Double?
             let tags: [String: String]?
             let geometry: [LatLon?]?
+            let nodes: [Int64]?
         }
         struct Answer: Decodable {
             let elements: [Element]
@@ -173,9 +176,18 @@ public struct OverpassLoader: Sendable {
                 guard let lat = element.lat, let lon = element.lon else { continue }
                 nodes.append(OSMNode(id: element.id, point: GeoPoint(lat, lon), tags: element.tags ?? [:]))
             case "way":
-                let points = (element.geometry ?? []).compactMap { $0.map { GeoPoint($0.lat, $0.lon) } }
+                let geometry = element.geometry ?? []
+                let refs = element.nodes ?? []
+                var points: [GeoPoint] = []
+                var ids: [Int64] = []
+                for (i, entry) in geometry.enumerated() {
+                    guard let entry else { continue }
+                    points.append(GeoPoint(entry.lat, entry.lon))
+                    if refs.count == geometry.count { ids.append(refs[i]) }
+                }
                 guard points.count >= 2 else { continue }
-                ways.append(OSMWay(id: element.id, points: points, tags: element.tags ?? [:]))
+                ways.append(OSMWay(id: element.id, points: points, tags: element.tags ?? [:],
+                                   nodeIDs: ids.count == points.count ? ids : []))
             default:
                 continue
             }
@@ -183,27 +195,33 @@ public struct OverpassLoader: Sendable {
         return OverpassAnswer(nodes: nodes, ways: ways)
     }
 
+    /// What a node is, how near the route it must be (metres), and for traffic
+    /// calming the speed over it.
+    static func classify(_ node: OSMNode) -> (kind: RoadFeature.Kind, radius: Double, speed: Double?)? {
+        switch node.tags["highway"] {
+        case "traffic_signals":
+            // Lights only for emergency vehicles, flashing ones and ramp meters don't stop traffic.
+            if ["emergency", "blinker", "ramp_meter"].contains(node.tags["traffic_signals"] ?? "") { return nil }
+            return (.trafficSignal, signalRadius, nil)
+        case "stop":
+            return (.stopSign, signRadius, nil)
+        case "give_way":
+            return (.giveWay, signRadius, nil)
+        case "crossing" where node.tags["crossing"] == "traffic_signals":
+            return (.signalCrossing, crossingRadius, nil)
+        default:
+            guard let value = node.tags["traffic_calming"], let speed = TripOdds.calmingSpeed(value) else { return nil }
+            return (.trafficCalming, signRadius, speed)
+        }
+    }
+
     /// Places an answer's nodes along `path` and turns its roads into speed zones.
     public static func features(from answer: OverpassAnswer, along path: RoutePath) -> RoadFeatures {
         let matcher = RouteMatcher(path: path)
+        let signs = RoadSigns(ways: answer.ways, signs: Set(answer.nodes.map(\.id)))
         var features: [RoadFeature] = []
         for node in answer.nodes.sorted(by: { $0.id < $1.id }) {
-            let kind: RoadFeature.Kind
-            let radius: Double
-            switch node.tags["highway"] {
-            case "traffic_signals":
-                // Lights only for emergency vehicles, flashing ones and ramp meters don't stop traffic.
-                if ["emergency", "blinker", "ramp_meter"].contains(node.tags["traffic_signals"] ?? "") { continue }
-                (kind, radius) = (.trafficSignal, signalRadius)
-            case "stop":
-                (kind, radius) = (.stopSign, signRadius)
-            case "give_way":
-                (kind, radius) = (.giveWay, signRadius)
-            case "crossing":
-                (kind, radius) = (.signalCrossing, crossingRadius)
-            default:
-                continue
-            }
+            guard let (kind, radius, speed) = classify(node) else { continue }
             var passes = matcher.passes(near: node.point, radius: radius)
             // A closed loop starts and ends at the same place: something near it
             // is met once, as the lap ends.
@@ -212,19 +230,13 @@ public struct OverpassLoader: Sendable {
                 passes.removeFirst()
             }
             for pass in passes {
-                features.append(RoadFeature(kind: kind, distance: pass.distance, point: node.point))
+                // Only signs for the route's direction (out and back: either).
+                guard let facing = signs.facing(of: node, kind: kind, along: path, at: pass.distance) else { continue }
+                features.append(RoadFeature(kind: kind, distance: pass.distance, point: node.point,
+                                            facing: facing, speed: speed))
             }
         }
-        // A junction often has a light on each approach: one stop per 30 m (signs: 15 m).
-        features.sort { $0.distance < $1.distance }
-        var kept: [RoadFeature] = []
-        for feature in features {
-            let gap: Double = feature.kind == .trafficSignal || feature.kind == .signalCrossing ? 30 : 15
-            if let previous = kept.last(where: { $0.kind == feature.kind }), feature.distance - previous.distance < gap {
-                continue
-            }
-            kept.append(feature)
-        }
+        var kept = firstOfEachJunction(features)
         // A crossing light at a junction with traffic lights is part of that
         // junction's lights: only mid-block crossing lights stand on their own.
         let lights = kept.filter { $0.kind == .trafficSignal }.map(\.distance)
@@ -232,6 +244,37 @@ public struct OverpassLoader: Sendable {
             feature.kind == .signalCrossing && lights.contains { abs($0 - feature.distance) < 40 }
         }
         return RoadFeatures(features: kept, zones: SpeedLimits.zones(along: path, ways: answer.ways))
+    }
+
+    /// A junction often has a light on each approach: one stop per 30 m (signs
+    /// and bumps: 15 m), the first one met. Going along the route and coming
+    /// back, the first one met can differ, so each direction picks its own.
+    static func firstOfEachJunction(_ features: [RoadFeature]) -> [RoadFeature] {
+        let sorted = features.sorted { $0.distance < $1.distance }
+        func firsts(in order: [Int], facing: RoadFeature.Facing) -> Set<Int> {
+            var kept = Set<Int>()
+            var last: [RoadFeature.Kind: Double] = [:]
+            for i in order where sorted[i].facing.overlaps(facing) {
+                let feature = sorted[i]
+                let gap: Double = feature.kind == .trafficSignal || feature.kind == .signalCrossing ? 30 : 15
+                if let previous = last[feature.kind], abs(feature.distance - previous) < gap { continue }
+                last[feature.kind] = feature.distance
+                kept.insert(i)
+            }
+            return kept
+        }
+        let forward = firsts(in: Array(sorted.indices), facing: .forward)
+        let backward = firsts(in: sorted.indices.reversed(), facing: .backward)
+        return sorted.indices.compactMap { i in
+            var feature = sorted[i]
+            switch (forward.contains(i), backward.contains(i)) {
+            case (true, true): feature.facing = .both
+            case (true, false): feature.facing = .forward
+            case (false, true): feature.facing = .backward
+            case (false, false): return nil
+            }
+            return feature
+        }
     }
 
     // MARK: Fetching
@@ -268,8 +311,9 @@ public struct OverpassLoader: Sendable {
                         return answer
                     }
                     lastError = SpoofError("OpenStreetMap answered \(status)")
-                    // Busy: wait a moment and ask the same server once more.
-                    guard attempt == 0, [429, 503, 504].contains(status) else { break attempts }
+                    // Out of turns (429): leave this server alone for now; it asks for 30 s.
+                    // Busy (503, 504): wait a moment and ask it once more.
+                    guard attempt == 0, [503, 504].contains(status) else { break attempts }
                     let wait = http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? 3
                     try await Task.sleep(for: .seconds(min(10, max(1, wait))))
                 } catch is CancellationError {

@@ -5,11 +5,14 @@ public struct OSMWay: Sendable, Equatable {
     public var id: Int64
     public var points: [GeoPoint]
     public var tags: [String: String]
+    /// The id of the node at each point (empty when not known).
+    public var nodeIDs: [Int64]
 
-    public init(id: Int64, points: [GeoPoint], tags: [String: String]) {
+    public init(id: Int64, points: [GeoPoint], tags: [String: String], nodeIDs: [Int64] = []) {
         self.id = id
         self.points = points
         self.tags = tags
+        self.nodeIDs = nodeIDs
     }
 }
 

@@ -413,7 +413,7 @@ struct RealisticTripCard: View {
                     IconTile(symbol: "steeringwheel", colors: TileColors.orange, size: 26)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Drive like a real person").font(.system(size: 13, weight: .semibold))
-                        Text("Stops at some red lights and every stop sign, slows for turns, keeps to speed limits.")
+                        Text("Stops at some red lights and stop signs, slows for turns and bumps, keeps to speed limits.")
                             .font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -474,10 +474,14 @@ struct RealisticTripCard: View {
 
     private var summary: String {
         let features = model.roadFeatures
-        let lights = features.uniqueCount(of: .trafficSignal), signs = features.uniqueCount(of: .stopSign)
+        let wayBack = model.loopMode == .pingPong
+        let lights = features.uniqueCount(of: .trafficSignal, wayBack: wayBack)
+        let signs = features.uniqueCount(of: .stopSign, wayBack: wayBack)
+        let bumps = model.travelMode == .driving ? features.uniqueCount(of: .trafficCalming, wayBack: wayBack) : 0
         var parts: [String] = []
         if lights > 0 { parts.append("\(lights) traffic light\(lights == 1 ? "" : "s")") }
         if signs > 0 { parts.append("\(signs) stop sign\(signs == 1 ? "" : "s")") }
+        if bumps > 0 { parts.append("\(bumps) speed bump\(bumps == 1 ? "" : "s")") }
         if features.speedLimitCoverage(of: model.playPath.length) > 0.3 { parts.append("speed limits") }
         if parts.isEmpty { return "No traffic lights or stop signs on this route." }
         return parts.joined(separator: " · ") + (features.complete ? "" : " (some of the route couldn't be checked)")

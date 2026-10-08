@@ -88,7 +88,10 @@ final class RoadDataTests: XCTestCase {
         XCTAssertEqual(answer.nodes.count, 7)
         XCTAssertEqual(answer.ways.count, 2)
         let features = OverpassLoader.features(from: answer, along: path)
-        XCTAssertEqual(features.features.filter { $0.kind == .trafficSignal }.map { $0.distance.rounded() }, [200])
+        let lights = features.features.filter { $0.kind == .trafficSignal }
+        XCTAssertEqual(lights.filter { $0.facing != .backward }.map { $0.distance.rounded() }, [200])
+        // Coming back the other way, the first of the junction's two lights met is the other one.
+        XCTAssertEqual(lights.filter { $0.facing != .forward }.map { $0.distance.rounded() }, [215])
         XCTAssertEqual(features.features.filter { $0.kind == .stopSign }.count, 1)
         XCTAssertEqual(features.features.filter { $0.kind == .signalCrossing }.count, 1)
         XCTAssertEqual(features.zones.first?.speed ?? 0, 35 * 0.44704, accuracy: 1e-9)
@@ -160,5 +163,110 @@ extension RoadDataTests {
         let features = OverpassLoader.features(from: OverpassAnswer(nodes: [light], ways: []), along: square)
         XCTAssertEqual(features.features.count, 1)
         XCTAssertGreaterThan(features.features.first?.distance ?? 0, square.length - 40)   // met as the lap ends
+    }
+}
+
+/// Which signs and lights are for the route's own direction.
+final class SignDirectionTests: XCTestCase {
+    let a = GeoPoint(37, -122)
+
+    /// A crossroads 200 m up a 400 m north–south road (way 1, nodes 101–105),
+    /// crossed by an east–west street (way 2, nodes 201–203).
+    private func crossroads(_ nodes: [OSMNode]) -> OverpassAnswer {
+        let j = a.moved(by: 200, bearing: 0)
+        let north = OSMWay(id: 1, points: [a, a.moved(by: 192, bearing: 0), j, a.moved(by: 208, bearing: 0),
+                                           a.moved(by: 400, bearing: 0)],
+                           tags: ["highway": "residential"], nodeIDs: [101, 102, 103, 104, 105])
+        let east = OSMWay(id: 2, points: [j.moved(by: 200, bearing: 270), j.moved(by: 5, bearing: 270), j,
+                                          j.moved(by: 200, bearing: 90)],
+                          tags: ["highway": "residential"], nodeIDs: [201, 202, 103, 203])
+        return OverpassAnswer(nodes: nodes, ways: [north, east])
+    }
+
+    private var signs: [OSMNode] {
+        let j = a.moved(by: 200, bearing: 0)
+        return [
+            OSMNode(id: 102, point: a.moved(by: 192, bearing: 0), tags: ["highway": "stop"]),   // before the junction, northbound
+            OSMNode(id: 104, point: a.moved(by: 208, bearing: 0), tags: ["highway": "stop", "direction": "backward"]),
+            OSMNode(id: 202, point: j.moved(by: 5, bearing: 270), tags: ["highway": "stop"]),   // the cross street's
+        ]
+    }
+
+    func testStopSignsOnlyCountForTheirDirection() {
+        let northbound = RoutePath([a, a.moved(by: 400, bearing: 0)])
+        let found = OverpassLoader.features(from: crossroads(signs), along: northbound).features
+        XCTAssertEqual(found.map { $0.distance.rounded() }, [192, 208])
+        XCTAssertEqual(found.map(\.facing), [.forward, .backward])
+        // Southbound, the other sign is the one before the junction.
+        let southbound = RoutePath([a.moved(by: 400, bearing: 0), a])
+        let back = OverpassLoader.features(from: crossroads(signs), along: southbound).features
+        XCTAssertEqual(back.map { $0.distance.rounded() }, [192, 208])
+        XCTAssertEqual(back.map(\.facing), [.forward, .backward])
+        XCTAssertEqual(back.first?.point, signs[1].point)
+    }
+
+    func testEachDirectionStopsAtItsOwnLight() {
+        let j = a.moved(by: 200, bearing: 0)
+        let lights = [
+            OSMNode(id: 102, point: a.moved(by: 192, bearing: 0),
+                    tags: ["highway": "traffic_signals", "traffic_signals:direction": "forward"]),
+            OSMNode(id: 104, point: a.moved(by: 208, bearing: 0),
+                    tags: ["highway": "traffic_signals", "traffic_signals:direction": "backward"]),
+            OSMNode(id: 202, point: j.moved(by: 5, bearing: 270), tags: ["highway": "traffic_signals"]),
+        ]
+        let path = RoutePath([a, a.moved(by: 400, bearing: 0)])
+        let features = OverpassLoader.features(from: crossroads(lights), along: path)
+        XCTAssertEqual(features.features.map { $0.distance.rounded() }, [192, 208])
+        XCTAssertEqual(features.features.map(\.facing), [.forward, .backward])
+        XCTAssertEqual(features.uniqueCount(of: .trafficSignal), 1)
+        XCTAssertEqual(features.uniqueCount(of: .trafficSignal, wayBack: true), 2)
+    }
+
+    func testWithoutTheRoadsEverySignNearbyCounts() {
+        let path = RoutePath([a, a.moved(by: 400, bearing: 0)])
+        let bare = OverpassAnswer(nodes: signs, ways: [])
+        let found = OverpassLoader.features(from: bare, along: path).features
+        // The cross street's sign joins the junction's; the other two are 16 m apart.
+        XCTAssertEqual(found.map { $0.distance.rounded() }, [192, 208])
+        XCTAssertTrue(found.allSatisfy { $0.facing == .both })
+    }
+
+    func testParseKeepsEachWaysNodes() throws {
+        let json = #"""
+        {"elements": [
+          {"type": "way", "id": 1, "nodes": [11, 12, 13], "tags": {"highway": "primary"},
+           "geometry": [{"lat": 37, "lon": -122}, {"lat": 37.001, "lon": -122}, {"lat": 37.002, "lon": -122}]},
+          {"type": "way", "id": 2, "nodes": [21, 22], "tags": {"highway": "primary"},
+           "geometry": [{"lat": 37, "lon": -122}, null, {"lat": 37.002, "lon": -122}]},
+          {"type": "node", "id": 5, "lat": 37.001, "lon": -122, "tags": {"traffic_calming": "hump"}}
+        ]}
+        """#
+        let answer = try OverpassLoader.parse(Data(json.utf8))
+        XCTAssertEqual(answer.ways.first?.nodeIDs, [11, 12, 13])
+        XCTAssertEqual(answer.ways.last?.nodeIDs, [])          // the ids don't line up with the points
+        let path = RoutePath([a, a.moved(by: 400, bearing: 0)])
+        let bump = OverpassLoader.features(from: answer, along: path).features
+        XCTAssertEqual(bump.map(\.kind), [.trafficCalming])
+        XCTAssertEqual(bump.first?.speed ?? 0, 18 * 0.44704, accuracy: 1e-9)
+    }
+
+    func testAServerOutOfTurnsIsLeftAlone() async throws {
+        let path = RoutePath([a, a.moved(by: 1000, bearing: 0)])
+        let calls = Counter()
+        let busy = Counter()
+        let loader = OverpassLoader(userAgent: "test", cacheDirectory: nil) { request in
+            _ = await calls.increment()
+            let main = request.url?.host == "overpass-api.de"
+            if main { _ = await busy.increment() }
+            let status = main ? 429 : 200
+            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            return (status == 200 ? Data(#"{"elements": []}"#.utf8) : Data(), response)
+        }
+        let features = try await loader.features(along: path, roads: false)
+        XCTAssertTrue(features.complete)
+        let asked = await busy.value
+        XCTAssertEqual(asked, 1)                                // not asked again right away
+        let total = await calls.value
+        XCTAssertEqual(total, 2)
     }
 }

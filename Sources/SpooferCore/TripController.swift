@@ -204,7 +204,7 @@ public struct TripController: Sendable {
         return max(0, goal)
     }
 
-    /// About every two hours of driving, a 10–20 minute break: at the next stop
+    /// About every two hours of driving, a 13–22 minute break: at the next stop
     /// within 5 km if there is one, else by pulling over. On foot, a short pause
     /// every few minutes.
     private mutating func scheduleBreakIfDue(at s: Double, dt: TimeInterval) {

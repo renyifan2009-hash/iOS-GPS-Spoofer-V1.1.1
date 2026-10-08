@@ -82,38 +82,55 @@ public struct TripPlanner: Sendable, Equatable {
         var stops: [TripStop] = []
         var limits: [TripLimit] = []
 
-        /// Where something `d` metres along the route is met in a lap: once, or out and back.
-        func passes(_ d: Double) -> [Double] {
-            guard pingPong else { return [d] }
+        /// Where something `d` metres along the route is met in a lap: once, or
+        /// out and back. A sign for one direction only counts on that leg.
+        func passes(_ d: Double, facing: RoadFeature.Facing = .both) -> [Double] {
+            var places: [Double] = []
+            if facing != .backward { places.append(d) }
             let back = 2 * length - d
-            return abs(back - d) < 1 ? [d] : [d, back]
+            if pingPong, facing != .forward, abs(back - d) >= 1 || places.isEmpty { places.append(back) }
+            return places
         }
         // A stop exactly at the end of a lap would be skipped: the playback
         // starts the next lap as it gets there. Keep them just before it.
         let lastSpot = loopMode == .once ? cycle : max(0, cycle - 0.5)
         func clamp(_ at: Double) -> Double { min(max(at, 0), lastSpot) }
 
+        /// A traffic light whose stop line is `line` metres into the lap.
+        func light(at line: Double) {
+            switch TripOdds.light(profile, &rng) {
+            case .green:
+                break
+            case .turnsGreen(let speed):
+                limits.append(TripLimit(distance: clamp(line), speed: speed))
+            case .red(let wait, let queue):
+                stops.append(TripStop(distance: clamp(line - Double(queue) * TripOdds.queueSpacing),
+                                      wait: wait, reason: .redLight))
+            }
+        }
+
         for feature in features.features {
-            for at in passes(feature.distance) {
+            for at in passes(feature.distance, facing: feature.facing) {
                 switch feature.kind {
                 case .trafficSignal:
                     guard settings.trafficLights else { continue }
-                    if rng.chance(TripOdds.redLight(profile)) {
-                        stops.append(TripStop(distance: clamp(at - TripOdds.stopLineOffset),
-                                              wait: TripOdds.redWait(&rng), reason: .redLight))
-                    }
+                    light(at: at - TripOdds.stopLineOffset)
                 case .signalCrossing:
                     guard settings.trafficLights else { continue }
-                    if rng.chance(profile.isOnFoot ? TripOdds.crossingRedOnFoot : TripOdds.crossingRedForTraffic) {
+                    if profile.isOnFoot {
+                        light(at: at - 2)
+                    } else if rng.chance(TripOdds.crossingRedForTraffic) {
                         stops.append(TripStop(distance: clamp(at - 2), wait: TripOdds.crossingWait(&rng),
                                               reason: .crossing))
                     }
                 case .stopSign:
                     guard settings.stopSigns else { continue }
                     switch profile.kind {
-                    case .drive:
+                    case .drive where rng.chance(TripOdds.fullStopAtSign):
                         stops.append(TripStop(distance: clamp(at - 2), wait: TripOdds.stopSignWait(&rng),
                                               reason: .stopSign))
+                    case .drive:
+                        limits.append(TripLimit(distance: clamp(at - 2), speed: TripOdds.rollingStopSpeed(&rng)))
                     case .cycle:
                         limits.append(TripLimit(distance: at, speed: 2))
                     case .walk, .run:
@@ -127,6 +144,9 @@ public struct TripPlanner: Sendable, Equatable {
                     } else {
                         limits.append(TripLimit(distance: at, speed: TripOdds.giveWaySpeed))
                     }
+                case .trafficCalming:
+                    guard settings.slowForTurns, profile.kind == .drive, let speed = feature.speed else { continue }
+                    limits.append(TripLimit(distance: at, speed: speed))
                 }
             }
         }
@@ -134,8 +154,8 @@ public struct TripPlanner: Sendable, Equatable {
         // No map data: sharp turns on a road route are nearly always junctions.
         if settings.guessJunctions, features.features.isEmpty, settings.trafficLights, profile.kind == .drive {
             for turn in curveLimits where turn.speed < TripOdds.junctionTurnSpeed {
-                for at in passes(turn.distance) where rng.chance(TripOdds.junctionStop) {
-                    stops.append(TripStop(distance: clamp(at - 12), wait: TripOdds.redWait(&rng), reason: .redLight))
+                for at in passes(turn.distance) where rng.chance(TripOdds.junctionHasLight) {
+                    light(at: at - 12)
                 }
             }
         }

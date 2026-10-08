@@ -89,8 +89,8 @@ struct Route: ParsableCommand {
 
     @Flag(name: .customLong("realistic"), help: """
         Move like a real person: speed up and brake gradually, slow for turns, and wait at waypoints' corners. \
-        For a GPX/KML track on roads, also stop at some red lights and at stop signs, and keep to speed limits \
-        (from OpenStreetMap).
+        For a GPX/KML track on roads, also stop at some red lights and stop signs, slow for speed bumps, and keep \
+        to speed limits (from OpenStreetMap).
         """)
     var realistic: Bool = false
 
@@ -199,8 +199,11 @@ extension Route {
             switch result {
             case .success(let loaded):
                 features = loaded
-                log("realistic: \(loaded.uniqueCount(of: .trafficSignal)) traffic lights, "
-                    + "\(loaded.uniqueCount(of: .stopSign)) stop signs (map data © OpenStreetMap contributors)")
+                let back = loopMode == .pingPong
+                log("realistic: \(loaded.uniqueCount(of: .trafficSignal, wayBack: back)) traffic lights, "
+                    + "\(loaded.uniqueCount(of: .stopSign, wayBack: back)) stop signs, "
+                    + "\(loaded.uniqueCount(of: .trafficCalming, wayBack: back)) speed bumps "
+                    + "(map data © OpenStreetMap contributors)")
             case .failure(let error):
                 settings.guessJunctions = true
                 log("realistic: couldn't load map data (\(error)); stopping at some sharp turns instead")

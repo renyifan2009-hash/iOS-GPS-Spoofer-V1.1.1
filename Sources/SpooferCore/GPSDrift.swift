@@ -1,8 +1,8 @@
 import Foundation
 
 /// Slowly wandering GPS error (a first-order Gauss–Markov process): each update
-/// moves the error a little toward a new random value, so it drifts over tens of
-/// seconds like a real receiver's instead of jumping every fix.
+/// moves the error a little toward a new random value, so it drifts over about a
+/// minute like a real receiver's instead of jumping every fix.
 public struct GPSDrift: Sendable {
     /// Typical distance from the true position, metres (RMS).
     public var size: Double
@@ -12,7 +12,7 @@ public struct GPSDrift: Sendable {
     private var north = 0.0
     private var rng: SplitMix64
 
-    public init(size: Double, timeConstant: TimeInterval = 30, seed: UInt64 = .random(in: 0 ... .max)) {
+    public init(size: Double, timeConstant: TimeInterval = 60, seed: UInt64 = .random(in: 0 ... .max)) {
         self.size = size
         self.timeConstant = timeConstant
         rng = SplitMix64(seed: seed)

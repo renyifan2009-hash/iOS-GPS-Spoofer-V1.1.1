@@ -215,9 +215,10 @@ Two rules in the map code (`MapPicker.swift`) that each fixed a freeze:
 
 ## Realistic trips
 
-Routes move like a real person: they speed up and brake, slow for curves and
-slower roads, stop at some red lights and at stop signs, wait at chosen stops,
-and take breaks on long drives. The design and its sources are in
+Routes move like a real person: they speed up and brake, slow for curves,
+speed bumps and slower roads, stop at some red lights and stop signs (only the
+ones facing the route's direction), wait at chosen stops, and take breaks on
+long drives. The design and its sources are in
 [design/realistic-trips.md](design/realistic-trips.md).
 
 | Part | File |
@@ -229,6 +230,7 @@ and take breaks on long drives. The design and its sources are in
 | Arrival time from the plan (backward and forward passes) | `SpooferCore/TripTiming.swift` |
 | GPS wobble as a slowly wandering error (Gauss–Markov) | `SpooferCore/GPSDrift.swift` |
 | Map data from OpenStreetMap (Overpass), matched onto the route | `SpooferCore/OverpassLoader.swift`, `RouteMatcher.swift`, `SpeedLimits.swift` |
+| Which lights and signs face the route's direction | `SpooferCore/RoadSigns.swift` |
 | App side: settings, planner, map data state, retries | `iosgpsspoofer-gui/AppModel+Trip.swift` |
 
 How it plays: `RoutePlayback` owns the position along the route; each tick the
@@ -238,13 +240,21 @@ build the timed GPX that pymobiledevice3 replays (a stop is the same point
 repeated).
 
 **OpenStreetMap.** After Apple Maps returns the road route, the app asks the
-public Overpass API for `highway=traffic_signals`, `highway=stop|give_way` and
-`crossing=traffic_signals` nodes near the route, and (driving) the roads under it
-for `maxspeed`. It sends pieces of 15 km or less, one request at a time, with a
-User-Agent naming the app, and caches answers for 30 days in
+public Overpass API for `highway=traffic_signals`, `highway=stop|give_way`,
+`crossing=traffic_signals` and `traffic_calming=bump|hump|table|cushion` nodes
+near the route, and (driving) the roads under it, with their node ids. The
+roads give `maxspeed`, and they tell which signs are for which direction:
+`traffic_signals:direction` and `direction` tags first; an untagged stop or
+yield sign is for traffic heading into the junction just past it; a sign on a
+road the route only crosses is a side street's. Each direction then keeps the
+first light it meets at a junction (within 30 m).
+
+It sends pieces of 15 km or less, one request at a time, with a User-Agent
+naming the app, and caches answers for 30 days in
 `~/Library/Application Support/iOS GPS Spoofer/osm-cache`. Servers are tried in
-turn; a busy one (429/503/504) gets one more try after a short wait, and the
-one that answers is tried first next time. If none answers, the app retries
+turn. A server that says it's out of turns (429) is left alone until a later
+retry, since its policy asks for 30 s; a busy one (503/504) gets one more try
+after a short wait. The one that answers is tried first next time. If none answers, the app retries
 after 20 s, 1 and 2 minutes, and meanwhile treats a road route's sharp turns as
 junctions. The route card credits "Map data © OpenStreetMap contributors", which
 the data's license (ODbL) requires.
@@ -252,7 +262,7 @@ the data's license (ODbL) requires.
 Debug snapshot mode: `SPOOFER_DEMO=route-roads` plays a loop on roads with a
 2-minute wait at Stop 1. `SNAPSHOT-STATS` includes `speed=`, `trip=` (moving, or
 stopped with the reason and time left), `roadData=`, `lights=`, `signs=`,
-`zones=` and `eta=`.
+`bumps=`, `zones=` and `eta=`.
 
 ## The command-line tool
 

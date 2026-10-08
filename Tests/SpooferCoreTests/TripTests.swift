@@ -25,13 +25,51 @@ final class TripTypesTests: XCTestCase {
         XCTAssertEqual(variance, 1, accuracy: 0.05)
     }
 
-    func testOddsStayInRange() {
+    func testLightsFollowTheTimingModel() {
         var rng = SplitMix64(seed: 3)
-        for _ in 0..<500 {
-            XCTAssertTrue((8...60).contains(TripOdds.redWait(&rng)))
-            XCTAssertTrue((1.5...3.5).contains(TripOdds.stopSignWait(&rng)))
-            XCTAssertTrue((600...1200).contains(TripOdds.breakLength(&rng)))
+        var red = 0, turnsGreen = 0, longestQueue = 0
+        var waits: [Double] = []
+        for _ in 0..<20_000 {
+            switch TripOdds.light(.drive, &rng) {
+            case .green:
+                break
+            case .turnsGreen(let speed):
+                turnsGreen += 1
+                XCTAssertTrue((2...5).contains(speed))
+            case .red(let wait, let queue):
+                red += 1
+                waits.append(wait)
+                longestQueue = max(longestQueue, queue)
+                XCTAssertGreaterThan(wait, 0)
+                XCTAssertLessThanOrEqual(wait, 72 + 1 + 1.5 * 5 + 1e-9)   // the longest red, plus a full queue
+            }
         }
+        // Red for 40–60% of the cycle.
+        XCTAssertEqual(Double(red + turnsGreen) / 20_000, 0.5, accuracy: 0.03)
+        XCTAssertGreaterThan(turnsGreen, 0)
+        // What's left of a 24–72 s red, plus the queue pulling away: about 27 s.
+        let mean = waits.reduce(0, +) / Double(waits.count)
+        XCTAssertEqual(mean, 27, accuracy: 4)
+        XCTAssertEqual(longestQueue, 5)
+        // On foot the walk signal is shorter, so the wait comes more often.
+        var walkerWaits = 0
+        for _ in 0..<20_000 { if case .red = TripOdds.light(.walk, &rng) { walkerWaits += 1 } }
+        XCTAssertGreaterThan(Double(walkerWaits) / 20_000, 0.55)
+    }
+
+    func testSignBumpAndBreakOdds() {
+        var rng = SplitMix64(seed: 5)
+        for _ in 0..<500 {
+            XCTAssertTrue((0.8...3.2).contains(TripOdds.stopSignWait(&rng)))
+            XCTAssertTrue((1...2.5).contains(TripOdds.rollingStopSpeed(&rng)))
+            XCTAssertTrue((780...1320).contains(TripOdds.breakLength(&rng)))
+        }
+        XCTAssertEqual(TripOdds.calmingSpeed("hump") ?? 0, 18 * 0.44704, accuracy: 1e-9)
+        XCTAssertGreaterThan(TripOdds.calmingSpeed("table") ?? 0, TripOdds.calmingSpeed("hump") ?? 0)
+        XCTAssertNil(TripOdds.calmingSpeed("chicane"))
+        var total = 0
+        for _ in 0..<10_000 { total += TripOdds.poisson(1.5, &rng) }
+        XCTAssertEqual(Double(total) / 10_000, 1.5, accuracy: 0.05)
     }
 
     func testUniqueFeaturePoints() {
@@ -66,7 +104,7 @@ final class CurveSpeedsTests: XCTestCase {
         let limits = CurveSpeeds.limits(along: corner(), profile: .drive)
         XCTAssertEqual(limits.count, 1)
         XCTAssertEqual(limits.first?.distance ?? 0, 200, accuracy: 1)
-        XCTAssertEqual(limits.first?.speed ?? 0, 4.8, accuracy: 0.5)   // √(2.7 × 8.5)
+        XCTAssertEqual(limits.first?.speed ?? 0, 4.76, accuracy: 0.1)   // √(2.0 × 11.3): an 11 m arc
     }
 
     func testWalkersDontSlowAndStraightRoadsHaveNoLimits() {
@@ -112,11 +150,20 @@ final class TripPlannerTests: XCTestCase {
         let a = planner.lapPlan(lap: 3, seed: 9), b = planner.lapPlan(lap: 3, seed: 9)
         XCTAssertEqual(a, b)
         let reds = a.stops.filter { $0.reason == .redLight }
-        XCTAssertGreaterThan(reds.count, 30)
-        XCTAssertLessThan(reds.count, 60)          // about 45 of 100
+        XCTAssertGreaterThan(reds.count, 35)
+        XCTAssertLessThan(reds.count, 65)          // about half of 100
         XCTAssertNotEqual(planner.lapPlan(lap: 4, seed: 9), a)
-        XCTAssertEqual(reds.first.map { $0.distance.truncatingRemainder(dividingBy: 290) } ?? 0,
-                       290 - TripOdds.stopLineOffset, accuracy: 1e-6)
+        // Each red stops at the line, or a few car lengths back behind the cars already waiting.
+        var queues = Set<Int>()
+        for red in reds {
+            let cars = (290 - red.distance.truncatingRemainder(dividingBy: 290) - TripOdds.stopLineOffset)
+                / TripOdds.queueSpacing
+            XCTAssertEqual(cars, cars.rounded(), accuracy: 1e-6)
+            queues.insert(Int(cars.rounded()))
+        }
+        XCTAssertTrue(queues.contains(0))
+        XCTAssertTrue(queues.isSubset(of: Set(0...5)))
+        XCTAssertGreaterThan(queues.count, 2)
     }
 
     func testBackAndForthMirrorsFeatures() {
@@ -128,10 +175,12 @@ final class TripPlannerTests: XCTestCase {
                                   ]))
         let plan = planner.lapPlan(lap: 0, seed: 1)
         XCTAssertEqual(plan.length, 2000, accuracy: 1e-6)
-        let signs = plan.stops.filter { $0.reason == .stopSign }.map(\.distance)
+        // A full stop or a rolling one, 2 m before the sign: on the way out, and at 1700 − 2 on the way back.
+        let signs = (plan.stops.filter { $0.reason == .stopSign }.map(\.distance)
+            + plan.limits.filter { $0.speed <= 2.5 }.map(\.distance)).sorted()
         XCTAssertEqual(signs.count, 2)
-        XCTAssertEqual(signs.first ?? 0, 298, accuracy: 1e-6)    // 2 m before it, on the way out
-        XCTAssertEqual(signs.last ?? 0, 1698, accuracy: 1e-6)    // 1700 − 2 on the way back
+        XCTAssertEqual(signs.first ?? 0, 298, accuracy: 1e-6)
+        XCTAssertEqual(signs.last ?? 0, 1698, accuracy: 1e-6)
         XCTAssertTrue(plan.stops.contains { $0.reason == .turnaround && abs($0.distance - 1000) < 1e-6 })
     }
 
@@ -384,12 +433,12 @@ final class TripEdgeTests: XCTestCase {
                                   ]))
         let braking = MotionProfile.drive.braking
         var hardest = 0.0
-        var stoppedAtTheSign = 0
+        var slowestAtTheSign = Double.infinity
         _ = drive(planner, seconds: 900) { playback, trip, before in
             hardest = max(hardest, (before - trip.speed) / 0.5)
-            if case .stopped(.stopSign, _) = trip.status, playback.lap >= 1 { stoppedAtTheSign += 1 }
+            if playback.lap >= 1, abs(playback.lapDistance - 14) < 3 { slowestAtTheSign = min(slowestAtTheSign, trip.speed) }
         }
-        XCTAssertGreaterThan(stoppedAtTheSign, 0)                 // the sign after the seam still counts
+        XCTAssertLessThanOrEqual(slowestAtTheSign, 2.6)            // the sign after the seam still counts: a stop or a roll
         XCTAssertLessThanOrEqual(hardest, 1.6 * braking + 1e-6)  // and it brakes for it in time
     }
 
@@ -419,7 +468,7 @@ final class TripEdgeTests: XCTestCase {
         let centre = a.moved(by: 100, bearing: 90)
         let arc = RoutePath((0...30).map { centre.moved(by: 100, bearing: 270 + Double($0) * 3) })
         let slowest = CurveSpeeds.limits(along: arc, profile: .drive).map(\.speed).min() ?? 0
-        XCTAssertEqual(slowest, (2.7 * 100).squareRoot(), accuracy: 2.5)
+        XCTAssertEqual(slowest, ((MotionProfile.drive.lateralAcceleration ?? 0) * 100).squareRoot(), accuracy: 2.5)
     }
 
     func testSwitchingFromWalkingToDrivingDoesntBringABreakForward() {
@@ -442,5 +491,66 @@ final class TripEdgeTests: XCTestCase {
         let planner = TripPlanner(path: TripPlannerTests.line(2000), loopMode: .once, settings: TripSettings(topSpeed: 10),
                                   waypointStops: [WaypointStop(index: 1, distance: 1000, wait: 1800)])
         XCTAssertEqual(planner.fittedPaceFactor(for: 600), 4, accuracy: 1e-9)
+    }
+}
+
+/// Research-backed behaviour added after the first pass.
+final class RoadBehaviourTests: XCTestCase {
+    func testStopSignsAreSometimesRollingStops() {
+        let signs = (1...200).map {
+            RoadFeature(kind: .stopSign, distance: Double($0) * 100, point: GeoPoint(37, -122))
+        }
+        let planner = TripPlanner(path: TripPlannerTests.line(20_100), loopMode: .once,
+                                  settings: TripSettings(topSpeed: 15), features: RoadFeatures(features: signs))
+        let plan = planner.lapPlan(lap: 0, seed: 3)
+        let full = plan.stops.filter { $0.reason == .stopSign }.count
+        let rolling = plan.limits.filter { $0.speed <= 2.5 }.count
+        XCTAssertEqual(full + rolling, 200)
+        XCTAssertEqual(Double(full) / 200, TripOdds.fullStopAtSign, accuracy: 0.1)
+    }
+
+    func testSignsForOneDirectionCountOnlyOnThatLeg() {
+        func plan(_ facing: RoadFeature.Facing, _ mode: LoopMode) -> [Double] {
+            var settings = TripSettings(topSpeed: 15)
+            settings.trafficLights = false
+            let planner = TripPlanner(path: TripPlannerTests.line(1000), loopMode: mode, settings: settings,
+                                      features: RoadFeatures(features: [
+                                          RoadFeature(kind: .giveWay, distance: 300, point: GeoPoint(37, -122), facing: facing),
+                                      ]))
+            let lap = planner.lapPlan(lap: 0, seed: 1)
+            return (lap.stops.filter { $0.reason == .giveWay }.map(\.distance)
+                + lap.limits.filter { $0.speed == TripOdds.giveWaySpeed }.map(\.distance)).sorted()
+        }
+        XCTAssertEqual(plan(.both, .pingPong).count, 2)
+        XCTAssertEqual(plan(.forward, .pingPong).map { $0.rounded() }, [300])
+        XCTAssertEqual(plan(.backward, .pingPong).map { $0.rounded() }, [1700])
+        XCTAssertEqual(plan(.backward, .once), [])
+        XCTAssertEqual(plan(.forward, .once).map { $0.rounded() }, [300])
+    }
+
+    func testSpeedBumpsSlowCarsOnly() {
+        let bump = RoadFeature(kind: .trafficCalming, distance: 500, point: GeoPoint(37, -122),
+                               speed: TripOdds.calmingSpeed("hump"))
+        func limits(_ settings: TripSettings) -> [TripLimit] {
+            TripPlanner(path: TripPlannerTests.line(1000), loopMode: .once, settings: settings,
+                        features: RoadFeatures(features: [bump])).lapPlan(lap: 0, seed: 1).limits
+        }
+        XCTAssertEqual(limits(TripSettings(topSpeed: 15)), [TripLimit(distance: 500, speed: 18 * 0.44704)])
+        XCTAssertEqual(limits(TripSettings(topSpeed: 1.4)), [])
+        XCTAssertEqual(limits(TripSettings(topSpeed: 15, slowForTurns: false)), [])
+    }
+
+    func testALightThatTurnsGreenOnlySlowsTheCar() {
+        // Enough lights that some turn green just as the car gets there (it's
+        // rare: by then there are usually cars waiting ahead).
+        let lights = (1...4000).map {
+            RoadFeature(kind: .trafficSignal, distance: Double($0) * 250, point: GeoPoint(37, -122))
+        }
+        let planner = TripPlanner(path: TripPlannerTests.line(1_000_100), loopMode: .once,
+                                  settings: TripSettings(topSpeed: 15), features: RoadFeatures(features: lights))
+        let plan = planner.lapPlan(lap: 0, seed: 8)
+        let slowed = plan.limits.filter { abs($0.distance.truncatingRemainder(dividingBy: 250) - 244) < 1e-6 }
+        XCTAssertFalse(slowed.isEmpty)
+        XCTAssertTrue(slowed.allSatisfy { (2...5).contains($0.speed) })
     }
 }

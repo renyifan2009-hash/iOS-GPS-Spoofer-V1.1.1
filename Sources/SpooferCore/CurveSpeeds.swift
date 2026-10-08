@@ -4,19 +4,20 @@ import Foundation
 /// × radius).
 ///
 /// A sharp turn (45° or more at one point) is a corner at a junction: its radius
-/// is the circle through the points `span` metres before and after it. A gentle
+/// is the circle through the points `span` metres before and after it (a car
+/// cuts the corner, so a right angle drawn as a point is an 11 m arc). A gentle
 /// bend is spread over the route's segments around it (radius = segment length ÷
 /// angle), so a slight kink between two long straight segments, common in
 /// simplified tracks, isn't mistaken for a tight corner.
 public enum CurveSpeeds {
-    /// Highest speed worth limiting; faster curves never hold anyone back.
-    static let ceiling = 45.0
+    /// Highest speed worth limiting (144 km/h); faster curves never hold anyone back.
+    static let ceiling = 40.0
     /// A change of direction at least this sharp (radians) is a corner, not a bend.
     static let sharpTurn = Double.pi / 4
     /// The longest stretch a gentle bend is spread over, metres.
     static let longestBend = 100.0
 
-    public static func limits(along path: RoutePath, profile: MotionProfile, span: Double = 12) -> [TripLimit] {
+    public static func limits(along path: RoutePath, profile: MotionProfile, span: Double = 16) -> [TripLimit] {
         guard let lateral = profile.lateralAcceleration, path.points.count >= 3, path.length > 2 * span else {
             return []
         }

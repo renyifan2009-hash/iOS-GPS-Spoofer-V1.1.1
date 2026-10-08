@@ -960,8 +960,9 @@ final class RoadMarkerAnnotation: NSObject, MKAnnotation {
     }
 }
 
-/// A small traffic light, stop sign, yield sign or crossing light. They give way
-/// to everything else on the map, and hide when the map is too crowded.
+/// A small traffic light, stop sign, yield sign, crossing light or speed bump
+/// sign. They give way to everything else on the map, and hide when the map is
+/// too crowded.
 final class RoadMarkerView: MKAnnotationView {
     override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
         super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
@@ -984,6 +985,7 @@ final class RoadMarkerView: MKAnnotationView {
         case .stopSign: return "Stop sign"
         case .giveWay: return "Yield sign"
         case .signalCrossing: return "Crosswalk light"
+        case .trafficCalming: return "Speed bump"
         }
     }
 
@@ -1055,6 +1057,30 @@ final class RoadMarkerView: MKAnnotationView {
                     tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2,
                                            width: size.width, height: size.height))
                 }
+                return true
+            }
+        case .trafficCalming:
+            // The yellow diamond road sign with a bump on it.
+            image = NSImage(size: NSSize(width: 17, height: 17), flipped: false) { rect in
+                let sign = NSBezierPath()
+                sign.move(to: NSPoint(x: rect.midX, y: rect.maxY - 0.75))
+                sign.line(to: NSPoint(x: rect.maxX - 0.75, y: rect.midY))
+                sign.line(to: NSPoint(x: rect.midX, y: rect.minY + 0.75))
+                sign.line(to: NSPoint(x: rect.minX + 0.75, y: rect.midY))
+                sign.close()
+                NSColor(red: 0.98, green: 0.78, blue: 0.10, alpha: 1).setFill()
+                sign.fill()
+                NSColor(white: 0.1, alpha: 1).setStroke()
+                sign.lineWidth = 1
+                sign.stroke()
+                let bump = NSBezierPath()
+                bump.move(to: NSPoint(x: rect.midX - 4.5, y: rect.midY - 2))
+                bump.curve(to: NSPoint(x: rect.midX + 4.5, y: rect.midY - 2),
+                           controlPoint1: NSPoint(x: rect.midX - 2.2, y: rect.midY + 3.6),
+                           controlPoint2: NSPoint(x: rect.midX + 2.2, y: rect.midY + 3.6))
+                bump.close()
+                NSColor(white: 0.1, alpha: 1).setFill()
+                bump.fill()
                 return true
             }
         }

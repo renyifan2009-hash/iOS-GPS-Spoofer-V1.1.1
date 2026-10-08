@@ -51,7 +51,7 @@ public struct MotionProfile: Sendable, Equatable {
     public static let cycle = MotionProfile(kind: .cycle, acceleration: 1.0, braking: 2.0,
                                             lateralAcceleration: 2.5, minimumTurnSpeed: 3.0)
     public static let drive = MotionProfile(kind: .drive, acceleration: 1.8, braking: 2.7,
-                                            lateralAcceleration: 2.7, minimumTurnSpeed: 3.5)
+                                            lateralAcceleration: 2.0, minimumTurnSpeed: 3.5)
 
     /// The profile for a top speed (m/s).
     public static func forSpeed(_ speed: Double) -> MotionProfile {
@@ -66,57 +66,105 @@ public struct MotionProfile: Sendable, Equatable {
     public var isOnFoot: Bool { kind == .walk || kind == .run }
 }
 
-/// The odds and waits for lights, signs and breaks (see docs/design/realistic-trips.md).
+/// The odds and waits for lights, signs and breaks. The sources are in
+/// docs/design/realistic-trips.md, under Research notes.
 public enum TripOdds {
     /// How far before a light's position the stop line is, metres.
     public static let stopLineOffset = 6.0
+    /// Room each car waiting ahead at a red light takes, metres.
+    public static let queueSpacing = 7.5
 
-    /// Chance a light is red when you reach it.
-    public static func redLight(_ profile: MotionProfile) -> Double { profile.isOnFoot ? 0.5 : 0.45 }
-
-    /// Seconds waited at a red light (8–60, most often around half a minute).
-    public static func redWait(_ rng: inout SplitMix64) -> TimeInterval {
-        triangular(&rng, low: 8, mode: 30, high: 60)
+    /// What a traffic light does on one pass.
+    public enum Light: Sendable, Equatable {
+        case green
+        /// It turns green as you get there: slow to this speed (m/s), don't stop.
+        case turnsGreen(Double)
+        /// Red: stop `queue` cars back from the line, and wait.
+        case red(wait: TimeInterval, queue: Int)
     }
 
-    /// A crossing light is red for someone on foot / for traffic passing it.
-    public static let crossingRedOnFoot = 0.5
+    /// Real signal timing isn't known, so each pass makes one up: a cycle of
+    /// 60–120 s, green for 40–60% of it for traffic (25–55% for someone on foot,
+    /// whose walk signal is shorter), reached at a random moment. When it's red,
+    /// the wait is what's left of the red, so short waits are as common as long ones.
+    public static func light(_ profile: MotionProfile, _ rng: inout SplitMix64) -> Light {
+        let cycle = Double.random(in: 60...120, using: &rng)
+        let green = profile.isOnFoot ? Double.random(in: 0.25...0.55, using: &rng)
+                                     : Double.random(in: 0.4...0.6, using: &rng)
+        let red = cycle * (1 - green)
+        let arrival = Double.random(in: 0..<cycle, using: &rng)   // seconds into the red
+        guard arrival < red else { return .green }
+        let left = red - arrival
+        if profile.isOnFoot {
+            // Stepping off takes a few seconds once it says walk.
+            return left < 2 ? .green : .red(wait: left + Double.random(in: 1.5...4, using: &rng), queue: 0)
+        }
+        // Cars that got there earlier in the red wait ahead: about one per 15 s of it.
+        let queue = min(5, poisson(arrival / 15, &rng))
+        if queue == 0, left < 3 { return .turnsGreen(Double.random(in: 2...5, using: &rng)) }
+        // Once it's green, the first car moves off after about a second, and each one after it 1.5 s later.
+        return .red(wait: left + 1 + 1.5 * Double(queue), queue: queue)
+    }
+
+    /// A crossing light on its own (not at a junction) stops traffic only when
+    /// someone has pressed the button: 1 pass in 4, for 2–25 s.
     public static let crossingRedForTraffic = 0.25
 
     public static func crossingWait(_ rng: inout SplitMix64) -> TimeInterval {
-        triangular(&rng, low: 5, mode: 20, high: 45)
+        Double.random(in: 2...25, using: &rng)
     }
+
+    /// A car comes to a full stop at a stop sign about half the time, then
+    /// waits 1–3 s; otherwise it rolls through at walking pace.
+    public static let fullStopAtSign = 0.5
 
     public static func stopSignWait(_ rng: inout SplitMix64) -> TimeInterval {
-        Double.random(in: 1.5...3.5, using: &rng)
+        triangular(&rng, low: 0.8, mode: 1.6, high: 3.2)
     }
 
-    /// Yield: usually slow to this speed (m/s); sometimes stop.
+    /// A rolling stop's slowest speed, m/s.
+    public static func rollingStopSpeed(_ rng: inout SplitMix64) -> Double {
+        Double.random(in: 1...2.5, using: &rng)
+    }
+
+    /// Yield: usually slow to this speed (m/s); sometimes stop for a gap.
     public static let giveWaySpeed = 4.0
-    public static let giveWayStop = 0.25
+    public static let giveWayStop = 0.3
 
     public static func giveWayWait(_ rng: inout SplitMix64) -> TimeInterval {
-        Double.random(in: 1...3, using: &rng)
+        Double.random(in: 1...4, using: &rng)
+    }
+
+    /// Speed over traffic calming (`traffic_calming=*` in OpenStreetMap), m/s.
+    public static func calmingSpeed(_ value: String) -> Double? {
+        let mph = 0.44704
+        switch value {
+        case "hump", "yes": return 18 * mph
+        case "cushion": return 20 * mph
+        case "table": return 23 * mph
+        case "bump": return 8 * mph
+        default: return nil
+        }
     }
 
     /// Without map data: a sharp turn (slower than this, m/s) is taken to be a
-    /// junction, and a car waits there this often.
+    /// junction, which has traffic lights this often.
     public static let junctionTurnSpeed = 7.0
-    public static let junctionStop = 0.35
+    public static let junctionHasLight = 0.7
 
     /// Drivers keep a little under or over the limit for the whole trip.
     public static let driverFactor = 0.95...1.05
 
     /// Driving time before a break, and the break itself.
     public static let meanBreakInterval: TimeInterval = 2 * 3600
-    public static let meanBreakLength: TimeInterval = 15 * 60
+    public static let meanBreakLength: TimeInterval = 17.5 * 60
 
     public static func breakInterval(_ rng: inout SplitMix64) -> TimeInterval {
         Double.random(in: 1.75 * 3600...2.25 * 3600, using: &rng)
     }
 
     public static func breakLength(_ rng: inout SplitMix64) -> TimeInterval {
-        Double.random(in: 600...1200, using: &rng)
+        Double.random(in: 780...1320, using: &rng)
     }
 
     /// On foot: a short pause (a phone, a shop window) every few minutes of walking.
@@ -136,6 +184,19 @@ public enum TripOdds {
         let cut = (mode - low) / (high - low)
         if u < cut { return low + ((high - low) * (mode - low) * u).squareRoot() }
         return high - ((high - low) * (high - mode) * (1 - u)).squareRoot()
+    }
+
+    /// A Poisson-distributed count with this mean (Knuth's method; small means only).
+    static func poisson(_ mean: Double, _ rng: inout SplitMix64) -> Int {
+        guard mean > 0 else { return 0 }
+        let limit = exp(-mean)
+        var product = Double.random(in: 0..<1, using: &rng)
+        var count = 0
+        while product > limit, count < 50 {
+            count += 1
+            product *= Double.random(in: 0..<1, using: &rng)
+        }
+        return count
     }
 }
 
@@ -243,17 +304,33 @@ public struct WaypointStop: Sendable, Equatable {
 public struct RoadFeature: Sendable, Equatable, Codable {
     public enum Kind: String, Sendable, Codable, CaseIterable {
         case trafficSignal, stopSign, giveWay, signalCrossing
+        /// A speed bump, hump, table or cushion.
+        case trafficCalming
+    }
+
+    /// Which way along the route it's for. A stop sign before a junction is
+    /// only for traffic heading into it; out and back, the way back meets it
+    /// from the other side.
+    public enum Facing: String, Sendable, Codable {
+        case both, forward, backward
+
+        func overlaps(_ other: Facing) -> Bool { self == .both || other == .both || self == other }
     }
 
     public var kind: Kind
     /// Metres from the start of the route, one entry per time the route passes it.
     public var distance: Double
     public var point: GeoPoint
+    public var facing: Facing
+    /// Traffic calming: the speed to slow to, m/s.
+    public var speed: Double?
 
-    public init(kind: Kind, distance: Double, point: GeoPoint) {
+    public init(kind: Kind, distance: Double, point: GeoPoint, facing: Facing = .both, speed: Double? = nil) {
         self.kind = kind
         self.distance = distance
         self.point = point
+        self.facing = facing
+        self.speed = speed
     }
 }
 
@@ -286,9 +363,10 @@ public struct RoadFeatures: Sendable, Equatable, Codable {
 
     public static let none = RoadFeatures()
 
-    /// Different places of this kind (a light passed twice counts once).
-    public func uniqueCount(of kind: RoadFeature.Kind) -> Int {
-        Set(features.filter { $0.kind == kind }.map(\.point)).count
+    /// Different places of this kind (a light passed twice counts once). Ones
+    /// only for the other direction count only when the route comes back.
+    public func uniqueCount(of kind: RoadFeature.Kind, wayBack: Bool = false) -> Int {
+        Set(features.filter { $0.kind == kind && (wayBack || $0.facing != .backward) }.map(\.point)).count
     }
 
     /// Fraction of `length` metres covered by a known speed limit.
