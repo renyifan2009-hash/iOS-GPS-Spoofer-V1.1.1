@@ -12,8 +12,9 @@ import SwiftUI
 ///                        their ids are printed as "SNAPSHOT-WINDOW <id> <title>".
 ///   SPOOFER_APPEARANCE=dark|light   force the look.
 ///   SPOOFER_WINDOW_SIZE=1040x692    the main window's size.
-///   SPOOFER_DEMO=…       play a scene: `teleport`, `route`, `joystick` (once
-///                        an iPhone shows up), or `settings` (opens Settings).
+///   SPOOFER_DEMO=…       play a scene: `teleport`, `route`, `route-roads`
+///                        (Follow roads and Loop on), `joystick` (once an
+///                        iPhone shows up), or `settings` (opens Settings).
 ///
 /// Pair it with Tests/Fixtures/fake-pymobiledevice3 (via $PYMOBILEDEVICE3)
 /// for a pretend iPhone.
@@ -66,10 +67,12 @@ enum DebugSnapshot {
         runDemoIfReady()
         if Date().timeIntervalSince(lastReport) >= 2 {
             lastReport = Date()
+            let model = AppModel.shared
             let visible = NSApp.windows.filter { $0.occlusionState.contains(.visible) }.map(\.windowNumber)
             let device = AppModel.shared.devicePosition.map { String(format: "%.5f,%.5f", $0.latitude, $0.longitude) } ?? "-"
             print("SNAPSHOT-STATS frames=\(frameTicks) visibleWindows=\(visible) following=\(following) gliding=\(gliding) "
-                  + "cameraOffset=\(String(format: "%.1f", cameraOffset))m device=\(device)")
+                  + "cameraOffset=\(String(format: "%.1f", cameraOffset))m device=\(device) "
+                  + "route=\(model.routeGeometry.count)+\(model.closingLeg?.count ?? 0) directions=\(model.directionsState)")
             fflush(stdout)
         }
     }
@@ -101,20 +104,23 @@ enum DebugSnapshot {
             model.mode = .teleport
             model.setTarget(GeoPoint(48.8584, 2.2945), name: "Eiffel Tower, Paris", focus: true)
             model.teleportToTarget()
-        case "route":
+        case "route", "route-roads":
             model.mode = .route
             model.clearWaypoints()
             for point in [GeoPoint(37.3349, -122.0090), GeoPoint(37.3318, -122.0312),
                           GeoPoint(37.3230, -122.0322), GeoPoint(37.3175, -122.0110)] {
                 model.addWaypoint(point)
             }
-            model.followRoads = false
+            model.followRoads = demo == "route-roads"
+            model.travelMode = .driving
             model.loopMode = .loop
             model.pacing = .speed
             model.routeSpeed = 31   // about 70 mph, like a tester's drive
-            // After the mode switch has framed the route, like a person would.
+            // After the mode switch has framed the route (and Apple Maps has
+            // answered), like a person would.
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(1))
+                while model.directionsState == .computing { try? await Task.sleep(for: .milliseconds(200)) }
                 model.startRoute()
             }
         case "joystick":

@@ -69,26 +69,52 @@ extension AppModel {
             directionsTask = nil
             directionsState = .idle
             routeGeometry = points
+            closingLeg = nil
             return
         }
         directionsState = .computing
         let travel = travelMode
+        let looping = loopMode == .loop
         directionsTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
-            let result = await DirectionsService.shared.route(through: points, mode: travel)
+            let service = DirectionsService.shared
+            let result = await service.route(through: points, mode: travel)
+            var back: DirectionsService.Result?
+            if looping, let first = points.first, let last = points.last {
+                back = await service.route(through: [last, first], mode: travel)
+            }
             guard !Task.isCancelled, let self else { return }
             self.routeGeometry = result.points
-            if result.failedLegs > 0 {
-                self.directionsState = .partial(failedLegs: result.failedLegs)
-                self.appendLog("Couldn't find a \(travel.label.lowercased()) route for \(result.failedLegs) leg(s); using straight lines there.", level: .warning)
+            self.closingLeg = back?.points
+            let failed = result.failedLegs + (back?.failedLegs ?? 0)
+            let reasons = [result.failure, back?.failure].compactMap { $0 }
+            if failed > 0, let reason = reasons.max(by: { $0.rank < $1.rank }) {
+                self.directionsState = .partial(failedLegs: failed, reason: reason)
+                self.appendLog(reason.logLine(failedLegs: failed, mode: travel), level: .warning)
             } else {
                 self.directionsState = .idle
             }
         }
     }
 
-    var routePath: RoutePath { RoutePath(routeGeometry) }
+    /// Ask Apple Maps again for the legs that fell back to straight lines.
+    /// The legs it already answered come from the cache.
+    func retryDirections() {
+        appendLog("Asking Apple Maps for the road route again…", level: .info)
+        routeInputsChanged()
+    }
+
+    /// The path a route plays: through the stops and, for a loop on roads,
+    /// back to the start along roads too.
+    var routePath: RoutePath {
+        if loopMode == .loop, let back = closingLeg, back.count >= 2,
+           let first = routeGeometry.first, let last = routeGeometry.last,
+           Geo.distance(back[0], last) < 1, Geo.distance(back[back.count - 1], first) < 1 {
+            return RoutePath(routeGeometry + back.dropFirst())
+        }
+        return RoutePath(routeGeometry)
+    }
 
     /// One-way length of the route.
     var routeLength: Double { Geo.length(of: routeGeometry) }
@@ -126,7 +152,7 @@ extension AppModel {
     var routeSignature: String {
         let ends = [routeGeometry.first, routeGeometry.last].compactMap { $0 }
             .map { String(format: "%.6f,%.6f", $0.latitude, $0.longitude) }.joined(separator: ";")
-        return "\(routeGeometry.count)|\(ends)|\(Int(routeLength.rounded()))|\(loopMode.rawValue)"
+        return "\(routeGeometry.count)|\(ends)|\(Int(routeLength.rounded()))|\(loopMode.rawValue)|\(closingLeg?.count ?? 0)"
     }
 
     /// The route was edited after it started playing.
@@ -253,7 +279,7 @@ extension AppModel {
     var displayedRoute: [GeoPoint] {
         if activity == .routing, let pb = playback { return pb.path.points }
         guard mode == .route else { return [] }
-        return loopMode == .loop ? RoutePath(routeGeometry).closed().points : routeGeometry
+        return loopMode == .loop ? routePath.closed().points : routeGeometry
     }
 
     /// 0…1 of `displayedRoute` already covered (for the "travelled" overlay).

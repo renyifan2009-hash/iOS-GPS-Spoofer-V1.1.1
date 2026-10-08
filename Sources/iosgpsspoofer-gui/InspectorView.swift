@@ -333,10 +333,19 @@ struct RouteSection: View {
                             }
                         }
                     }
-                    if case .partial(let failed) = model.directionsState {
-                        Label("\(failed) leg(s) use straight lines — no route found there.",
-                              systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption).foregroundStyle(Brand.warning)
+                    if case let .partial(failed, reason) = model.directionsState {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Label("\(DirectionsService.Failure.legs(failed)): \(reason.shortReason)",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption).foregroundStyle(Brand.warning)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                            if reason.isTemporary {
+                                Button("Try Again") { model.retryDirections() }
+                                    .controlSize(.small)
+                                    .fixedSize()
+                            }
+                        }
                     }
                 }
             }

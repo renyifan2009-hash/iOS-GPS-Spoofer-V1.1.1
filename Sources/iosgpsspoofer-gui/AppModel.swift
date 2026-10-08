@@ -61,7 +61,7 @@ final class AppModel {
 
     enum DirectionsState: Equatable {
         case idle, computing
-        case partial(failedLegs: Int)
+        case partial(failedLegs: Int, reason: DirectionsService.Failure)
     }
 
     enum RoutePacing: String, CaseIterable, Identifiable {
@@ -116,7 +116,13 @@ final class AppModel {
     var waypoints: [Waypoint] = [] { didSet { if waypoints != oldValue { routeInputsChanged() } } }
     var followRoads = false { didSet { if followRoads != oldValue { routeInputsChanged() } } }
     var travelMode: TravelMode = .walking { didSet { if travelMode != oldValue { routeInputsChanged() } } }
-    var loopMode: LoopMode = .once { didSet { saveRouteDraft() } }
+    var loopMode: LoopMode = .once {
+        didSet {
+            guard loopMode != oldValue else { return }
+            // A loop on roads also needs the road back to the start.
+            if followRoads { routeInputsChanged() } else { saveRouteDraft() }
+        }
+    }
     var pacing: RoutePacing = .speed { didSet { saveRouteDraft() } }
     /// m/s, when pacing by speed.
     var routeSpeed: Double = 1.4 { didSet { saveRouteDraft() } }
@@ -128,6 +134,9 @@ final class AppModel {
     var savedRouteID: UUID?
     /// The polyline actually followed: straight lines or road-following legs.
     var routeGeometry: [GeoPoint] = []
+    /// For a loop with Follow roads on: the roads from the last stop back to
+    /// the start. Without it, a loop closes with a straight line.
+    var closingLeg: [GeoPoint]?
     var directionsState: DirectionsState = .idle
     var playback: RoutePlayback?
     var isPaused = false

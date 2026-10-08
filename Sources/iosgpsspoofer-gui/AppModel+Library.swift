@@ -144,8 +144,9 @@ extension AppModel {
             appendLog("Add at least two waypoints before exporting.", level: .warning)
             return
         }
+        // The track as played: a loop on roads includes the road back to the start.
         exportRoute(name: routeName ?? "Route", waypoints: waypoints.map(\.point),
-                    track: followRoads ? routeGeometry : nil)
+                    track: followRoads ? routePath.points : nil)
     }
 
     func exportRoute(name: String, waypoints: [GeoPoint], track: [GeoPoint]?) {
