@@ -49,6 +49,12 @@ struct SpooferGUIApp: App {
 struct AppCommands: Commands {
     var body: some Commands {
         let model = AppModel.shared
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") {
+                Task { await Updater.shared.check(userInitiated: true) }
+            }
+            .disabled(!Updater.shared.canUpdate)
+        }
         CommandGroup(replacing: .newItem) {
             Button("Import Route…") { model.importRouteWithPanel() }
                 .keyboardShortcut("o")

@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import SpooferCore
+import SwiftUI
 
 /// Development aid, compiled into debug builds only: look at the real app,
 /// in real states, without taking over the screen.
@@ -9,6 +10,7 @@ import SpooferCore
 ///                        parked on the desktop level, behind all other
 ///                        windows. `screencapture -l <id>` still captures them;
 ///                        their ids are printed as "SNAPSHOT-WINDOW <id> <title>".
+///   SPOOFER_APPEARANCE=dark|light   force the look.
 ///   SPOOFER_DEMO=…       play a scene: `teleport`, `route`, `joystick` (once
 ///                        an iPhone shows up), or `settings` (opens Settings).
 ///
@@ -28,10 +30,17 @@ enum DebugSnapshot {
     static var following = false
     static var gliding = false
     private static var lastReport = Date.distantPast
+    private static var settingsWindow: NSWindow?
 
     static func start() {
         guard isOn else { return }
         NSApp.setActivationPolicy(.accessory)
+        // SPOOFER_APPEARANCE=dark|light, to check both looks.
+        switch ProcessInfo.processInfo.environment["SPOOFER_APPEARANCE"] {
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        default: break
+        }
         Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
             MainActor.assumeIsolated { tick() }
         }
@@ -60,9 +69,20 @@ enum DebugSnapshot {
 
     private static func runDemoIfReady() {
         let model = AppModel.shared
-        if demo == "settings", !demoStarted {
+        if demo?.hasPrefix("settings") == true, !demoStarted {
             demoStarted = true
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            // The real Settings scene won't open for an app that never
+            // activates, so host the same view in a plain window.
+            let view = SettingsView()
+                .environment(AppModel.shared)
+                .environment(Preferences.shared)
+                .environment(LibraryStore.shared)
+                .tint(Brand.accent)
+            let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+            window.title = "Settings"
+            window.setContentSize(NSSize(width: 660, height: 560))
+            window.orderFrontRegardless()
+            settingsWindow = window
             return
         }
         guard let demo, !demoStarted, model.selectedDevice != nil, model.startupSweepDone else { return }

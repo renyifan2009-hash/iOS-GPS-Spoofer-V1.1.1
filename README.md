@@ -84,8 +84,10 @@ place you picked.
 
 ## Update
 
-Run the install line again. It gets the newest version and replaces the old
-one. Your favorites and saved routes are kept.
+When a new version is out, the app shows a banner. Click **Update**. It
+downloads and builds the new version (a few minutes), then restarts by itself.
+You can also choose **iOS GPS Spoofer ▸ Check for Updates…**, or run the
+install line again. Your favorites and saved routes are kept.
 
 ## Something not working?
 
@@ -170,4 +172,5 @@ don't need them.
 
 How it works, the command-line tool, building from source, tests and
 packaging: [docs/DEVELOPERS.md](docs/DEVELOPERS.md). The iPhone remote app:
-[docs/IPHONE-REMOTE.md](docs/IPHONE-REMOTE.md).
+[docs/IPHONE-REMOTE.md](docs/IPHONE-REMOTE.md). The plan for spoofing from the
+iPhone alone, on cellular: [docs/PHONE-ONLY.md](docs/PHONE-ONLY.md).

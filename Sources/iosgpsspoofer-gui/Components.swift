@@ -24,6 +24,11 @@ extension AppModel {
             return StatusDisplay(title: "Connecting", detail: message, tint: Brand.warning,
                                  symbol: "antenna.radiowaves.left.and.right", busy: true, live: false)
         case .reconnecting(let message):
+            if let session, session.isWaitingForDevice {
+                return StatusDisplay(title: "Unplugged",
+                                     detail: "Plug \(session.device.deviceName) back in to keep going, or click Stop.",
+                                     tint: Brand.warning, symbol: "cable.connector.slash", busy: false, live: false)
+            }
             return StatusDisplay(title: "Reconnecting", detail: message, tint: Brand.warning,
                                  symbol: "cable.connector", busy: true, live: false)
         case .stopping:

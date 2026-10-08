@@ -519,6 +519,29 @@ struct Banners: View {
                     ProgressView().controlSize(.small)
                 }
             }
+            switch Updater.shared.state {
+            case .available:
+                banner(icon: "arrow.down.circle.fill", colors: TileColors.brand, text: "A new version is available.") {
+                    if let url = Updater.shared.whatsNewURL {
+                        Button("What's New") { NSWorkspace.shared.open(url) }
+                            .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+                    }
+                    Button("Update") { Updater.shared.installUpdate() }
+                        .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
+                }
+            case .updating:
+                banner(icon: "arrow.down.circle.fill", colors: TileColors.brand,
+                       text: "Updating. This takes a few minutes, then the app restarts.") {
+                    ProgressView().controlSize(.small)
+                }
+            case .failed(let message):
+                banner(icon: "exclamationmark.triangle.fill", colors: TileColors.orange, text: message) {
+                    Button("Show Log") { Updater.shared.revealLog() }
+                        .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+                }
+            default:
+                EmptyView()
+            }
             if model.hasPendingRouteChange {
                 banner(icon: "arrow.triangle.2.circlepath", colors: TileColors.brand, text: "You edited the route.") {
                     Button("Apply Changes") { model.applyRouteChanges() }

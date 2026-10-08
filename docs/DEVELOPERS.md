@@ -182,6 +182,16 @@ activity log.
   processes.
 - **Help ▸ Copy Diagnostics** copies versions, setup, device status and the
   recent log for a bug report.
+- **Updates.** An installed app knows its commit and repository (Info.plist
+  keys `SpooferGitCommit` and `SpooferRepository`). Every six hours it reads
+  the newest commit on `main` from git's ref listing
+  (`/info/refs?service=git-upload-pack`; GitHub's REST API allows only 60
+  requests an hour per IP, which VPNs and school networks share). If it's
+  newer, a banner offers **Update**. That runs the one-line installer in the
+  background, which quits the app, replaces it and opens the new one. Output
+  goes to `~/Library/Logs/iOS GPS Spoofer/update.log`.
+- **Unplugged.** If the iPhone disappears mid-session, the status says
+  "Unplugged" and the session waits for it, without clearing anything.
 - **Automation.** `SPOOF_UDID=<udid>` and `SPOOF_START="lat,lon"` preselect a
   device and teleport on launch.
 

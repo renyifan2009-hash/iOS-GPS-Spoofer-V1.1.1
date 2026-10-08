@@ -136,6 +136,9 @@ public final class SpoofSession: @unchecked Sendable {
     /// Whether the last `stop()` got the real location back (known once the
     /// state is `.idle` again).
     public var restoredOnLastStop: Bool { locked { _restoredOnLastStop } }
+    /// The iPhone is unplugged (or out of reach) and the session is waiting
+    /// for it to come back.
+    public var isWaitingForDevice: Bool { locked { waitingForDevice } }
     private var _restoredOnLastStop = false
 
     /// Whether frequent `move(to:)` calls are cheap enough to drive a route or a

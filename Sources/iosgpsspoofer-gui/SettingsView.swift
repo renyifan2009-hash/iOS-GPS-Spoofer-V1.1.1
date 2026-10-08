@@ -283,9 +283,10 @@ private struct AboutSettings: View {
                 .shadow(color: Brand.indigo.opacity(0.35), radius: 14, y: 6)
             VStack(spacing: 4) {
                 Text("iOS GPS Spoofer").font(Brand.title(24))
-                Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0 (development)")")
+                Text(versionLine)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
             HStack(spacing: 8) {
                 badge("Instant live engine", symbol: "bolt.fill", colors: TileColors.live)
@@ -306,12 +307,32 @@ private struct AboutSettings: View {
                     .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
                 Button("Show Data Folder") { model.revealDataFolder() }
                     .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+                if Updater.shared.canUpdate {
+                    Button(Updater.shared.updateAvailable ? "Update…" : "Check for Updates") {
+                        if Updater.shared.updateAvailable {
+                            Updater.shared.installUpdate()
+                        } else {
+                            Task { await Updater.shared.check(userInitiated: true) }
+                        }
+                    }
+                    .buttonStyle(BrandButtonStyle(kind: Updater.shared.updateAvailable ? .primary : .secondary, large: false))
+                    .disabled(Updater.shared.state == .checking || Updater.shared.state == .updating)
+                }
             }
             Text("For developing and testing location-aware apps on devices you own.")
                 .font(.caption).foregroundStyle(.tertiary)
         }
         .padding(28)
         .frame(maxWidth: .infinity)
+    }
+
+    private var versionLine: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "development build"
+        if let commit = Updater.shared.commit {
+            return "Version \(version) (\(commit.prefix(7)))"
+        }
+        return "Version \(version)"
     }
 
     private func badge(_ text: String, symbol: String, colors: [Color]) -> some View {

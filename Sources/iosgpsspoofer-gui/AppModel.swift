@@ -225,6 +225,7 @@ final class AppModel {
         scheduleGeocode()
         fitMap()
         if !UserDefaults.standard.bool(forKey: StateKey.welcomed) { showWelcome = true }
+        Updater.shared.checkIfDue()
     }
 
     /// Called from `applicationDidFinishLaunching` once stray children are reaped.

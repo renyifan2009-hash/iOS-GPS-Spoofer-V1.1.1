@@ -75,6 +75,39 @@ jobs:
             test "$MOVES" -ge 10
           done
 
+      # Nothing covers the window on a runner, so MapKit draws the map too.
+      - name: Screenshots of the app (pretend iPhone)
+        run: |
+          BIN="$(swift build --show-bin-path)/iosgpsspoofer-gui"
+          SHOTS="$RUNNER_TEMP/screenshots"
+          mkdir -p "$SHOTS"
+          shoot() {   # shoot <name> <demo|none> <seconds> [VAR=value…]
+            name=$1; demo=$2; wait=$3; shift 3
+            env SPOOFER_SNAPSHOT=1 SPOOFER_DEMO="$demo" PYMOBILEDEVICE3="$PWD/Tests/Fixtures/fake-pymobiledevice3" \
+              "$@" "$BIN" > "$RUNNER_TEMP/shot-$name.log" 2>&1 &
+            pid=$!
+            sleep "$wait"
+            wid="$(grep -m1 '^SNAPSHOT-WINDOW' "$RUNNER_TEMP/shot-$name.log" | awk '{print $2}')"
+            screencapture -l "$wid" -o -x "$SHOTS/$name.png" || echo "no screenshot for $name"
+            kill -TERM "$pid"
+            wait "$pid" || true
+          }
+          shoot route route 14
+          shoot joystick joystick 12
+          shoot teleport teleport 12
+          shoot route-dark route 14 SPOOFER_APPEARANCE=dark
+          defaults write iosgpsspoofer-gui hasSeenWelcome -bool false
+          shoot welcome none 8
+          ls -la "$SHOTS"
+
+      - name: Upload the screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-screenshots
+          path: ${{ runner.temp }}/screenshots
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: "Build (release: CLI + GUI)"
         run: swift build -c release
 
