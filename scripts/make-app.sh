@@ -25,7 +25,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="iOS GPS Spoofer"
 BUNDLE_ID="com.iosgpsspoofer.gui"
 VERSION="${VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION")}"
-COMMIT="${SPOOFER_COMMIT:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)}"
+# Only this project's own git history: a folder unzipped inside some other
+# repository must not pick up that repository's commit.
+COMMIT="${SPOOFER_COMMIT:-}"
+if [ -z "$COMMIT" ] && [ -e "$ROOT/.git" ]; then
+  COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+fi
 REPO="${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1}"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 BUILD_NUMBER="$(date -u +%Y%m%d.%H%M)"

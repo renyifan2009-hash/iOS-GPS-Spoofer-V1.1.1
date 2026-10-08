@@ -36,9 +36,13 @@ main() {
   SPOOFER_WORK="$(mktemp -d "${TMPDIR:-/tmp}/ios-gps-spoofer.XXXXXX")"
   trap 'rm -rf "$SPOOFER_WORK"' EXIT
 
-  # Pin the exact commit, so the app knows which version it is.
-  sha="$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github.sha' \
-         "https://api.github.com/repos/$repo/commits/$ref" 2>/dev/null || true)"
+  # Pin the exact commit, so the app knows which version it is. git (part of
+  # the developer tools) asks GitHub without the web API's rate limit.
+  case "$ref" in
+    '' | *[!0-9a-f]*)
+      sha="$(git ls-remote "https://github.com/$repo.git" "$ref" 2>/dev/null | head -1 | cut -f1 || true)" ;;
+    *) sha="$ref" ;;   # already a commit
+  esac
   case "$sha" in '' | *[!0-9a-f]*) sha="" ;; esac
 
   if ! curl -fsSL --retry 3 "https://codeload.github.com/$repo/tar.gz/${sha:-$ref}" \
