@@ -77,7 +77,7 @@ final class Preferences {
         units = d.string(forKey: Key.units).flatMap(UnitSystem.init(rawValue:))
             ?? (Locale.current.measurementSystem == .us ? .imperial : .metric)
         enginePreference = d.string(forKey: Key.engine).flatMap(EnginePreference.init(rawValue:)) ?? .automatic
-        transport = d.string(forKey: Key.transport).flatMap(Transport.init(rawValue:)) ?? .native
+        transport = d.string(forKey: Key.transport).flatMap(Transport.init(rawValue:)) ?? .automatic
         pymobiledevice3Path = d.string(forKey: Key.toolPath) ?? ""
         showMenuBarExtra = d.object(forKey: Key.menuBar) as? Bool ?? true
         mapStyle = d.string(forKey: Key.mapStyle).flatMap(MapStyle.init(rawValue:)) ?? .standard
@@ -110,7 +110,7 @@ final class Preferences {
         }
         units = Locale.current.measurementSystem == .us ? .imperial : .metric
         enginePreference = .automatic
-        transport = .native
+        transport = .automatic
         pymobiledevice3Path = ""
         showMenuBarExtra = true
         mapStyle = .standard

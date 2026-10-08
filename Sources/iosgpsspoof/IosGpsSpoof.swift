@@ -38,8 +38,8 @@ struct CommonOptions: ParsableArguments {
     @Option(name: .customLong("connection"), help: "Which link to use: any | usb | network.")
     var connection: ConnectionFilter = .any
 
-    @Option(name: .customLong("transport"), help: "Tunnel transport (iOS 17+): native | tunneld | userspace. 'native' needs no root (macOS).")
-    var transport: Transport = .native
+    @Option(name: .customLong("transport"), help: "Tunnel transport (iOS 17+): automatic | userspace | native | tunneld. 'automatic' uses userspace on iOS 17.4+ and native before; neither needs root.")
+    var transport: Transport = .automatic
 
     @Option(name: .customLong("python-path"), help: "Path to the pymobiledevice3 executable.")
     var pythonPath: String?
@@ -65,7 +65,7 @@ struct Context {
         device.isLegacy ? ["developer", "simulate-location"] : ["developer", "dvt", "simulate-location"]
     }
     private var transportFlags: [String] {
-        device.isLegacy ? [] : transport.flags(udid: device.udid)
+        device.isLegacy ? [] : transport.flags(for: device)
     }
 
     func setArguments(_ p: GeoPoint) -> [String] {

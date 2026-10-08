@@ -120,7 +120,7 @@ public final class SpoofSession: @unchecked Sendable {
     /// - Parameters:
     ///   - engine: `.live` requires `python` (see `Pymobiledevice3.pythonInterpreter`);
     ///     without it the session silently uses `.classic`.
-    public init(pmd: Pymobiledevice3, device: Device, transport: Transport = .native,
+    public init(pmd: Pymobiledevice3, device: Device, transport: Transport = .automatic,
                 engine: EngineKind = .classic, python: URL? = nil, callbackQueue: DispatchQueue = .main) {
         self.pmd = pmd
         self.device = device
@@ -133,6 +133,10 @@ public final class SpoofSession: @unchecked Sendable {
 
     public var state: SessionState { locked { _state } }
     public var engine: EngineKind { locked { _engine } }
+    /// Whether the last `stop()` got the real location back (known once the
+    /// state is `.idle` again).
+    public var restoredOnLastStop: Bool { locked { _restoredOnLastStop } }
+    private var _restoredOnLastStop = false
 
     /// Whether frequent `move(to:)` calls are cheap enough to drive a route or a
     /// joystick in real time. False only for the classic engine on iOS 17+,
@@ -144,6 +148,9 @@ public final class SpoofSession: @unchecked Sendable {
     /// Begin spoofing at `point` (or restart there).
     public func start(at point: GeoPoint) {
         guard point.isValid else { setState(.failed("invalid coordinate \(point.latitude), \(point.longitude)")); return }
+        // Restarting mid-teardown would leave a child running that nothing
+        // tracks once the teardown reports `.idle`.
+        guard state != .stopping else { return }
         let (token, previous) = resetRun { desired = point; replayJob = nil }
         setState(.connecting("Preparing \(device.deviceName)…"))
         ops.async { [self] in
@@ -187,6 +194,7 @@ public final class SpoofSession: @unchecked Sendable {
     /// Classic engine: replay a timed GPX track with `simulate-location play`.
     /// The session takes ownership of the file and deletes it when done.
     public func replay(gpxPath: String, summary: String) {
+        guard state != .stopping else { return }
         let url = URL(fileURLWithPath: gpxPath)
         let (token, previous) = resetRun {
             replayJob = ReplayJob(gpxPath: gpxPath, summary: summary)
@@ -649,30 +657,33 @@ public final class SpoofSession: @unchecked Sendable {
         if let process = s.process { Self.terminate(process, grace: 3) }
         for file in s.files { try? FileManager.default.removeItem(at: file) }
 
+        locked { _restoredOnLastStop = false }
         guard clearLocation else { return }
         if cleared {
+            locked { _restoredOnLastStop = true }
             emit(.success, "real location restored")
             return
         }
         emit(.info, "restoring the real location…")
         do {
             _ = try pmd.run(clearArguments, timeout: clearTimeout)
+            locked { _restoredOnLastStop = true }
             emit(.success, "real location restored")
         } catch {
-            emit(.error, "could not clear the simulated location: \(Self.firstLine(of: error)). Rebooting the phone always clears it.")
+            emit(.error, "could not clear the simulated location: \(Self.firstLine(of: error)). Restarting the iPhone always clears it.")
         }
     }
 
     // MARK: - Arguments
 
-    private var transportLabel: String { device.isLegacy ? "lockdown" : transport.label }
+    private var transportLabel: String { device.isLegacy ? "lockdown" : transport.resolved(for: device).label }
 
     private func setArguments(_ p: GeoPoint) -> [String] {
         if device.isLegacy {
             return ["developer", "simulate-location", "set", "--udid", device.udid, "--",
                     String(p.latitude), String(p.longitude)]
         }
-        return ["developer", "dvt", "simulate-location", "set"] + transport.flags(udid: device.udid)
+        return ["developer", "dvt", "simulate-location", "set"] + transport.flags(for: device)
             + ["--udid", device.udid, "--", String(p.latitude), String(p.longitude)]
     }
 
@@ -680,12 +691,12 @@ public final class SpoofSession: @unchecked Sendable {
         if device.isLegacy {
             return ["developer", "simulate-location", "clear", "--udid", device.udid]
         }
-        return ["developer", "dvt", "simulate-location", "clear"] + transport.flags(udid: device.udid)
+        return ["developer", "dvt", "simulate-location", "clear"] + transport.flags(for: device)
             + ["--udid", device.udid]
     }
 
     private func replayArguments(_ path: String) -> [String] {
-        ["developer", "dvt", "simulate-location", "play"] + transport.flags(udid: device.udid)
+        ["developer", "dvt", "simulate-location", "play"] + transport.flags(for: device)
             + ["--udid", device.udid, path]
     }
 

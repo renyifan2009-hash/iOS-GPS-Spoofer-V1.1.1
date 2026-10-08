@@ -2,38 +2,59 @@ import Foundation
 
 /// How to reach the iOS 17+ developer services tunnel.
 public enum Transport: String, CaseIterable, Sendable, Codable {
-    /// macOS only, no root: piggybacks Apple's `remotepairingd` tunnel.
+    /// Per device: `.userspace` on iOS 17.4 and later, `.native` on iOS
+    /// 17.0–17.3 (which can't run the userspace tunnel). The default.
+    case automatic
+    /// macOS only, no root: piggybacks Apple's `remotepairingd` tunnel. The
+    /// device keeps one connection for it, so macOS's own `remoted` and this
+    /// tool knock each other off now and then (pymobiledevice3 #1994).
     case native
     /// Uses a running `pymobiledevice3 remote tunneld` (usually started with sudo).
     case tunneld
-    /// In-process pure-Python userspace tunnel, no root, slower.
+    /// pymobiledevice3's own tunnel, in-process, no root. Nothing else on the
+    /// Mac competes for it. iOS 17.4 and later.
     case userspace
 
-    /// Flags to append to a `pymobiledevice3 developer …` invocation.
+    /// The concrete transport for `device`.
+    public func resolved(for device: Device) -> Transport {
+        guard self == .automatic else { return self }
+        return device.supportsUserspaceTunnel ? .userspace : .native
+    }
+
+    /// Flags to append to a `pymobiledevice3 developer …` invocation for `device`.
+    public func flags(for device: Device) -> [String] {
+        resolved(for: device).flags(udid: device.udid)
+    }
+
+    /// Flags for a concrete transport. `.automatic` means pymobiledevice3's
+    /// own default, the userspace tunnel; prefer `flags(for:)`.
     public func flags(udid: String) -> [String] {
         switch self {
+        case .automatic, .userspace: return ["--userspace"]
         case .native: return ["--native"]
-        case .userspace: return ["--userspace"]
         case .tunneld: return ["--tunnel", udid]
         }
     }
 
     public var label: String {
         switch self {
-        case .native: return "Native (no root)"
+        case .automatic: return "Automatic (recommended)"
+        case .native: return "Apple's tunnel (no root)"
         case .tunneld: return "tunneld daemon"
-        case .userspace: return "Userspace (no root, slow)"
+        case .userspace: return "Own tunnel (no root)"
         }
     }
 
     public var detail: String {
         switch self {
+        case .automatic:
+            return "Uses its own tunnel on iOS 17.4 and later, and Apple's tunnel on iOS 17.0–17.3. No password."
         case .native:
-            return "Rides Apple's own remotepairingd tunnel. Fastest, no password. Recommended."
+            return "Rides macOS's own device tunnel. Fast, but macOS takes the connection back now and then, which drops it for a moment."
         case .tunneld:
             return "Needs `sudo pymobiledevice3 remote tunneld` running in a terminal."
         case .userspace:
-            return "Pure-Python tunnel inside the helper. No root; slower to connect."
+            return "pymobiledevice3's own tunnel, so nothing else on the Mac competes for it. iOS 17.4 and later; no password."
         }
     }
 }

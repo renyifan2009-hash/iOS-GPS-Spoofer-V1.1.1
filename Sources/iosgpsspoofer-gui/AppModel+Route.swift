@@ -55,6 +55,7 @@ extension AppModel {
         waypoints.removeAll()
         routeName = nil
         savedRouteID = nil
+        routeSpeed = prefs.defaultRouteSpeed
     }
 
     // MARK: - Geometry

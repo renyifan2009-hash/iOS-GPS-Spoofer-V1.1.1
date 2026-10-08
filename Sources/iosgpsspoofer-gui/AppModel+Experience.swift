@@ -106,6 +106,7 @@ extension AppModel {
         }
         let udid = device.udid
         developerModeCheckedUDID = udid
+        developerModeCheckedAt = Date()
         Task.detached(priority: .utility) {
             let output = try? pmd.run(["amfi", "developer-mode-status", "--udid", udid], timeout: 30)
             let value = output?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -113,8 +114,12 @@ extension AppModel {
             await MainActor.run {
                 let model = AppModel.shared
                 guard model.selectedUDID == udid else { return }
+                let was = model.developerModeEnabled
                 model.developerModeEnabled = enabled
-                if enabled == false {
+                if enabled == true, was == false {
+                    model.appendLog("Developer Mode is on now.", level: .success)
+                }
+                if enabled == false, was != false {
                     model.appendLog("Developer Mode is off on this iPhone: Settings ▸ Privacy & Security ▸ Developer Mode.",
                                     level: .warning)
                 }

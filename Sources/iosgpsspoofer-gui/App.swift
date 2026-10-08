@@ -61,43 +61,55 @@ struct AppCommands: Commands {
             Button("Toggle Inspector") { model.showInspector.toggle() }
                 .keyboardShortcut("i", modifiers: [.command, .option])
         }
+        // Items that change with the model live in a View: a View's body is
+        // re-evaluated when the @Observable state it reads changes.
         CommandMenu("Location") {
-            Button(model.hasSession ? "Stop & Restore Real Location" : "Start") { model.primaryAction() }
-                .keyboardShortcut(.return, modifiers: .command)
-            Button(model.isPaused ? "Resume Route" : "Pause Route") { model.togglePause() }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
-                .disabled(!model.canPauseRoute)
-            Divider()
-            Button("Teleport Mode") { model.mode = .teleport }
-                .keyboardShortcut("1")
-            Button("Route Mode") { model.mode = .route }
-                .keyboardShortcut("2")
-            Button("Joystick Mode") { model.mode = .joystick }
-                .keyboardShortcut("3")
-            Divider()
-            Button("Search Places…") { model.searchFocusRequest += 1 }
-                .keyboardShortcut("f")
-            Button("Paste Coordinates or Maps Link") { model.pasteFromClipboard() }
-                .keyboardShortcut("v", modifiers: [.command, .shift])
-            Button("Copy Target Coordinates") { if let t = model.target { model.copyCoordinates(t) } }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
-            Button(model.targetIsFavorite ? "Remove Target from Favorites" : "Add Target to Favorites…") {
-                model.toggleFavoriteForTarget()
-            }
-            .keyboardShortcut("d")
-            Divider()
-            Button("Fit Map") { model.fitMap() }
-                .keyboardShortcut("0")
-            Button(model.isFollowingDevice && model.session != nil ? "Stop Following iPhone" : "Re-center on iPhone") {
-                if model.isFollowingDevice && model.session != nil { model.stopFollowingDevice() } else { model.recenterOnDevice() }
-            }
-            .keyboardShortcut("l")
-            .disabled(model.session == nil || model.devicePosition == nil)
+            LocationMenuItems()
         }
         CommandGroup(replacing: .help) {
             Button("Welcome & Setup Checklist") { model.showWelcome = true }
             Button("Connecting an iPhone…") { model.showConnectionHelp = true }
         }
+    }
+}
+
+struct LocationMenuItems: View {
+    var body: some View {
+        let model = AppModel.shared
+        let following = model.isFollowingDevice && model.session != nil
+        Button(model.hasSession ? "Stop & Restore Real Location" : "Start") { model.primaryAction() }
+            .keyboardShortcut(.return, modifiers: .command)
+        Button(model.isPaused ? "Resume Route" : "Pause Route") { model.togglePause() }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .disabled(!model.canPauseRoute)
+        Divider()
+        Button("Teleport Mode") { model.mode = .teleport }
+            .keyboardShortcut("1")
+        Button("Route Mode") { model.mode = .route }
+            .keyboardShortcut("2")
+        Button("Joystick Mode") { model.mode = .joystick }
+            .keyboardShortcut("3")
+        Divider()
+        Button("Search Places…") { model.searchFocusRequest += 1 }
+            .keyboardShortcut("f")
+        Button("Paste Coordinates or Maps Link") { model.pasteFromClipboard() }
+            .keyboardShortcut("v", modifiers: [.command, .shift])
+        Button("Copy Target Coordinates") { if let t = model.target { model.copyCoordinates(t) } }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+            .disabled(model.target == nil)
+        Button(model.targetIsFavorite ? "Remove Target from Favorites" : "Add Target to Favorites…") {
+            model.toggleFavoriteForTarget()
+        }
+        .keyboardShortcut("d")
+        .disabled(model.target == nil)
+        Divider()
+        Button("Fit Map") { model.fitMap() }
+            .keyboardShortcut("0")
+        Button(following ? "Stop Following iPhone" : "Re-center on iPhone") {
+            if following { model.stopFollowingDevice() } else { model.recenterOnDevice() }
+        }
+        .keyboardShortcut("l")
+        .disabled(model.session == nil || model.devicePosition == nil)
     }
 }
 

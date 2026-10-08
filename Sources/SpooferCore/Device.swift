@@ -48,6 +48,17 @@ public struct Device: Codable, Identifiable, Hashable, Sendable {
     /// `com.apple.dt.simulatelocation` service instead of the CoreDevice tunnel.
     public var isLegacy: Bool { majorVersion > 0 && majorVersion < 17 }
 
+    /// Minor iOS version, e.g. `4` for `"17.4.1"` (0 when unknown).
+    public var minorVersion: Int {
+        let parts = productVersion.split(separator: ".")
+        return parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+    }
+
+    /// iOS 17.4 and later can open pymobiledevice3's own (userspace) tunnel.
+    public var supportsUserspaceTunnel: Bool {
+        majorVersion > 17 || (majorVersion == 17 && minorVersion >= 4)
+    }
+
     public var connectionLabel: String { connectionType.lowercased() }
     public var isUSB: Bool { connectionLabel == "usb" }
 

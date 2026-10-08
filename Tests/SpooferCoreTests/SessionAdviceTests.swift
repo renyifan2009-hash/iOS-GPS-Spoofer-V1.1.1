@@ -42,3 +42,29 @@ final class SessionAdviceTests: XCTestCase {
         XCTAssertNil(advice("something nobody has seen before"))
     }
 }
+
+/// Which tunnel "Automatic" picks for each iOS version.
+final class TransportTests: XCTestCase {
+    private func device(_ version: String) -> Device {
+        Device(deviceName: "Test", identifier: "00008110-TEST", connectionType: "USB",
+               productType: "iPhone17,2", productVersion: version)
+    }
+
+    func testAutomaticUsesTheOwnTunnelFromIOS17Point4() {
+        for version in ["17.4", "17.4.1", "17.6", "18.0", "26.6", "27.0"] {
+            XCTAssertEqual(Transport.automatic.resolved(for: device(version)), .userspace, version)
+            XCTAssertEqual(Transport.automatic.flags(for: device(version)), ["--userspace"], version)
+        }
+    }
+
+    func testAutomaticUsesApplesTunnelOnEarlyIOS17() {
+        for version in ["17.0", "17.1.2", "17.3.1"] {
+            XCTAssertEqual(Transport.automatic.resolved(for: device(version)), .native, version)
+        }
+    }
+
+    func testExplicitChoicesAreKept() {
+        XCTAssertEqual(Transport.native.flags(for: device("26.6")), ["--native"])
+        XCTAssertEqual(Transport.tunneld.flags(for: device("26.6")), ["--tunnel", "00008110-TEST"])
+    }
+}

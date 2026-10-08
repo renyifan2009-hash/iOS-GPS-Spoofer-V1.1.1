@@ -13,7 +13,7 @@ struct ContentView: View {
             MainView()
         }
         .task { model.bootstrap() }
-        .sheet(isPresented: $model.showWelcome) {
+        .sheet(isPresented: $model.showWelcome, onDismiss: { model.finishWelcome() }) {
             WelcomeView()
                 .environment(model)
                 .environment(Preferences.shared)

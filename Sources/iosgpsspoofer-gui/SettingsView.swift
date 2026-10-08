@@ -127,6 +127,7 @@ private struct EngineSettings: View {
 
 private struct MovementSettings: View {
     @Environment(Preferences.self) private var prefs
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var prefs = prefs
@@ -160,6 +161,10 @@ private struct MovementSettings: View {
             Section("Defaults") {
                 LabeledContent("Route speed") {
                     SpeedField(metresPerSecond: $prefs.defaultRouteSpeed, units: prefs.units)
+                }
+                .onChange(of: prefs.defaultRouteSpeed) { _, speed in
+                    // Use it for the route being planned too (not one that's playing).
+                    if model.activity != .routing { model.routeSpeed = speed }
                 }
                 LabeledContent("Joystick top speed") {
                     SpeedField(metresPerSecond: $prefs.joystickSpeed, units: prefs.units)

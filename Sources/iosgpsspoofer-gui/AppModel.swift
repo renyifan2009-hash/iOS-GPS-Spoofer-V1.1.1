@@ -164,6 +164,7 @@ final class AppModel {
     /// `amfi developer-mode-status` for the selected device (nil = unknown).
     var developerModeEnabled: Bool?
     @ObservationIgnored var developerModeCheckedUDID: String?
+    @ObservationIgnored var developerModeCheckedAt = Date.distantPast
     /// Toast to show once the device confirms the next position.
     @ObservationIgnored var pendingToast: Toast?
 
@@ -183,6 +184,8 @@ final class AppModel {
     @ObservationIgnored let deviceGeocoder = CLGeocoder()
     @ObservationIgnored var lastDeviceGeocode: (point: GeoPoint, date: Date)?
     @ObservationIgnored var didBootstrap = false
+    /// Keeps the Mac from napping or idle-sleeping while a location is simulated.
+    @ObservationIgnored var sessionActivity: NSObjectProtocol?
     @ObservationIgnored var restoring = false
     @ObservationIgnored var autoStart: GeoPoint?
     @ObservationIgnored var didAutoStart = false
@@ -335,8 +338,16 @@ final class AppModel {
             if !keepSelection, selectedUDID == nil || !list.contains(where: { $0.udid == selectedUDID }) {
                 selectedUDID = list.first?.udid
             }
-            if let udid = selectedUDID, developerModeCheckedUDID != udid, list.contains(where: { $0.udid == udid }) {
-                checkDeveloperMode()
+            if let udid = selectedUDID {
+                if !list.contains(where: { $0.udid == udid }) {
+                    // Gone (maybe restarting after turning Developer Mode on):
+                    // check again when it's back.
+                    developerModeCheckedUDID = nil
+                } else if developerModeCheckedUDID != udid
+                            || (developerModeEnabled != true && session == nil
+                                && Date().timeIntervalSince(developerModeCheckedAt) > 10) {
+                    checkDeveloperMode()
+                }
             }
             if !list.isEmpty { connectCardDismissed = false }
         } catch {
@@ -360,7 +371,13 @@ final class AppModel {
     /// can't do real-time movement.
     func obtainSession(requireStreaming: Bool) async -> (session: SpoofSession, isNew: Bool)? {
         if let session {
+            if sessionState == .stopping {
+                appendLog("Still restoring the real location. Try again in a moment.", level: .info)
+                return nil
+            }
             if requireStreaming && !session.canStream { warnStreamingUnavailable(); return nil }
+            // A session that gave up has to be started again, not just moved.
+            if case .failed = sessionState { return (session, true) }
             return (session, false)
         }
         guard !isStarting else { return nil }
@@ -394,11 +411,18 @@ final class AppModel {
         session = s
         sessionEngine = s.engine
         sessionStartedAt = Date()
+        // Long routes run for hours: no App Nap (it would slow the motion
+        // timer) and no idle sleep until the session ends. The display may
+        // still sleep.
+        if sessionActivity == nil {
+            sessionActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .idleSystemSleepDisabled], reason: "Simulating the iPhone's location")
+        }
         devicePosition = nil
         devicePlaceName = nil
         isFollowingDevice = prefs.followDevice
         startMotionLoop()
-        let how = device.isLegacy ? "lockdown service" : prefs.transport.label
+        let how = device.isLegacy ? "lockdown service" : prefs.transport.resolved(for: device).label
         appendLog("Starting a \(s.engine.label.lowercased())-engine session on \(device.deviceName) (\(device.modelName), iOS \(device.productVersion), \(how)).", level: .info)
         return (s, true)
     }
@@ -438,10 +462,17 @@ final class AppModel {
         sessionState = state
         switch state {
         case .idle:
+            let restored = session?.restoredOnLastStop ?? false
             endSession()
             if previous == .stopping {
-                showToast(Toast(symbol: "location.slash.fill", title: "Real location restored",
-                                subtitle: "Your iPhone is back to its actual GPS.", style: .info))
+                if restored {
+                    showToast(Toast(symbol: "location.slash.fill", title: "Real location restored",
+                                    subtitle: "Your iPhone is back to its actual GPS.", style: .info))
+                } else {
+                    showToast(Toast(symbol: "exclamationmark.triangle.fill", title: "Couldn't confirm the real location is back",
+                                    subtitle: "Restart the iPhone to be sure. That always clears it.", style: .warning),
+                              duration: 6)
+                }
             }
         case .replaying:
             if previous != .replaying { replayStartedAt = Date() }
@@ -493,6 +524,9 @@ final class AppModel {
     }
 
     private func endSession() {
+        if let sessionActivity { ProcessInfo.processInfo.endActivity(sessionActivity) }
+        sessionActivity = nil
+        lastDeviceGeocode = nil
         session = nil
         pendingToast = nil
         sessionEngine = nil
@@ -606,12 +640,17 @@ final class AppModel {
         playback = nil
         isPaused = false
         if let session {
+            if sessionState == .stopping {
+                appendLog("Still restoring the real location. Try again in a moment.", level: .info)
+                return
+            }
             if let from = devicePosition {
                 let jump = Geo.distance(from, point)
                 if jump > 1 { appendLog("Teleporting \(Format.distance(jump, units: prefs.units)) to \(name ?? Format.coordinate(point)).", level: .info) }
             }
             pendingToast = teleportToast(point, name: name)
-            session.move(to: point)
+            // A session that gave up has to be started again, not just moved.
+            if case .failed = sessionState { session.start(at: point) } else { session.move(to: point) }
             activity = .holding
             deviceSpeed = 0
             deviceHeading = nil

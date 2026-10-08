@@ -24,7 +24,7 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
         public var retryAfterFailure: TimeInterval
         public var serverName: String
 
-        public init(udid: String? = nil, connection: ConnectionFilter = .any, transport: Transport = .native,
+        public init(udid: String? = nil, connection: ConnectionFilter = .any, transport: Transport = .automatic,
                     engine: EngineKind = .classic, retryAfterFailure: TimeInterval = 15,
                     serverName: String = BonjourService.computerName) {
             self.udid = udid
