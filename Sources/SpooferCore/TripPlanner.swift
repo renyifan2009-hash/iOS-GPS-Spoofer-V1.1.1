@@ -94,18 +94,24 @@ public struct TripPlanner: Sendable, Equatable {
         // A stop exactly at the end of a lap would be skipped: the playback
         // starts the next lap as it gets there. Keep them just before it.
         let lastSpot = loopMode == .once ? cycle : max(0, cycle - 0.5)
-        func clamp(_ at: Double) -> Double { min(max(at, 0), lastSpot) }
+        /// `x` (a stop or slow-down a little before something met at `at`),
+        /// kept on the same leg: out and back, one for the way back can't move
+        /// onto the way out. It waits at the turn instead.
+        func clamp(_ x: Double, for at: Double) -> Double {
+            let start = pingPong && at > length ? length : 0
+            return min(max(x, start), lastSpot)
+        }
 
-        /// A traffic light whose stop line is `line` metres into the lap.
-        func light(at line: Double) {
+        /// A traffic light met at `at`, with its stop line `offset` metres before it.
+        func light(at: Double, offset: Double) {
             switch TripOdds.light(profile, &rng) {
             case .green:
                 break
             case .turnsGreen(let speed):
-                limits.append(TripLimit(distance: clamp(line), speed: speed))
+                limits.append(TripLimit(distance: clamp(at - offset, for: at), speed: speed))
             case .red(let wait, let queue):
-                stops.append(TripStop(distance: clamp(line - Double(queue) * TripOdds.queueSpacing),
-                                      wait: wait, reason: .redLight))
+                let back = offset + Double(queue) * TripOdds.queueSpacing
+                stops.append(TripStop(distance: clamp(at - back, for: at), wait: wait, reason: .redLight))
             }
         }
 
@@ -114,23 +120,23 @@ public struct TripPlanner: Sendable, Equatable {
                 switch feature.kind {
                 case .trafficSignal:
                     guard settings.trafficLights else { continue }
-                    light(at: at - TripOdds.stopLineOffset)
+                    light(at: at, offset: TripOdds.stopLineOffset)
                 case .signalCrossing:
                     guard settings.trafficLights else { continue }
                     if profile.isOnFoot {
-                        light(at: at - 2)
+                        light(at: at, offset: 2)
                     } else if rng.chance(TripOdds.crossingRedForTraffic) {
-                        stops.append(TripStop(distance: clamp(at - 2), wait: TripOdds.crossingWait(&rng),
+                        stops.append(TripStop(distance: clamp(at - 2, for: at), wait: TripOdds.crossingWait(&rng),
                                               reason: .crossing))
                     }
                 case .stopSign:
                     guard settings.stopSigns else { continue }
                     switch profile.kind {
                     case .drive where rng.chance(TripOdds.fullStopAtSign):
-                        stops.append(TripStop(distance: clamp(at - 2), wait: TripOdds.stopSignWait(&rng),
+                        stops.append(TripStop(distance: clamp(at - 2, for: at), wait: TripOdds.stopSignWait(&rng),
                                               reason: .stopSign))
                     case .drive:
-                        limits.append(TripLimit(distance: clamp(at - 2), speed: TripOdds.rollingStopSpeed(&rng)))
+                        limits.append(TripLimit(distance: clamp(at - 2, for: at), speed: TripOdds.rollingStopSpeed(&rng)))
                     case .cycle:
                         limits.append(TripLimit(distance: at, speed: 2))
                     case .walk, .run:
@@ -139,7 +145,7 @@ public struct TripPlanner: Sendable, Equatable {
                 case .giveWay:
                     guard settings.stopSigns, !profile.isOnFoot else { continue }
                     if profile.kind == .drive, rng.chance(TripOdds.giveWayStop) {
-                        stops.append(TripStop(distance: clamp(at - 2), wait: TripOdds.giveWayWait(&rng),
+                        stops.append(TripStop(distance: clamp(at - 2, for: at), wait: TripOdds.giveWayWait(&rng),
                                               reason: .giveWay))
                     } else {
                         limits.append(TripLimit(distance: at, speed: TripOdds.giveWaySpeed))
@@ -155,7 +161,7 @@ public struct TripPlanner: Sendable, Equatable {
         if settings.guessJunctions, features.features.isEmpty, settings.trafficLights, profile.kind == .drive {
             for turn in curveLimits where turn.speed < TripOdds.junctionTurnSpeed {
                 for at in passes(turn.distance) where rng.chance(TripOdds.junctionHasLight) {
-                    light(at: at - 12)
+                    light(at: at, offset: 12)
                 }
             }
         }
@@ -173,7 +179,7 @@ public struct TripPlanner: Sendable, Equatable {
                 places = []   // the destination: the trip stays there anyway
             }
             for at in places {
-                stops.append(TripStop(distance: clamp(at), wait: waypoint.wait, reason: .waypoint(waypoint.index)))
+                stops.append(TripStop(distance: clamp(at, for: at), wait: waypoint.wait, reason: .waypoint(waypoint.index)))
             }
         }
 
@@ -212,9 +218,10 @@ public struct TripPlanner: Sendable, Equatable {
                        limits: limits.sorted { $0.distance < $1.distance }, zones: zones, driverFactor: driver)
     }
 
-    /// Stops a few metres apart are one stop: the first place, the longest wait.
-    /// The destination and a turnaround keep their own place, so a sign just
-    /// before the end can't leave the trip waiting short of it.
+    /// Stops a few metres apart are one stop: the first place, the longest
+    /// wait and its reason. The destination and a turnaround keep their own
+    /// place, so a sign just before the end can't leave the trip waiting short
+    /// of it (and at the destination, the reason stays the destination).
     static func merged(_ stops: [TripStop]) -> [TripStop] {
         func isEnd(_ stop: TripStop) -> Bool { stop.reason == .destination || stop.reason == .turnaround }
         var result: [TripStop] = []
@@ -223,15 +230,10 @@ public struct TripPlanner: Sendable, Equatable {
                 result.append(stop)
                 continue
             }
-            let wait = max(last.wait, stop.wait)
-            if isEnd(stop) {
-                result[result.count - 1] = TripStop(distance: stop.distance, wait: wait, reason: stop.reason)
-            } else if isEnd(last) {
-                result[result.count - 1].wait = wait
-            } else if stop.wait > last.wait {
-                result[result.count - 1].wait = stop.wait
-                result[result.count - 1].reason = stop.reason
-            }
+            let end = isEnd(stop) ? stop : isEnd(last) ? last : nil
+            let longer = stop.wait > last.wait ? stop : last
+            result[result.count - 1] = TripStop(distance: end?.distance ?? last.distance, wait: longer.wait,
+                                                reason: end?.reason == .destination ? .destination : longer.reason)
         }
         return result
     }

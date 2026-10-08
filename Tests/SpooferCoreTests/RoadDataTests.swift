@@ -130,10 +130,11 @@ final class RoadDataTests: XCTestCase {
         let cache = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: cache) }
         let loader = OverpassLoader(userAgent: "test", cacheDirectory: cache) { request in
-            let n = await calls.increment()
-            let status = n == 1 ? 504 : 200        // the first server is busy
-            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (status == 200 ? body : Data(), response)
+            _ = await calls.increment()
+            // The first server can't be reached; the next one answers.
+            if request.url?.host == "overpass-api.de" { throw URLError(.cannotConnectToHost) }
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (body, response)
         }
         let first = try await loader.features(along: path, roads: true)
         XCTAssertEqual(first.uniqueCount(of: .trafficSignal), 1)
@@ -222,6 +223,27 @@ final class SignDirectionTests: XCTestCase {
         XCTAssertEqual(features.uniqueCount(of: .trafficSignal, wayBack: true), 2)
     }
 
+    func testAnUntaggedYieldSignFacesTheJunctionPastIt() {
+        let yield = OSMNode(id: 102, point: a.moved(by: 192, bearing: 0), tags: ["highway": "give_way"])
+        let path = RoutePath([a, a.moved(by: 400, bearing: 0)])
+        XCTAssertEqual(OverpassLoader.features(from: crossroads([yield]), along: path).features.map(\.facing), [.forward])
+    }
+
+    func testASignMidwayBetweenTwoJunctionsCountsBothWays() {
+        // Junctions at 185 m and 215 m (side streets both ways); the sign is 15 m from each.
+        let j1 = a.moved(by: 185, bearing: 0), j2 = a.moved(by: 215, bearing: 0)
+        let road = OSMWay(id: 1, points: [a, j1, a.moved(by: 200, bearing: 0), j2, a.moved(by: 400, bearing: 0)],
+                          tags: ["highway": "residential"], nodeIDs: [101, 102, 103, 104, 105])
+        let side1 = OSMWay(id: 2, points: [j1, j1.moved(by: 100, bearing: 90)], tags: ["highway": "residential"],
+                           nodeIDs: [102, 201])
+        let side2 = OSMWay(id: 3, points: [j2, j2.moved(by: 100, bearing: 270)], tags: ["highway": "residential"],
+                           nodeIDs: [104, 301])
+        let sign = OSMNode(id: 103, point: a.moved(by: 200, bearing: 0), tags: ["highway": "stop"])
+        let answer = OverpassAnswer(nodes: [sign], ways: [road, side1, side2])
+        let found = OverpassLoader.features(from: answer, along: RoutePath([a, a.moved(by: 400, bearing: 0)])).features
+        XCTAssertEqual(found.map(\.facing), [.both])
+    }
+
     func testWithoutTheRoadsEverySignNearbyCounts() {
         let path = RoutePath([a, a.moved(by: 400, bearing: 0)])
         let bare = OverpassAnswer(nodes: signs, ways: [])
@@ -248,6 +270,23 @@ final class SignDirectionTests: XCTestCase {
         let bump = OverpassLoader.features(from: answer, along: path).features
         XCTAssertEqual(bump.map(\.kind), [.trafficCalming])
         XCTAssertEqual(bump.first?.speed ?? 0, 18 * 0.44704, accuracy: 1e-9)
+    }
+
+    func testABusyServerGetsOneMoreTry() async throws {
+        let path = RoutePath([a, a.moved(by: 1000, bearing: 0)])
+        let calls = Counter()
+        let loader = OverpassLoader(userAgent: "test", cacheDirectory: nil) { request in
+            let n = await calls.increment()
+            XCTAssertEqual(request.url?.host, "overpass-api.de")
+            let status = n == 1 ? 504 : 200
+            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
+                                           headerFields: ["Retry-After": "1"])!
+            return (status == 200 ? Data(#"{"elements": []}"#.utf8) : Data(), response)
+        }
+        let features = try await loader.features(along: path, roads: false)
+        XCTAssertTrue(features.complete)
+        let total = await calls.value
+        XCTAssertEqual(total, 2)
     }
 
     func testAServerOutOfTurnsIsLeftAlone() async throws {

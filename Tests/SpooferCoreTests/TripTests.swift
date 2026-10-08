@@ -510,7 +510,8 @@ final class RoadBehaviourTests: XCTestCase {
     }
 
     func testSignsForOneDirectionCountOnlyOnThatLeg() {
-        func plan(_ facing: RoadFeature.Facing, _ mode: LoopMode) -> [Double] {
+        /// How many times a yield sign 300 m along a 1 km road is met going out and coming back.
+        func legs(_ facing: RoadFeature.Facing, _ mode: LoopMode) -> (out: Int, back: Int) {
             var settings = TripSettings(topSpeed: 15)
             settings.trafficLights = false
             let planner = TripPlanner(path: TripPlannerTests.line(1000), loopMode: mode, settings: settings,
@@ -518,14 +519,52 @@ final class RoadBehaviourTests: XCTestCase {
                                           RoadFeature(kind: .giveWay, distance: 300, point: GeoPoint(37, -122), facing: facing),
                                       ]))
             let lap = planner.lapPlan(lap: 0, seed: 1)
-            return (lap.stops.filter { $0.reason == .giveWay }.map(\.distance)
-                + lap.limits.filter { $0.speed == TripOdds.giveWaySpeed }.map(\.distance)).sorted()
+            // A full stop 2 m before it, or slowing at it.
+            let places = lap.stops.filter { $0.reason == .giveWay }.map(\.distance)
+                + lap.limits.filter { $0.speed == TripOdds.giveWaySpeed }.map(\.distance)
+            return (places.filter { $0 < 1000 }.count, places.filter { $0 > 1000 }.count)
         }
-        XCTAssertEqual(plan(.both, .pingPong).count, 2)
-        XCTAssertEqual(plan(.forward, .pingPong).map { $0.rounded() }, [300])
-        XCTAssertEqual(plan(.backward, .pingPong).map { $0.rounded() }, [1700])
-        XCTAssertEqual(plan(.backward, .once), [])
-        XCTAssertEqual(plan(.forward, .once).map { $0.rounded() }, [300])
+        XCTAssertTrue(legs(.both, .pingPong) == (1, 1))
+        XCTAssertTrue(legs(.forward, .pingPong) == (1, 0))
+        XCTAssertTrue(legs(.backward, .pingPong) == (0, 1))
+        XCTAssertTrue(legs(.forward, .once) == (1, 0))
+        XCTAssertTrue(legs(.backward, .once) == (0, 0))
+        XCTAssertTrue(legs(.backward, .loop) == (0, 0))
+    }
+
+    func testAStopForTheWayBackStaysOnTheWayBack() {
+        // A light 5 m from the far end of an out-and-back route: on the way back
+        // it's met right after the U-turn, so the car waits at the turn, never
+        // on the way out (even behind a queue).
+        let planner = TripPlanner(path: TripPlannerTests.line(1000), loopMode: .pingPong,
+                                  settings: TripSettings(topSpeed: 15),
+                                  features: RoadFeatures(features: [
+                                      RoadFeature(kind: .trafficSignal, distance: 995, point: GeoPoint(37, -122)),
+                                  ]))
+        var waitedAtTheTurn = 0
+        for lap in 0..<80 {
+            let plan = planner.lapPlan(lap: lap, seed: 6)
+            for stop in plan.stops where stop.reason == .redLight {
+                XCTAssertTrue(stop.distance <= 989 + 1e-6 || stop.distance >= 1000 - 1e-6,
+                              "lap \(lap): a red-light stop at \(stop.distance)")
+                if abs(stop.distance - 1000) < 1e-6 { waitedAtTheTurn += 1 }
+            }
+            XCTAssertTrue(plan.limits.allSatisfy { $0.distance <= 989 + 1e-6 || $0.distance >= 1000 - 1e-6 })
+        }
+        XCTAssertGreaterThan(waitedAtTheTurn, 10)
+    }
+
+    func testMergingIntoTheTurnKeepsTheLongerWaitsReason() {
+        let merged = TripPlanner.merged([
+            TripStop(distance: 999, wait: 30, reason: .redLight),
+            TripStop(distance: 1000, wait: 0, reason: .turnaround),
+        ])
+        XCTAssertEqual(merged, [TripStop(distance: 1000, wait: 30, reason: .redLight)])
+        let end = TripPlanner.merged([
+            TripStop(distance: 998, wait: 2, reason: .stopSign),
+            TripStop(distance: 1000, wait: .infinity, reason: .destination),
+        ])
+        XCTAssertEqual(end, [TripStop(distance: 1000, wait: .infinity, reason: .destination)])
     }
 
     func testSpeedBumpsSlowCarsOnly() {
@@ -552,5 +591,10 @@ final class RoadBehaviourTests: XCTestCase {
         let slowed = plan.limits.filter { abs($0.distance.truncatingRemainder(dividingBy: 250) - 244) < 1e-6 }
         XCTAssertFalse(slowed.isEmpty)
         XCTAssertTrue(slowed.allSatisfy { (2...5).contains($0.speed) })
+        // Only slows: there's no stop at those lights as well (a queue would be up to 37.5 m back).
+        for limit in slowed {
+            XCTAssertFalse(plan.stops.contains { $0.reason == .redLight && limit.distance - $0.distance < 40
+                && $0.distance <= limit.distance })
+        }
     }
 }

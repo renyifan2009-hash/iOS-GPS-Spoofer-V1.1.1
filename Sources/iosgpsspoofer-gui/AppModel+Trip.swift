@@ -122,8 +122,10 @@ extension AppModel {
     /// the roads are known. Cheap when nothing changed (the answers are cached).
     func refreshRoadData() {
         lapTimeCache = nil
-        guard prefs.realisticTrips, prefs.tripTrafficLights || prefs.tripStopSigns || prefs.tripSpeedLimits,
-              waypoints.count >= 2, routeGeometry.count >= 2 else {
+        // Speed bumps alone are worth a lookup too, but only for driving.
+        let wanted = prefs.tripTrafficLights || prefs.tripStopSigns || prefs.tripSpeedLimits
+            || (prefs.tripSlowForTurns && travelMode == .driving)
+        guard prefs.realisticTrips, wanted, waypoints.count >= 2, routeGeometry.count >= 2 else {
             roadDataTask?.cancel()
             roadDataState = .off
             return
