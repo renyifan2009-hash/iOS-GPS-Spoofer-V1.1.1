@@ -486,16 +486,16 @@ public final class SpoofSession: @unchecked Sendable {
                 _ = try pmd.run(setArguments(target), timeout: 60)
             } catch {
                 let detail = Self.toolErrorDetail(error)
-                let failures = locked { () -> Int in
-                    oneShotRunning = false
-                    lastError = detail
-                    failures += 1
-                    return failures
+                let attempt = locked { () -> Int in
+                    self.oneShotRunning = false
+                    self.lastError = detail
+                    self.failures += 1
+                    return self.failures
                 }
                 guard isCurrent(token) else { return }
                 emit(.debug, "\(error)")
                 if pmd.isPresent(udid: device.udid) {
-                    retryOrFail(failures: failures, lastError: detail, problem: "setting the location failed", token: token)
+                    retryOrFail(failures: attempt, lastError: detail, problem: "setting the location failed", token: token)
                 } else {
                     locked { needsMount = true }
                     setState(.reconnecting("Waiting for \(device.deviceName) to reconnect…"))
