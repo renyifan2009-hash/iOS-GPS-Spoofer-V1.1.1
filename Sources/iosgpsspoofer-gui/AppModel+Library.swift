@@ -18,6 +18,7 @@ extension AppModel {
         if library.isFavorite(target) {
             library.removeFavorite(near: target)
             appendLog("Removed from favorites.", level: .info)
+            showToast(Toast(symbol: "star.slash.fill", title: "Removed from Favorites", style: .info))
         } else {
             addFavorite(at: target, suggestedName: targetLabel)
         }
@@ -29,6 +30,7 @@ extension AppModel {
                                        defaultValue: suggestedName ?? "") else { return }
         let place = library.addFavorite(name: name, point: point)
         appendLog("Saved “\(place.name)” to favorites.", level: .success)
+        showToast(Toast(symbol: "star.fill", title: "Added to Favorites", subtitle: place.name, style: .success))
     }
 
     func renameFavorite(_ place: SavedPlace) {
@@ -53,6 +55,8 @@ extension AppModel {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(Coordinate.format(point, precision: 6), forType: .string)
         appendLog("Copied \(Coordinate.format(point, precision: 6)).", level: .info)
+        showToast(Toast(symbol: "doc.on.doc.fill", title: "Coordinates copied",
+                        subtitle: Coordinate.format(point, precision: 6), style: .info))
     }
 
     /// Paste a coordinate or a Google/Apple Maps link as the target (or a waypoint).
@@ -126,8 +130,12 @@ extension AppModel {
                 message += ", recorded at \(Format.speed(speed, units: prefs.units))"
             }
             appendLog(message + ".", level: .success)
+            showToast(Toast(symbol: "square.and.arrow.down.fill", title: "Route imported",
+                            subtitle: "\(name) · \(Format.distance(imported.length, units: prefs.units))", style: .success))
         } catch {
             appendLog("Couldn't import \(url.lastPathComponent): \(error.localizedDescription)", level: .error)
+            showToast(Toast(symbol: "xmark.octagon.fill", title: "Couldn't import that file",
+                            subtitle: url.lastPathComponent, style: .error))
         }
     }
 
@@ -173,6 +181,7 @@ extension AppModel {
         savedRouteID = route.id
         routeName = route.name
         appendLog("Saved route “\(route.name)”.", level: .success)
+        showToast(Toast(symbol: "bookmark.fill", title: "Route saved", subtitle: route.name, style: .success))
     }
 
     func loadSavedRoute(_ route: SavedRoute) {

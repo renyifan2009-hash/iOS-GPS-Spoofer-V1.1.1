@@ -1,23 +1,32 @@
 import SpooferCore
 import SwiftUI
 
-/// Floating status card over the map while a session runs.
+/// The floating "Now simulating" card over the map while a session runs.
 struct HUDView: View {
     @Environment(AppModel.self) private var model
     @Environment(Preferences.self) private var prefs
-    @State private var scrub: Double?
 
     var body: some View {
         let status = model.statusDisplay
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
-                StatusPill(status: status)
-                VStack(alignment: .leading, spacing: 2) {
+                badge(status)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text("NOW SIMULATING")
+                            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                            .kerning(0.8)
+                            .foregroundStyle(.secondary)
+                        StatusPill(status: status)
+                        if let engine = model.sessionEngine {
+                            EngineBadge(engine: engine, status: model.engineStatus)
+                        }
+                    }
                     Text(primaryLine(status))
-                        .font(.headline)
+                        .font(Brand.title(17, weight: .semibold))
                         .lineLimit(1)
                         .contentTransition(.opacity)
-                    Text(secondaryLine(status))
+                    Text(secondaryLine)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -25,13 +34,33 @@ struct HUDView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 controls
             }
+
             if let progress = model.routeProgress {
-                progressView(progress)
+                progressSection(progress)
+            } else if model.activity == .joystick || model.deviceSpeed > 0.05 {
+                statsRow
             }
         }
-        .padding(12)
-        .frame(maxWidth: 640)
-        .glassPanel(cornerRadius: 14)
+        .padding(14)
+        .frame(maxWidth: 680)
+        .glassPanel(cornerRadius: 18)
+    }
+
+    private func badge(_ status: StatusDisplay) -> some View {
+        ZStack {
+            Circle()
+                .fill(status.live ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(status.tint.opacity(0.18)))
+                .frame(width: 46, height: 46)
+                .shadow(color: status.live ? Brand.indigo.opacity(0.4) : .clear, radius: 8, y: 2)
+            if status.busy {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: status.symbol)
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(status.live ? Color.white : status.tint)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+        }
     }
 
     private func primaryLine(_ status: StatusDisplay) -> String {
@@ -45,85 +74,97 @@ struct HUDView: View {
         }
     }
 
-    private func secondaryLine(_ status: StatusDisplay) -> String {
+    private var secondaryLine: String {
         var parts: [String] = []
-        if let p = model.devicePosition, model.devicePlaceName != nil || !model.isEngaged {
-            parts.append(Format.coordinate(p))
-        }
-        if model.deviceSpeed > 0.05 {
-            parts.append(Format.speed(model.deviceSpeed, units: prefs.units))
-            if let heading = model.deviceHeading { parts.append("\(Int(heading.rounded()))° \(Geo.compassPoint(heading))") }
-        }
-        if let device = model.session?.device { parts.append(device.deviceName) }
-        if let engine = model.sessionEngine { parts.append(engine.label) }
-        return parts.joined(separator: " · ")
+        if let p = model.devicePosition { parts.append(Format.coordinate(p)) }
+        if let device = model.session?.device { parts.append("\(device.deviceName) · \(device.modelName)") }
+        return parts.joined(separator: "  ·  ")
     }
 
     @ViewBuilder
     private var controls: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             if model.canPauseRoute, !(model.routeProgress?.finished ?? false) {
                 Button {
                     model.togglePause()
                 } label: {
-                    Image(systemName: model.isPaused ? "play.fill" : "pause.fill").frame(width: 16)
+                    Image(systemName: model.isPaused ? "play.fill" : "pause.fill")
                 }
+                .buttonStyle(CircleIconButtonStyle(size: 34))
                 .help(model.isPaused ? "Resume (⇧⌘P)" : "Pause (⇧⌘P)")
             }
             if model.activity == .routing {
                 Button {
                     model.restartRoute()
                 } label: {
-                    Image(systemName: "backward.end.fill").frame(width: 16)
+                    Image(systemName: "backward.end.fill")
                 }
+                .buttonStyle(CircleIconButtonStyle(size: 34))
                 .help("Back to the start of the route")
             }
             if model.mode == .joystick, model.activity != .joystick, model.canStream {
                 Button("Take Control") { model.takeJoystickControl() }
+                    .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
             }
-            Button(role: .destructive) {
+            Button {
                 model.stop()
             } label: {
                 Label("Stop", systemImage: "stop.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .buttonStyle(BrandButtonStyle(kind: .danger, large: false))
             .disabled(model.sessionState == .stopping)
             .help("Stop and restore the real location (⌘↩)")
         }
-        .controlSize(.regular)
     }
 
-    private func progressView(_ p: RouteProgressInfo) -> some View {
-        VStack(spacing: 4) {
-            if model.canPauseRoute {
-                Slider(
-                    value: Binding(get: { scrub ?? p.fraction }, set: { scrub = $0 }),
-                    in: 0...1,
-                    onEditingChanged: { editing in
-                        if !editing, let value = scrub {
-                            model.seekRoute(toFraction: value)
-                            scrub = nil
-                        }
-                    }
-                )
-                .controlSize(.small)
-                .help("Drag to jump along the route")
-            } else {
-                ProgressView(value: p.fraction).controlSize(.small)
+    private var statsRow: some View {
+        HStack(spacing: 14) {
+            StatTile(label: "Speed", value: Format.speed(model.deviceSpeed, units: prefs.units), symbol: "speedometer")
+            StatTile(label: "Heading", value: headingText, symbol: "location.north.line")
+            elapsedTile
+        }
+        .padding(.top, 2)
+    }
+
+    private var headingText: String {
+        guard model.deviceSpeed > 0.05, let heading = model.deviceHeading else { return "—" }
+        return "\(Int(heading.rounded()))° \(Geo.compassPoint(heading))"
+    }
+
+    private var elapsedTile: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            StatTile(label: "Elapsed", value: elapsed(at: context.date), symbol: "clock")
+        }
+    }
+
+    private func elapsed(at date: Date) -> String {
+        guard let start = model.sessionStartedAt else { return "—" }
+        let seconds = Int(max(0, date.timeIntervalSince(start)))
+        let h = seconds / 3600, m = (seconds % 3600) / 60, s = seconds % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+
+    private func progressSection(_ p: RouteProgressInfo) -> some View {
+        VStack(spacing: 8) {
+            ScrubBar(fraction: p.fraction, interactive: model.canPauseRoute) { value in
+                model.seekRoute(toFraction: value)
             }
-            HStack {
-                Text("\(Format.distance(p.lapDistance, units: prefs.units)) of \(Format.distance(p.lapLength, units: prefs.units))")
-                Spacer()
-                if p.loopMode != .once { Text("Lap \(p.lap + 1)") }
+            .help(model.canPauseRoute ? "Drag to jump along the route" : "")
+            HStack(spacing: 14) {
+                StatTile(label: "Covered",
+                         value: "\(Format.distance(p.lapDistance, units: prefs.units)) / \(Format.distance(p.lapLength, units: prefs.units))",
+                         symbol: "point.topleft.down.to.point.bottomright.curvepath")
+                StatTile(label: "Speed", value: Format.speed(model.deviceSpeed, units: prefs.units), symbol: "speedometer")
                 if p.finished {
-                    Label("Arrived", systemImage: "flag.checkered")
-                } else if let eta = p.eta {
-                    Text(p.loopMode == .once ? "ETA \(Format.duration(eta))" : "Lap ends in \(Format.duration(eta))")
+                    StatTile(label: "Status", value: "Arrived", symbol: "flag.checkered")
+                } else {
+                    StatTile(label: p.loopMode == .once ? "ETA" : "Lap ends",
+                             value: p.eta.map { Format.duration($0) } ?? "—", symbol: "timer")
+                }
+                if p.loopMode != .once {
+                    StatTile(label: "Lap", value: "\(p.lap + 1)", symbol: p.loopMode.symbolName)
                 }
             }
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
         }
     }
 }
@@ -136,7 +177,15 @@ struct JoystickPanel: View {
 
     var body: some View {
         @Bindable var prefs = prefs
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
+            HStack {
+                Text("JOYSTICK")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .kerning(0.8)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if model.joystickActive { PulsingDot(color: Brand.live, size: 6) }
+            }
             JoystickPad(
                 vector: Binding(get: { model.padVector }, set: { model.padVector = $0 }),
                 display: model.joystickInput,
@@ -146,8 +195,9 @@ struct JoystickPanel: View {
             Text(readout)
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
+                .contentTransition(.numericText())
             if model.joystickActive {
-                Text("Arrows / WASD · hold ⇧ to sprint")
+                Text("WASD / arrows · hold ⇧ to sprint")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             } else {
@@ -157,21 +207,21 @@ struct JoystickPanel: View {
                     Label(model.session == nil ? "Start Joystick" : "Take Control", systemImage: "gamecontroller.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
                 .disabled(model.isStarting || (model.session == nil && !model.canStart))
             }
         }
-        .padding(12)
-        .frame(width: 210)
-        .glassPanel(cornerRadius: 16)
+        .padding(14)
+        .frame(width: 214)
+        .glassPanel(cornerRadius: 20)
     }
 
     private var readout: String {
-        let max = Format.speed(prefs.joystickSpeed * (model.sprinting ? 2.5 : 1), units: prefs.units)
+        let top = Format.speed(prefs.joystickSpeed * (model.sprinting ? 2.5 : 1), units: prefs.units)
         if model.joystickActive, model.deviceSpeed > 0.05 {
-            return "\(Format.speed(model.deviceSpeed, units: prefs.units)) of \(max)"
+            return "\(Format.speed(model.deviceSpeed, units: prefs.units)) of \(top)"
         }
-        return "Top speed \(max)"
+        return "Top speed \(top)"
     }
 }
 
@@ -182,30 +232,42 @@ struct JoystickPad: View {
     var active: Bool
     @State private var dragOffset: CGSize?
 
-    private let size: CGFloat = 136
-    private let knobSize: CGFloat = 46
+    private let size: CGFloat = 148
+    private let knobSize: CGFloat = 52
     private var travel: CGFloat { (size - knobSize) / 2 }
 
     var body: some View {
         ZStack {
             Circle()
-                .fill(.quaternary.opacity(0.6))
+                .fill(RadialGradient(colors: [Color.primary.opacity(0.03), Color.primary.opacity(0.10)],
+                                     center: .center, startRadius: 4, endRadius: size / 2))
             Circle()
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+                .strokeBorder(active ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Color.primary.opacity(0.12)),
+                              lineWidth: active ? 2 : 1)
+            Circle()
+                .strokeBorder(Color.primary.opacity(0.06), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                .padding(size * 0.22)
             ForEach(0..<4) { i in
                 Image(systemName: "chevron.up")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 10, weight: .heavy))
                     .foregroundStyle(.tertiary)
-                    .offset(y: -size / 2 + 12)
+                    .offset(y: -size / 2 + 13)
                     .rotationEffect(.degrees(Double(i) * 90))
             }
             Circle()
-                .fill(active ? Color.accentColor.gradient : Color.gray.gradient)
+                .fill(active ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Color.gray.gradient))
                 .frame(width: knobSize, height: knobSize)
-                .shadow(color: .black.opacity(0.25), radius: 4, y: 2)
-                .overlay(Circle().strokeBorder(.white.opacity(0.5), lineWidth: 1))
+                .overlay(Circle().strokeBorder(.white.opacity(0.55), lineWidth: 1.5))
+                .overlay {
+                    Image(systemName: "location.north.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .rotationEffect(knobAngle)
+                        .opacity(knobOffset == .zero ? 0.4 : 1)
+                }
+                .shadow(color: (active ? Brand.indigo : Color.black).opacity(0.35), radius: 6, y: 3)
                 .offset(knobOffset)
-                .animation(dragOffset == nil ? .spring(duration: 0.25) : nil, value: knobOffset)
+                .animation(dragOffset == nil ? .spring(duration: 0.3, bounce: 0.35) : nil, value: knobOffset)
         }
         .frame(width: size, height: size)
         .contentShape(Circle())
@@ -226,12 +288,18 @@ struct JoystickPad: View {
                     vector = .zero
                 }
         )
-        .opacity(active ? 1 : 0.6)
+        .opacity(active ? 1 : 0.65)
         .help(active ? "Drag to move the device" : "Start the joystick first")
     }
 
     private var knobOffset: CGSize {
         if let dragOffset { return dragOffset }
         return CGSize(width: display.dx * travel, height: -display.dy * travel)
+    }
+
+    private var knobAngle: Angle {
+        let o = knobOffset
+        guard o != .zero else { return .zero }
+        return .radians(Double(atan2(o.width, -o.height)))
     }
 }

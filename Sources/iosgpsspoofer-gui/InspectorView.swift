@@ -10,7 +10,7 @@ struct InspectorView: View {
             DeviceHeader()
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 22) {
                     switch model.mode {
                     case .teleport: TeleportSection()
                     case .route: RouteSection()
@@ -19,10 +19,9 @@ struct InspectorView: View {
                     ConnectionSection()
                     LogSection()
                 }
-                .padding(14)
+                .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Divider()
             ActionBar()
         }
         .background(.background)
@@ -35,26 +34,38 @@ struct DeviceHeader: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        let device = model.activeDevice
         HStack(spacing: 12) {
-            Image(systemName: model.activeDevice?.symbolName ?? "iphone.slash")
-                .font(.system(size: 26))
-                .foregroundStyle(model.activeDevice == nil ? Color.secondary : Color.accentColor)
-                .frame(width: 30)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(model.activeDevice?.deviceName ?? "No device").font(.headline).lineLimit(1)
-                    EngineBadge(engine: model.sessionEngine, status: model.engineStatus)
+            ZStack(alignment: .bottomTrailing) {
+                IconTile(symbol: device?.symbolName ?? "iphone.slash",
+                         colors: device == nil ? TileColors.gray : TileColors.brand, size: 42)
+                if model.isEngaged {
+                    PulsingDot(color: Brand.live, size: 9)
+                        .padding(2)
+                        .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
+                        .offset(x: 4, y: 4)
                 }
-                Text(deviceLine).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(device?.deviceName ?? "No iPhone connected")
+                    .font(Brand.title(15, weight: .semibold))
+                    .lineLimit(1)
+                Text(deviceLine(device))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 6)
-            StatusPill(status: model.statusDisplay)
+            VStack(alignment: .trailing, spacing: 5) {
+                StatusPill(status: model.statusDisplay)
+                EngineBadge(engine: model.sessionEngine, status: model.engineStatus)
+            }
         }
-        .padding(12)
+        .padding(14)
     }
 
-    private var deviceLine: String {
-        guard let d = model.activeDevice else { return "Connect an iPhone with a cable to begin" }
+    private func deviceLine(_ device: Device?) -> String {
+        guard let d = device else { return "Plug it in with a USB cable to begin" }
         return "\(d.modelName) · iOS \(d.productVersion) · \(d.isUSB ? "USB" : "Wi-Fi")"
     }
 }
@@ -64,33 +75,37 @@ struct DeviceHeader: View {
 struct TeleportSection: View {
     @Environment(AppModel.self) private var model
     @Environment(Preferences.self) private var prefs
-    @Environment(LibraryStore.self) private var library
 
     var body: some View {
         @Bindable var model = model
         @Bindable var prefs = prefs
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 16) {
             SectionHeader("Destination", systemImage: "mappin.and.ellipse")
             Card {
-                HStack(alignment: .top) {
+                HStack(alignment: .top, spacing: 12) {
+                    IconTile(symbol: "mappin", colors: TileColors.red, size: 34)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(model.targetLabel ?? (model.target == nil ? "No location" : "Unnamed place"))
-                            .font(.title3.weight(.semibold))
+                        Text(model.targetLabel ?? (model.target == nil ? "Pick a place" : "Dropped pin"))
+                            .font(Brand.title(16, weight: .semibold))
                             .lineLimit(2)
                         if let t = model.target {
-                            Text(Coordinate.formatDMS(t)).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            Text(Coordinate.formatDMS(t))
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
+                        } else {
+                            Text("Click the map, search, or type coordinates.")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    Spacer()
+                    Spacer(minLength: 0)
                     Button {
                         model.toggleFavoriteForTarget()
                     } label: {
                         Image(systemName: model.targetIsFavorite ? "star.fill" : "star")
-                            .font(.title3)
-                            .foregroundStyle(model.targetIsFavorite ? Color.yellow : Color.secondary)
+                            .foregroundStyle(model.targetIsFavorite ? AnyShapeStyle(LinearGradient(colors: TileColors.yellow, startPoint: .top, endPoint: .bottom)) : AnyShapeStyle(Color.secondary))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(CircleIconButtonStyle(size: 30))
                     .disabled(model.target == nil)
                     .help(model.targetIsFavorite ? "Remove from favorites" : "Add to favorites (⌘D)")
                 }
@@ -99,8 +114,8 @@ struct TeleportSection: View {
                     coordinateField("Longitude", text: $model.longitudeText)
                 }
                 if model.target == nil {
-                    Label("Latitude −90…90, longitude −180…180", systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.orange)
+                    Label("Latitude −90…90, longitude −180…180", systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(Brand.warning)
                 }
                 HStack(spacing: 8) {
                     Button {
@@ -119,60 +134,103 @@ struct TeleportSection: View {
                         Button("Apple Maps") { if let t = model.target { model.openInMaps(t, google: false) } }
                         Button("Google Maps") { if let t = model.target { model.openInMaps(t, google: true) } }
                     } label: {
-                        Label("Open", systemImage: "arrow.up.forward.app")
+                        Label("Open in", systemImage: "arrow.up.forward.app")
                     }
                     .fixedSize()
                     .disabled(model.target == nil)
                 }
-                .controlSize(.small)
+                .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
                 .labelStyle(.titleAndIcon)
             }
 
             if let device = model.devicePosition, let target = model.target, model.session != nil,
                Geo.distance(device, target) > 1 {
-                Label("\(Format.distance(Geo.distance(device, target), units: prefs.units)) from the device’s current spot",
-                      systemImage: "arrow.triangle.swap")
-                    .font(.caption).foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    IconTile(symbol: "arrow.triangle.swap", colors: TileColors.purple, size: 24)
+                    Text("\(Format.distance(Geo.distance(device, target), units: prefs.units)) from where your iPhone is now")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             SectionHeader("Quick picks", systemImage: "sparkles")
-            Menu {
-                Section("Landmarks") {
-                    ForEach(NamedLocation.presets) { preset in
-                        Button(preset.name) { model.setTarget(preset.point, name: preset.name, focus: true) }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
+                ForEach(NamedLocation.presets) { preset in
+                    QuickPickButton(preset: preset,
+                                    selected: model.target.map { Geo.distance($0, preset.point) < 60 } ?? false) {
+                        model.setTarget(preset.point, name: preset.name, focus: true)
                     }
                 }
-                if !library.favorites.isEmpty {
-                    Section("Favorites") {
-                        ForEach(library.favorites.prefix(15)) { place in
-                            Button(place.name) { model.setTarget(place.point, name: place.name, focus: true) }
+            }
+
+            Card {
+                Toggle(isOn: $prefs.instantTeleport) {
+                    HStack(spacing: 10) {
+                        IconTile(symbol: "bolt.fill", colors: TileColors.yellow, size: 26)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Move on map click").font(.system(size: 13, weight: .semibold))
+                            Text("While spoofing, clicking the map moves your iPhone at once.")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
-            } label: {
-                Label("Landmarks & favorites", systemImage: "mappin.circle")
+                .toggleStyle(.switch)
+                .controlSize(.small)
             }
-            .fixedSize()
-
-            Toggle(isOn: $prefs.instantTeleport) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Move as soon as I click the map")
-                    Text("While spoofing with the live engine — no need to press Move.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
         }
     }
 
     private func coordinateField(_ label: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                .kerning(0.5)
+                .foregroundStyle(.secondary)
             TextField(label, text: text)
                 .textFieldStyle(.roundedBorder)
                 .font(.body.monospacedDigit())
         }
+    }
+}
+
+struct QuickPickButton: View {
+    let preset: NamedLocation
+    let selected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(preset.emoji).font(.system(size: 18))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(preset.shortName)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                    if !city.isEmpty {
+                        Text(city).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(Color.primary.opacity(hovering ? 0.09 : 0.045),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(selected ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Color.clear), lineWidth: 1.5)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(preset.name)
+    }
+
+    private var city: String {
+        preset.name.split(separator: ",").dropFirst().map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: ", ")
     }
 }
 
@@ -184,9 +242,9 @@ struct RouteSection: View {
 
     var body: some View {
         @Bindable var model = model
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                SectionHeader(model.routeName.map { "Route — \($0)" } ?? "Route",
+                SectionHeader(model.routeName ?? "Route",
                               systemImage: "point.topleft.down.to.point.bottomright.curvepath")
                 Spacer()
                 Menu {
@@ -202,71 +260,103 @@ struct RouteSection: View {
                     Button("Clear All Waypoints", role: .destructive) { model.clearWaypoints() }
                         .disabled(model.waypoints.isEmpty)
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 26, height: 22)
+                        .contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
+                .help("Import, export, save…")
+            }
+
+            if model.waypoints.count >= 2 {
+                Card {
+                    HStack(spacing: 12) {
+                        StatTile(label: "Distance", value: Format.distance(model.routeLength, units: prefs.units),
+                                 symbol: "ruler")
+                        StatTile(label: model.loopMode == .loop ? "Per lap" : "Time",
+                                 value: model.routePassDuration.map { Format.duration($0) } ?? "—", symbol: "clock")
+                        StatTile(label: "Stops", value: "\(model.waypoints.count)", symbol: "mappin.and.ellipse")
+                    }
+                }
             }
 
             Card {
                 if model.waypoints.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Click the map to drop the start, then the destination, then any stops in between.",
-                              systemImage: "hand.tap")
-                        Label("Or drop a GPX / KML file on the map.", systemImage: "square.and.arrow.down")
+                    HStack(alignment: .top, spacing: 12) {
+                        IconTile(symbol: "hand.tap.fill", colors: TileColors.brand, size: 32)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Click the map to build a route").font(.system(size: 13, weight: .semibold))
+                            Text("Drop the start, then the destination, then any stops in between — or drop a GPX / KML file on the map.")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
-                    .font(.callout).foregroundStyle(.secondary)
                 } else {
-                    WaypointList()
+                    WaypointTimeline()
                 }
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            Card {
                 Toggle(isOn: $model.followRoads) {
-                    Label("Follow roads & paths", systemImage: "road.lanes")
-                }
-                .toggleStyle(.switch)
-                if model.followRoads {
-                    Picker("Travel mode", selection: $model.travelMode) {
-                        ForEach(TravelMode.allCases) { mode in
-                            Label(mode.label, systemImage: mode.symbolName).tag(mode)
+                    HStack(spacing: 10) {
+                        IconTile(symbol: "road.lanes", colors: TileColors.teal, size: 26)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Follow roads & paths").font(.system(size: 13, weight: .semibold))
+                            Text("Snap each leg to real streets with Apple Maps.")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                if model.followRoads {
+                    HStack(spacing: 6) {
+                        ForEach(TravelMode.allCases) { mode in
+                            ChoiceChip(title: mode.label, symbol: mode.symbolName, selected: model.travelMode == mode) {
+                                model.travelMode = mode
+                            }
+                        }
+                    }
                     if case .partial(let failed) = model.directionsState {
-                        Label("\(failed) leg(s) use straight lines (no route found).", systemImage: "exclamationmark.triangle")
-                            .font(.caption).foregroundStyle(.orange)
+                        Label("\(failed) leg(s) use straight lines — no route found there.",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption).foregroundStyle(Brand.warning)
                     }
                 }
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionHeader("At the end", systemImage: "flag.checkered")
-                Picker("At the end", selection: $model.loopMode) {
+                HStack(spacing: 6) {
                     ForEach(LoopMode.allCases) { mode in
-                        Label(mode.label, systemImage: mode.symbolName).tag(mode)
+                        ChoiceChip(title: mode.label, symbol: mode.symbolName, selected: model.loopMode == mode) {
+                            model.loopMode = mode
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     SectionHeader("Pace", systemImage: "speedometer")
                     Spacer()
-                    Picker("Pace by", selection: $model.pacing) {
-                        ForEach(AppModel.RoutePacing.allCases) { Text($0.label).tag($0) }
+                    HStack(spacing: 4) {
+                        ForEach(AppModel.RoutePacing.allCases) { pacing in
+                            ChoiceChip(title: pacing.label, selected: model.pacing == pacing) { model.pacing = pacing }
+                        }
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 150)
                 }
                 switch model.pacing {
                 case .speed:
-                    SpeedField(metresPerSecond: $model.routeSpeed, units: prefs.units)
+                    SpeedPresetPicker(metresPerSecond: $model.routeSpeed, units: prefs.units)
+                    HStack {
+                        Text("Custom").font(.callout).foregroundStyle(.secondary)
+                        Spacer()
+                        SpeedField(metresPerSecond: $model.routeSpeed, units: prefs.units)
+                    }
                 case .time:
                     HStack {
                         DurationField(seconds: $model.routeDuration)
@@ -275,69 +365,103 @@ struct RouteSection: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if model.waypoints.count >= 2 {
-                    Label(model.routeSummary, systemImage: "info.circle")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
                 if model.activity == .routing, model.canStream {
-                    Text("Speed changes apply immediately.").font(.caption2).foregroundStyle(.tertiary)
+                    Label("Speed changes apply instantly.", systemImage: "bolt.fill")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
     }
 }
 
-struct WaypointList: View {
+/// Start → stops → destination, drawn as a connected timeline.
+struct WaypointTimeline: View {
     @Environment(AppModel.self) private var model
     @State private var hovered: UUID?
 
     var body: some View {
         let count = model.waypoints.count
-        LazyVStack(spacing: 2) {
+        if count > 8 {
+            ScrollView {
+                rows(count)
+            }
+            .frame(height: 330)
+        } else {
+            rows(count)
+        }
+    }
+
+    private func rows(_ count: Int) -> some View {
+        LazyVStack(spacing: 0) {
             ForEach(Array(model.waypoints.enumerated()), id: \.element.id) { index, waypoint in
-                HStack(spacing: 8) {
-                    Text(index == 0 ? "A" : (index == count - 1 ? "B" : "\(index + 1)"))
-                        .font(.caption.bold().monospacedDigit())
-                        .foregroundStyle(.white)
-                        .frame(width: 20, height: 20)
-                        .background(badgeColor(index, count), in: Circle())
-                    Text(Format.coordinate(waypoint.point, precision: 5))
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                HStack(spacing: 10) {
+                    rail(index: index, count: count)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(label(index, count))
+                            .font(.system(size: 12.5, weight: .semibold))
+                        Text(Format.coordinate(waypoint.point, precision: 5))
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     Spacer(minLength: 0)
                     if hovered == waypoint.id {
-                        Group {
+                        HStack(spacing: 2) {
                             Button { model.moveWaypoint(id: waypoint.id, by: -1) } label: { Image(systemName: "chevron.up") }
                                 .disabled(index == 0)
                             Button { model.moveWaypoint(id: waypoint.id, by: 1) } label: { Image(systemName: "chevron.down") }
                                 .disabled(index == count - 1)
-                            Button { model.insertMidpoint(after: waypoint.id) } label: { Image(systemName: "plus.circle") }
-                                .help("Insert a point after this one")
+                            Button { model.insertMidpoint(after: waypoint.id) } label: { Image(systemName: "plus") }
+                                .help("Insert a stop after this one")
                             Button { model.focus(on: waypoint.point) } label: { Image(systemName: "scope") }
                                 .help("Show on map")
-                            Button(role: .destructive) { model.removeWaypoint(id: waypoint.id) } label: { Image(systemName: "trash") }
+                            Button { model.removeWaypoint(id: waypoint.id) } label: { Image(systemName: "trash") }
+                                .help("Remove")
                         }
-                        .buttonStyle(.borderless)
-                        .controlSize(.small)
+                        .buttonStyle(CircleIconButtonStyle(size: 24))
+                        .transition(.opacity)
                     }
                 }
-                .padding(.vertical, 3)
+                .frame(height: 42)
                 .padding(.horizontal, 6)
-                .background(hovered == waypoint.id ? Color.primary.opacity(0.06) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 6))
+                .background(hovered == waypoint.id ? Color.primary.opacity(0.05) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .contentShape(Rectangle())
-                .onHover { inside in hovered = inside ? waypoint.id : (hovered == waypoint.id ? nil : hovered) }
+                .onHover { inside in
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        hovered = inside ? waypoint.id : (hovered == waypoint.id ? nil : hovered)
+                    }
+                }
                 .onTapGesture(count: 2) { model.focus(on: waypoint.point) }
             }
         }
-        .frame(maxHeight: count > 8 ? 260 : nil)
     }
 
-    private func badgeColor(_ index: Int, _ count: Int) -> Color {
-        if index == 0 { return .green }
-        if index == count - 1 { return .red }
-        return .blue
+    private func rail(index: Int, count: Int) -> some View {
+        ZStack {
+            VStack(spacing: 0) {
+                Rectangle().fill(index == 0 ? Color.clear : Color.primary.opacity(0.15)).frame(width: 2)
+                Rectangle().fill(index == count - 1 ? Color.clear : Color.primary.opacity(0.15)).frame(width: 2)
+            }
+            Circle()
+                .fill(LinearGradient(colors: colors(index, count), startPoint: .top, endPoint: .bottom))
+                .frame(width: 14, height: 14)
+                .overlay(Circle().strokeBorder(Color.white, lineWidth: 2))
+                .shadow(color: .black.opacity(0.2), radius: 1.5, y: 1)
+        }
+        .frame(width: 18)
+    }
+
+    private func label(_ index: Int, _ count: Int) -> String {
+        if index == 0 { return "Start" }
+        if index == count - 1 { return "Destination" }
+        return "Stop \(index)"
+    }
+
+    private func colors(_ index: Int, _ count: Int) -> [Color] {
+        if index == 0 { return TileColors.green }
+        if index == count - 1 { return TileColors.red }
+        return TileColors.brand
     }
 }
 
@@ -349,39 +473,50 @@ struct JoystickSection: View {
 
     var body: some View {
         @Bindable var prefs = prefs
-        VStack(alignment: .leading, spacing: 14) {
-            SectionHeader("Joystick", systemImage: "gamecontroller")
+        VStack(alignment: .leading, spacing: 16) {
+            SectionHeader("Controls", systemImage: "gamecontroller")
             Card {
-                VStack(alignment: .leading, spacing: 8) {
-                    keyRow(["↑", "W"], "Forward (screen-up)")
-                    keyRow(["←", "A", "→", "D"], "Turn left / right")
-                    keyRow(["↓", "S"], "Back")
-                    keyRow(["⇧"], "Hold to go 2.5× faster")
+                HStack(alignment: .center, spacing: 22) {
+                    keyCluster(up: (13, "W"), left: (0, "A"), down: (1, "S"), right: (2, "D"))
+                    keyCluster(up: (126, "↑"), left: (123, "←"), down: (125, "↓"), right: (124, "→"))
                 }
-                Text("Or drag the pad on the map. Movement is relative to the screen, so it follows map rotation.")
-                    .font(.caption).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                Text("Hold **⇧** to go 2.5× faster. Or drag the pad on the map. Steering follows the screen, so it works with a rotated map.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 SectionHeader("Top speed", systemImage: "speedometer")
-                SpeedField(metresPerSecond: $prefs.joystickSpeed, units: prefs.units)
-                SpeedChips(metresPerSecond: $prefs.joystickSpeed)
+                SpeedPresetPicker(metresPerSecond: $prefs.joystickSpeed, units: prefs.units)
+                HStack {
+                    Text("Custom").font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    SpeedField(metresPerSecond: $prefs.joystickSpeed, units: prefs.units)
+                }
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                SectionHeader("Start point", systemImage: "mappin")
-                if let start = model.devicePosition ?? model.target {
-                    Text(Format.coordinate(start)).font(.callout.monospaced())
-                    Text(model.devicePosition == nil ? "The teleport target — click the map to change it." : "The device's current position.")
-                        .font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Text("Click the map to choose where to start.").font(.callout).foregroundStyle(.secondary)
+            Card {
+                HStack(spacing: 12) {
+                    IconTile(symbol: "mappin", colors: TileColors.red, size: 30)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Start point").font(.system(size: 13, weight: .semibold))
+                        if let start = model.devicePosition ?? model.target {
+                            Text(Format.coordinate(start)).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            Text(model.devicePosition == nil ? "The teleport target — click the map to change it."
+                                 : "Wherever your iPhone is now.")
+                                .font(.caption2).foregroundStyle(.tertiary)
+                        } else {
+                            Text("Click the map to choose where to start.").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
 
             if !(model.session?.canStream ?? true) || isClassicOnly {
-                Label("The joystick needs the live engine. See Settings ▸ Engine.", systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
+                Label("The joystick needs the live engine. See Settings ▸ Engine.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(Brand.warning)
             }
         }
     }
@@ -392,18 +527,33 @@ struct JoystickSection: View {
         return false
     }
 
-    private func keyRow(_ keys: [String], _ text: String) -> some View {
-        HStack(spacing: 4) {
-            ForEach(keys, id: \.self) { key in
-                Text(key)
-                    .font(.caption.monospaced().bold())
-                    .frame(minWidth: 20, minHeight: 18)
-                    .padding(.horizontal, 2)
-                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
-                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.primary.opacity(0.15)))
+    private typealias Key = (code: UInt16, label: String)
+
+    private func keyCluster(up: Key, left: Key, down: Key, right: Key) -> some View {
+        VStack(spacing: 4) {
+            keycap(up)
+            HStack(spacing: 4) {
+                keycap(left)
+                keycap(down)
+                keycap(right)
             }
-            Text(text).font(.callout).padding(.leading, 4)
         }
+    }
+
+    private func keycap(_ key: Key) -> some View {
+        let pressed = model.pressedKeys.contains(key.code)
+        return Text(key.label)
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundStyle(pressed ? Color.white : Color.primary)
+            .frame(width: 30, height: 28)
+            .background {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(pressed ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Color(nsColor: .windowBackgroundColor)))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
+            .shadow(color: .black.opacity(pressed ? 0 : 0.12), radius: 0, y: pressed ? 0 : 2)
+            .offset(y: pressed ? 1 : 0)
+            .animation(.easeOut(duration: 0.08), value: pressed)
     }
 }
 
@@ -437,7 +587,7 @@ struct ConnectionSection: View {
                 }
                 .controlSize(.small)
             }
-            .padding(.top, 6)
+            .padding(.top, 8)
         } label: {
             SectionHeader("Connection", systemImage: "cable.connector")
         }
@@ -453,11 +603,11 @@ struct ConnectionSection: View {
             }
             .font(.caption).foregroundStyle(.secondary)
         case .live(let version):
-            Label("Live engine available (pymobiledevice3 \(version))", systemImage: "bolt.fill")
-                .font(.caption).foregroundStyle(.green)
+            Label("Instant live engine ready (pymobiledevice3 \(version))", systemImage: "bolt.fill")
+                .font(.caption).foregroundStyle(Brand.live)
         case .classicOnly(let reason):
             Label("Classic engine only: \(reason)", systemImage: "tortoise.fill")
-                .font(.caption).foregroundStyle(.orange)
+                .font(.caption).foregroundStyle(Brand.warning)
                 .lineLimit(3)
         }
     }
@@ -468,16 +618,16 @@ struct ConnectionSection: View {
 struct LogSection: View {
     @Environment(AppModel.self) private var model
     @Environment(Preferences.self) private var prefs
-    @State private var expanded = true
+    @State private var expanded = false
 
     var body: some View {
         @Bindable var prefs = prefs
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 6) {
                 LogConsole(entries: model.log, showDebug: prefs.showDebugLog)
-                    .frame(height: 170)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.1)))
+                    .frame(height: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
                 HStack {
                     Toggle("Details", isOn: $prefs.showDebugLog)
                         .toggleStyle(.checkbox)
@@ -491,9 +641,17 @@ struct LogSection: View {
                 }
                 .controlSize(.small)
             }
-            .padding(.top, 6)
+            .padding(.top, 8)
         } label: {
-            SectionHeader("Activity", systemImage: "text.alignleft")
+            HStack {
+                SectionHeader("Activity", systemImage: "waveform.path.ecg")
+                if let last = model.log.last(where: { $0.level != .debug }) {
+                    Text(last.text)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
         }
     }
 }
@@ -504,32 +662,48 @@ struct ActionBar: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             secondaryActions
             Button {
                 model.primaryAction()
             } label: {
-                HStack {
-                    if model.isStarting {
+                HStack(spacing: 11) {
+                    if model.isStarting || model.sessionState == .stopping {
                         ProgressView().controlSize(.small)
                     } else {
-                        Image(systemName: icon)
+                        Image(systemName: icon).font(.system(size: 16, weight: .bold))
                     }
-                    Text(title).fontWeight(.semibold)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(title).font(Brand.title(15, weight: .bold))
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(.system(size: 11, weight: .medium))
+                                .opacity(0.85)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Text("⌘↩")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .opacity(0.7)
                 }
+                .padding(.vertical, 6)
                 .frame(maxWidth: .infinity)
             }
-            .controlSize(.large)
-            .buttonStyle(.borderedProminent)
-            .tint(model.hasSession ? .red : .accentColor)
+            .buttonStyle(BrandButtonStyle(kind: model.hasSession ? .danger : .primary))
             .disabled((!model.hasSession && !model.canStart) || model.sessionState == .stopping)
             .help("Start / stop (⌘↩)")
             if let hint {
-                Text(hint).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text(hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
             }
         }
-        .padding(12)
+        .padding(14)
         .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 
     @ViewBuilder
@@ -543,7 +717,7 @@ struct ActionBar: View {
                     } label: {
                         Label("Move Here", systemImage: "arrow.up.forward.circle.fill").frame(maxWidth: .infinity)
                     }
-                    .controlSize(.large)
+                    .buttonStyle(BrandButtonStyle(kind: .secondary))
                 }
             case .route:
                 if model.hasPendingRouteChange {
@@ -552,14 +726,14 @@ struct ActionBar: View {
                     } label: {
                         Label("Apply Route Changes", systemImage: "arrow.triangle.2.circlepath").frame(maxWidth: .infinity)
                     }
-                    .controlSize(.large)
+                    .buttonStyle(BrandButtonStyle(kind: .secondary))
                 } else if model.activity != .routing {
                     Button {
                         model.startRoute()
                     } label: {
                         Label("Start Route From Here", systemImage: "play.fill").frame(maxWidth: .infinity)
                     }
-                    .controlSize(.large)
+                    .buttonStyle(BrandButtonStyle(kind: .secondary))
                     .disabled(model.routeGeometry.count < 2)
                 }
             case .joystick:
@@ -569,7 +743,7 @@ struct ActionBar: View {
                     } label: {
                         Label("Take Joystick Control", systemImage: "gamecontroller.fill").frame(maxWidth: .infinity)
                     }
-                    .controlSize(.large)
+                    .buttonStyle(BrandButtonStyle(kind: .secondary))
                     .disabled(!model.canStream)
                 }
             }
@@ -577,12 +751,28 @@ struct ActionBar: View {
     }
 
     private var title: String {
-        if model.isStarting { return "Starting…" }
-        if model.hasSession { return model.sessionState == .stopping ? "Restoring…" : "Stop & Restore Real Location" }
+        if model.isStarting { return "Connecting…" }
+        if model.hasSession { return model.sessionState == .stopping ? "Restoring…" : "Stop Spoofing" }
         switch model.mode {
         case .teleport: return "Teleport"
         case .route: return "Start Route"
         case .joystick: return "Start Joystick"
+        }
+    }
+
+    private var subtitle: String? {
+        if model.hasSession {
+            return model.sessionState == .stopping ? nil : "Return to your real location"
+        }
+        switch model.mode {
+        case .teleport:
+            guard let t = model.target else { return nil }
+            return model.targetLabel ?? Format.coordinate(t)
+        case .route:
+            return model.waypoints.count >= 2 ? model.routeSummary : nil
+        case .joystick:
+            guard let start = model.devicePosition ?? model.target else { return nil }
+            return "From \(model.targetLabel ?? Format.coordinate(start))"
         }
     }
 
@@ -603,7 +793,7 @@ struct ActionBar: View {
         case .teleport, .joystick:
             return model.target == nil ? "Pick a place on the map or enter coordinates." : nil
         case .route:
-            if model.waypoints.count < 2 { return "Click the map to add at least two waypoints." }
+            if model.waypoints.count < 2 { return "Click the map to add at least two stops." }
             if model.directionsState == .computing { return "Finding the road route…" }
             return nil
         }

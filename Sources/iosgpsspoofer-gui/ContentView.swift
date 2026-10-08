@@ -5,13 +5,24 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
+        @Bindable var model = model
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 360)
+                .navigationSplitViewColumnWidth(min: 230, ideal: 270, max: 360)
         } detail: {
             MainView()
         }
         .task { model.bootstrap() }
+        .sheet(isPresented: $model.showWelcome) {
+            WelcomeView()
+                .environment(model)
+                .environment(Preferences.shared)
+                .tint(Brand.accent)
+        }
+        .sheet(isPresented: $model.showConnectionHelp) {
+            ConnectionHelpSheet()
+                .tint(Brand.accent)
+        }
     }
 }
 
@@ -55,12 +66,11 @@ struct SidebarView: View {
 
             Section("Favorites") {
                 if library.favorites.isEmpty {
-                    Text("Star a place (⌘D) to keep it here.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    EmptyRow(symbol: "star", text: "Star a place (⌘D) to keep it here.")
                 }
                 ForEach(library.favorites) { place in
-                    PlaceRow(name: place.name, point: place.point, symbol: "star.fill", tint: .yellow, units: prefs.units,
-                             distanceFrom: model.devicePosition)
+                    PlaceRow(name: place.name, point: place.point, symbol: "star.fill", colors: TileColors.yellow,
+                             units: prefs.units, distanceFrom: model.devicePosition)
                         .contentShape(Rectangle())
                         .onTapGesture(count: 2) { model.useSavedPlace(place, teleportNow: true) }
                         .onTapGesture { model.useSavedPlace(place, teleportNow: false) }
@@ -83,9 +93,9 @@ struct SidebarView: View {
 
             if !library.recents.isEmpty {
                 Section {
-                    ForEach(library.recents.prefix(12)) { place in
-                        PlaceRow(name: place.name, point: place.point, symbol: "clock", tint: .secondary, units: prefs.units,
-                                 subtitle: place.created.formatted(.relative(presentation: .named)))
+                    ForEach(library.recents.prefix(10)) { place in
+                        PlaceRow(name: place.name, point: place.point, symbol: "clock.fill", colors: TileColors.gray,
+                                 units: prefs.units, subtitle: place.created.formatted(.relative(presentation: .named)))
                             .contentShape(Rectangle())
                             .onTapGesture(count: 2) { model.useSavedPlace(place, teleportNow: true) }
                             .onTapGesture { model.useSavedPlace(place, teleportNow: false) }
@@ -110,8 +120,7 @@ struct SidebarView: View {
 
             Section("Saved Routes") {
                 if library.routes.isEmpty {
-                    Text("Build a route, then Save it from the Route panel.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    EmptyRow(symbol: "bookmark", text: "Build a route, then save it (⌘S).")
                 }
                 ForEach(library.routes) { route in
                     RouteRow(route: route, units: prefs.units, isLoaded: model.savedRouteID == route.id)
@@ -135,7 +144,47 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom) { SidebarFooter() }
     }
+}
+
+struct SidebarFooter: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(nsImage: AppIconImage.shared)
+                .resizable()
+                .frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("iOS GPS Spoofer").font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                EngineBadge(engine: model.sessionEngine, status: model.engineStatus)
+            }
+            Spacer()
+            Button {
+                model.showWelcome = true
+            } label: {
+                Image(systemName: "checklist")
+            }
+            .buttonStyle(.borderless)
+            .help("Setup checklist")
+            SettingsLink {
+                Image(systemName: "gearshape")
+            }
+            .buttonStyle(.borderless)
+            .help("Settings (⌘,)")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
+}
+
+/// The rendered app icon, drawn once.
+@MainActor
+enum AppIconImage {
+    static let shared = AppIconRenderer.image(size: 256)
 }
 
 struct DeviceRow: View {
@@ -147,32 +196,33 @@ struct DeviceRow: View {
     var body: some View {
         HStack(spacing: 10) {
             ZStack(alignment: .bottomTrailing) {
-                Image(systemName: device.symbolName)
-                    .font(.title2)
-                    .frame(width: 26)
-                    .foregroundStyle(connected ? Color.accentColor : Color.secondary)
+                IconTile(symbol: device.symbolName,
+                         colors: spoofing ? TileColors.brand : (connected ? TileColors.teal : TileColors.gray),
+                         size: 30)
                 Image(systemName: device.isUSB ? "cable.connector" : "wifi")
-                    .font(.system(size: 8, weight: .bold))
-                    .padding(2)
-                    .background(.background, in: Circle())
-                    .offset(x: 4, y: 2)
+                    .font(.system(size: 7.5, weight: .bold))
                     .foregroundStyle(.secondary)
+                    .padding(2.5)
+                    .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
+                    .offset(x: 4, y: 3)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(device.deviceName).fontWeight(.medium).lineLimit(1)
+                Text(device.deviceName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 Text(connected ? "\(device.modelName) · iOS \(device.productVersion)" : "Disconnected — waiting…")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
             if spoofing {
-                Circle()
-                    .fill(status.tint)
-                    .frame(width: 8, height: 8)
-                    .help(status.title)
+                HStack(spacing: 4) {
+                    PulsingDot(color: status.tint, size: 6, active: status.live)
+                    Text(status.title.uppercased())
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(status.tint)
+                }
             }
         }
         .padding(.vertical, 3)
-        .opacity(connected ? 1 : 0.65)
+        .opacity(connected ? 1 : 0.6)
     }
 }
 
@@ -186,7 +236,7 @@ struct NoDeviceRow: View {
                 ProgressView().controlSize(.small)
                 Text("Looking for devices…").foregroundStyle(.secondary)
             } else {
-                Image(systemName: "iphone.slash").foregroundStyle(.secondary)
+                IconTile(symbol: "iphone.slash", colors: TileColors.gray, size: 22)
                 Text("No iPhone connected").foregroundStyle(.secondary)
                 Spacer()
                 Button {
@@ -195,35 +245,70 @@ struct NoDeviceRow: View {
                     Image(systemName: "questionmark.circle")
                 }
                 .buttonStyle(.borderless)
-                .popover(isPresented: $showHelp, arrowEdge: .trailing) { ConnectionHelp().padding(16).frame(width: 340) }
+                .popover(isPresented: $showHelp, arrowEdge: .trailing) { ConnectionHelp().padding(18).frame(width: 360) }
             }
         }
         .font(.callout)
     }
 }
 
-/// Checklist shown when no device is found.
+struct EmptyRow: View {
+    let symbol: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol).foregroundStyle(.tertiary).frame(width: 20)
+            Text(text).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Step-by-step help for connecting an iPhone.
 struct ConnectionHelp: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Connect your iPhone").font(.headline)
-            step(1, "Use a USB **data** cable, plugged straight into the Mac.")
-            step(2, "Unlock the iPhone and tap **Trust**, then enter the passcode.")
-            step(3, "Turn on **Developer Mode**: Settings ▸ Privacy & Security ▸ Developer Mode (the phone restarts).")
-            step(4, "Keep the phone unlocked for the first run — the developer disk image is mounted automatically.")
-            Text("Wi-Fi works too once the phone has been paired over USB (Finder ▸ “Show this iPhone when on Wi-Fi”).")
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Connect your iPhone").font(Brand.title(17))
+            step(1, "cable.connector", "Use a USB **data** cable, plugged straight into the Mac (not a hub).")
+            step(2, "hand.tap", "Unlock the iPhone, tap **Trust**, and enter your passcode.")
+            step(3, "hammer", "Turn on **Developer Mode**: Settings ▸ Privacy & Security ▸ Developer Mode. The phone restarts — confirm with **Turn On**.")
+            step(4, "lock.open", "Keep it unlocked for the first run, while the developer disk image is mounted (needs internet once).")
+            Text("Wi-Fi works too once the phone has been paired over USB: Finder ▸ your iPhone ▸ “Show this iPhone when on Wi-Fi”.")
                 .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func step(_ n: Int, _ text: LocalizedStringKey) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("\(n)")
-                .font(.caption.bold())
-                .frame(width: 18, height: 18)
-                .background(Color.accentColor.opacity(0.2), in: Circle())
-            Text(text).fixedSize(horizontal: false, vertical: true)
+    private func step(_ n: Int, _ symbol: String, _ text: LocalizedStringKey) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                Circle().fill(Brand.gradient).frame(width: 24, height: 24)
+                Text("\(n)").font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.white)
+            }
+            Text(text)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Image(systemName: symbol).foregroundStyle(.tertiary)
         }
+    }
+}
+
+struct ConnectionHelpSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            ConnectionHelp()
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 440)
     }
 }
 
@@ -231,14 +316,14 @@ struct PlaceRow: View {
     let name: String
     let point: GeoPoint
     let symbol: String
-    let tint: Color
+    let colors: [Color]
     let units: UnitSystem
     var subtitle: String?
     var distanceFrom: GeoPoint?
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol).foregroundStyle(tint).frame(width: 16)
+        HStack(spacing: 9) {
+            IconTile(symbol: symbol, colors: colors, size: 22)
             VStack(alignment: .leading, spacing: 1) {
                 Text(name).lineLimit(1)
                 Text(detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
@@ -259,13 +344,12 @@ struct RouteRow: View {
     let isLoaded: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: route.loopMode == .once ? "point.topleft.down.to.point.bottomright.curvepath" : route.loopMode.symbolName)
-                .foregroundStyle(isLoaded ? Color.accentColor : Color.secondary)
-                .frame(width: 16)
+        HStack(spacing: 9) {
+            IconTile(symbol: route.loopMode == .once ? "point.topleft.down.to.point.bottomright.curvepath" : route.loopMode.symbolName,
+                     colors: isLoaded ? TileColors.brand : TileColors.purple, size: 22)
             VStack(alignment: .leading, spacing: 1) {
                 Text(route.name).lineLimit(1).fontWeight(isLoaded ? .semibold : .regular)
-                Text("\(Format.distance(Geo.length(of: route.waypoints), units: units)) · \(route.waypoints.count) pts · \(Format.speed(route.speed, units: units))")
+                Text("\(Format.distance(Geo.length(of: route.waypoints), units: units)) · \(route.waypoints.count) stops · \(Format.speed(route.speed, units: units))")
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
         }

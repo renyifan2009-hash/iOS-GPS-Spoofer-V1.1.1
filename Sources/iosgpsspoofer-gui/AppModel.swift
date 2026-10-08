@@ -149,6 +149,21 @@ final class AppModel {
     var searchFocusRequest = 0
     var showInspector = true
 
+    // MARK: Experience
+    /// The transient confirmation shown over the map.
+    var toast: Toast?
+    @ObservationIgnored var toastTask: Task<Void, Never>?
+    /// Shown once on first launch, then from Help ▸ Welcome.
+    var showWelcome = false
+    var showConnectionHelp = false
+    /// The "connect your iPhone" card was dismissed to plan without a device.
+    var connectCardDismissed = false
+    /// `amfi developer-mode-status` for the selected device (nil = unknown).
+    var developerModeEnabled: Bool?
+    @ObservationIgnored var developerModeCheckedUDID: String?
+    /// Toast to show once the device confirms the next position.
+    @ObservationIgnored var pendingToast: Toast?
+
     // MARK: Log
     var log: [LogEntry] = []
 
@@ -174,6 +189,7 @@ final class AppModel {
         static let mode = "lastMode"
         static let target = "lastTarget"
         static let routeDraft = "routeDraft"
+        static let welcomed = "hasSeenWelcome"
     }
 
     var prefs: Preferences { Preferences.shared }
@@ -200,6 +216,7 @@ final class AppModel {
         installKeyboardMonitor()
         scheduleGeocode()
         fitMap()
+        if !UserDefaults.standard.bool(forKey: StateKey.welcomed) { showWelcome = true }
     }
 
     /// Called from `applicationDidFinishLaunching` once stray children are reaped.
@@ -315,6 +332,10 @@ final class AppModel {
             if !keepSelection, selectedUDID == nil || !list.contains(where: { $0.udid == selectedUDID }) {
                 selectedUDID = list.first?.udid
             }
+            if let udid = selectedUDID, developerModeCheckedUDID != udid, list.contains(where: { $0.udid == udid }) {
+                checkDeveloperMode()
+            }
+            if !list.isEmpty { connectCardDismissed = false }
         } catch {
             appendLog("Device refresh failed: \(SpoofSession.firstLine(of: error))", level: .debug)
         }
@@ -414,10 +435,20 @@ final class AppModel {
         switch state {
         case .idle:
             endSession()
+            if previous == .stopping {
+                showToast(Toast(symbol: "location.slash.fill", title: "Real location restored",
+                                subtitle: "Your iPhone is back to its actual GPS.", style: .info))
+            }
         case .replaying:
             if previous != .replaying { replayStartedAt = Date() }
-        case .reconnecting, .failed:
+            if let pending = pendingToast { pendingToast = nil; showToast(pending) }
+        case .reconnecting:
             deviceSpeed = 0
+        case .failed(let message):
+            deviceSpeed = 0
+            pendingToast = nil
+            showToast(Toast(symbol: "exclamationmark.triangle.fill", title: "Couldn't keep the location",
+                            subtitle: message, style: .error), duration: 5)
         default:
             break
         }
@@ -430,6 +461,10 @@ final class AppModel {
         let streaming = (activity == .routing || activity == .joystick) && canStream
         if !streaming || devicePosition == nil {
             devicePosition = point
+        }
+        if let pending = pendingToast {
+            pendingToast = nil
+            showToast(pending)
         }
         geocodeDeviceIfNeeded()
     }
@@ -553,6 +588,7 @@ final class AppModel {
                 let jump = Geo.distance(from, point)
                 if jump > 1 { appendLog("Teleporting \(Format.distance(jump, units: prefs.units)) to \(name ?? Format.coordinate(point)).", level: .info) }
             }
+            pendingToast = teleportToast(point, name: name)
             session.move(to: point)
             activity = .holding
             deviceSpeed = 0
@@ -561,6 +597,7 @@ final class AppModel {
             recordRecent(point, name: name)
             return
         }
+        pendingToast = teleportToast(point, name: name)
         Task {
             guard let obtained = await obtainSession(requireStreaming: false) else { return }
             if obtained.isNew { obtained.session.start(at: point) } else { obtained.session.move(to: point) }

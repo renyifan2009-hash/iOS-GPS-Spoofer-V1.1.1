@@ -18,63 +18,75 @@ struct MenuBarContent: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("iOS GPS Spoofer").font(.headline)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(nsImage: AppIconImage.shared)
+                    .resizable()
+                    .frame(width: 30, height: 30)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("iOS GPS Spoofer").font(Brand.title(14, weight: .semibold))
+                    Text(model.activeDevice.map { "\($0.deviceName) · \($0.modelName)" } ?? "No iPhone connected")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
                 Spacer()
                 StatusPill(status: model.statusDisplay)
             }
 
-            if let device = model.activeDevice {
-                Label("\(device.deviceName) · \(device.modelName)", systemImage: device.symbolName)
-                    .font(.callout)
-            } else {
-                Label("No iPhone connected", systemImage: "iphone.slash").font(.callout).foregroundStyle(.secondary)
-            }
-
             if model.session != nil {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.devicePlaceName ?? model.devicePosition.map { Format.coordinate($0) } ?? model.statusDisplay.detail)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(2)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        IconTile(symbol: model.statusDisplay.symbol, colors: TileColors.brand, size: 28)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(model.devicePlaceName ?? model.devicePosition.map { Format.coordinate($0) }
+                                 ?? model.statusDisplay.detail)
+                                .font(.system(size: 13, weight: .semibold))
+                                .lineLimit(2)
+                            if model.deviceSpeed > 0.05 {
+                                Text(Format.speed(model.deviceSpeed, units: prefs.units))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                     if let progress = model.routeProgress {
-                        ProgressView(value: progress.fraction).controlSize(.small)
+                        ScrubBar(fraction: progress.fraction, interactive: false)
                         Text(progress.finished ? "Arrived" : "\(Format.distance(progress.remaining, units: prefs.units)) to go")
                             .font(.caption).foregroundStyle(.secondary)
-                    } else if model.deviceSpeed > 0.05 {
-                        Text(Format.speed(model.deviceSpeed, units: prefs.units)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        if model.canPauseRoute {
+                            Button(model.isPaused ? "Resume" : "Pause") { model.togglePause() }
+                                .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+                        }
+                        Spacer()
+                        Button {
+                            model.stop()
+                        } label: {
+                            Label("Stop", systemImage: "stop.fill")
+                        }
+                        .buttonStyle(BrandButtonStyle(kind: .danger, large: false))
                     }
                 }
-                HStack {
-                    if model.canPauseRoute {
-                        Button(model.isPaused ? "Resume" : "Pause") { model.togglePause() }
-                    }
-                    Spacer()
-                    Button(role: .destructive) {
-                        model.stop()
-                    } label: {
-                        Label("Stop", systemImage: "stop.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                }
+                .padding(12)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
 
             if !library.favorites.isEmpty {
-                Divider()
-                Text("Teleport to").font(.caption).foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 6) {
+                    SectionHeader("Teleport to", systemImage: "star.fill")
                     ForEach(library.favorites.prefix(8)) { place in
                         Button {
                             model.mode = .teleport
                             model.useSavedPlace(place, teleportNow: true)
                         } label: {
-                            Label(place.name, systemImage: "star.fill")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
+                            HStack(spacing: 8) {
+                                IconTile(symbol: "star.fill", colors: TileColors.yellow, size: 20)
+                                Text(place.name).lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .padding(.vertical, 3)
+                        .padding(.vertical, 2)
                         .disabled(model.selectedDevice == nil && model.session == nil)
                     }
                 }
@@ -82,15 +94,17 @@ struct MenuBarContent: View {
 
             Divider()
             HStack {
-                Button("Open Window") {
+                Button("Open iOS GPS Spoofer") {
                     openWindow(id: "main")
                     NSApp.activate(ignoringOtherApps: true)
                 }
+                .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
+                    .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
             }
         }
-        .padding(14)
-        .frame(width: 300)
+        .padding(16)
+        .frame(width: 320)
     }
 }

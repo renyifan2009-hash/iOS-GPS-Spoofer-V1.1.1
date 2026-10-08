@@ -8,36 +8,49 @@ struct StatusDisplay: Equatable {
     var title: String
     var detail: String
     var tint: Color
+    var symbol: String
     var busy: Bool
+    /// The device is following us right now (pulse the indicator).
+    var live: Bool
 }
 
 extension AppModel {
     var statusDisplay: StatusDisplay {
         switch sessionState {
         case .idle:
-            return StatusDisplay(title: "Idle", detail: "The device reports its real location.", tint: .secondary, busy: false)
+            return StatusDisplay(title: "Ready", detail: "Your iPhone is using its real location.",
+                                 tint: .secondary, symbol: "location", busy: false, live: false)
         case .connecting(let message):
-            return StatusDisplay(title: "Connecting", detail: message, tint: .orange, busy: true)
+            return StatusDisplay(title: "Connecting", detail: message, tint: Brand.warning,
+                                 symbol: "antenna.radiowaves.left.and.right", busy: true, live: false)
         case .reconnecting(let message):
-            return StatusDisplay(title: "Waiting", detail: message, tint: .yellow, busy: true)
+            return StatusDisplay(title: "Waiting", detail: message, tint: Brand.warning,
+                                 symbol: "cable.connector", busy: true, live: false)
         case .stopping:
-            return StatusDisplay(title: "Restoring", detail: "Restoring the real location…", tint: .orange, busy: true)
+            return StatusDisplay(title: "Restoring", detail: "Restoring the real location…", tint: Brand.warning,
+                                 symbol: "location.slash", busy: true, live: false)
         case .failed(let message):
-            return StatusDisplay(title: "Error", detail: message, tint: .red, busy: false)
+            return StatusDisplay(title: "Error", detail: message, tint: Brand.danger,
+                                 symbol: "exclamationmark.triangle.fill", busy: false, live: false)
         case .active, .replaying:
             switch activity {
             case .routing:
                 if let progress = routeProgress, progress.finished {
-                    return StatusDisplay(title: "Arrived", detail: "Holding at the destination.", tint: .blue, busy: false)
+                    return StatusDisplay(title: "Arrived", detail: "Holding at the destination.", tint: Brand.accent,
+                                         symbol: "flag.checkered", busy: false, live: true)
                 }
                 if isPaused {
-                    return StatusDisplay(title: "Paused", detail: "Route paused.", tint: .yellow, busy: false)
+                    return StatusDisplay(title: "Paused", detail: "Route paused.", tint: Brand.warning,
+                                         symbol: "pause.fill", busy: false, live: true)
                 }
-                return StatusDisplay(title: "Moving", detail: "Following the route.", tint: .green, busy: false)
+                return StatusDisplay(title: "Moving", detail: "Following the route.", tint: Brand.live,
+                                     symbol: "point.topleft.down.to.point.bottomright.curvepath", busy: false, live: true)
             case .joystick:
-                return StatusDisplay(title: "Joystick", detail: "Steer with the pad, arrow keys or WASD.", tint: .green, busy: false)
+                return StatusDisplay(title: "Joystick", detail: "Steer with the pad, arrow keys or WASD.", tint: Brand.live,
+                                     symbol: "gamecontroller.fill", busy: false, live: true)
             case .holding, .none:
-                return StatusDisplay(title: "Spoofing", detail: "Holding the simulated location.", tint: .green, busy: false)
+                return StatusDisplay(title: "Live", detail: "Holding the simulated location.", tint: Brand.live,
+                                     symbol: "location.fill", busy: false, live: true)
             }
         }
     }
@@ -51,17 +64,19 @@ struct StatusPill: View {
             if status.busy {
                 ProgressView().controlSize(.mini)
             } else {
-                Circle().fill(status.tint).frame(width: 8, height: 8)
-                    .shadow(color: status.tint.opacity(0.6), radius: status.tint == .secondary ? 0 : 3)
+                PulsingDot(color: status.tint, size: 7, active: status.live)
             }
-            Text(status.title).font(.caption.weight(.semibold))
+            Text(status.title.uppercased())
+                .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                .kerning(0.6)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
-        .background(status.tint.opacity(0.15), in: Capsule())
+        .background(status.tint.opacity(0.14), in: Capsule())
+        .overlay(Capsule().strokeBorder(status.tint.opacity(0.25), lineWidth: 0.5))
         .foregroundStyle(status.tint == .secondary ? Color.secondary : status.tint)
         .fixedSize()
-        .animation(.default, value: status)
+        .animation(.easeOut(duration: 0.2), value: status)
     }
 }
 
@@ -75,45 +90,58 @@ struct SectionHeader: View {
         self.systemImage = systemImage
     }
     var body: some View {
-        HStack(spacing: 5) {
-            if let systemImage { Image(systemName: systemImage) }
-            Text(title.uppercased()).kerning(0.6)
+        HStack(spacing: 6) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .foregroundStyle(Brand.gradient)
+            }
+            Text(title.uppercased()).kerning(0.7)
         }
-        .font(.caption.weight(.semibold))
+        .font(.system(size: 10.5, weight: .bold, design: .rounded))
         .foregroundStyle(.secondary)
     }
 }
 
-/// A rounded, subtly filled group, like System Settings rows.
+/// A rounded, softly raised group.
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 10) { content }
-            .padding(12)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.7), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.06)))
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.85),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(0.07)))
+            .shadow(color: .black.opacity(0.05), radius: 3, y: 1)
     }
 }
 
-/// Floating glass panel used over the map.
+/// Floating frosted panel used over the map.
 struct GlassPanel: ViewModifier {
-    var cornerRadius: CGFloat = 12
+    var cornerRadius: CGFloat = 14
     func body(content: Content) -> some View {
         content
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(Color.primary.opacity(0.08)))
-            .shadow(color: .black.opacity(0.18), radius: 10, y: 3)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(LinearGradient(colors: [Color.white.opacity(0.35), Color.white.opacity(0.04)],
+                                                 startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5)
+            }
+            .shadow(color: .black.opacity(0.2), radius: 16, y: 6)
     }
 }
 
 extension View {
-    func glassPanel(cornerRadius: CGFloat = 12) -> some View { modifier(GlassPanel(cornerRadius: cornerRadius)) }
+    func glassPanel(cornerRadius: CGFloat = 14) -> some View { modifier(GlassPanel(cornerRadius: cornerRadius)) }
 }
 
 // MARK: - Speed input
 
-/// Speed entry in the user's units, with quick presets.
+/// Speed entry in the user's units.
 struct SpeedField: View {
     @Binding var metresPerSecond: Double
     let units: UnitSystem
@@ -122,26 +150,10 @@ struct SpeedField: View {
         HStack(spacing: 6) {
             TextField("Speed", value: displayValue, format: .number.precision(.fractionLength(0...1)))
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 70)
+                .frame(width: 72)
                 .multilineTextAlignment(.trailing)
                 .font(.body.monospacedDigit())
             Text(units.speedUnit).foregroundStyle(.secondary)
-            Spacer(minLength: 4)
-            Menu {
-                ForEach(SpeedPreset.all) { preset in
-                    Button {
-                        metresPerSecond = preset.metresPerSecond
-                    } label: {
-                        Label("\(preset.name) — \(Format.speed(preset.metresPerSecond, units: units))",
-                              systemImage: preset.symbolName)
-                    }
-                }
-            } label: {
-                Image(systemName: presetSymbol)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Speed presets")
         }
     }
 
@@ -151,14 +163,27 @@ struct SpeedField: View {
             set: { metresPerSecond = max(0.05, units.metresPerSecond(fromDisplaySpeed: $0)) }
         )
     }
+}
 
-    private var presetSymbol: String {
-        SpeedPreset.all.min(by: { abs($0.metresPerSecond - metresPerSecond) < abs($1.metresPerSecond - metresPerSecond) })?
-            .symbolName ?? "speedometer"
+/// Labelled preset chips: Walk, Run, Cycle, Drive, Highway.
+struct SpeedPresetPicker: View {
+    @Binding var metresPerSecond: Double
+    let units: UnitSystem
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 6)], alignment: .leading, spacing: 6) {
+            ForEach(SpeedPreset.all) { preset in
+                ChoiceChip(title: preset.name, symbol: preset.symbolName,
+                           selected: abs(preset.metresPerSecond - metresPerSecond) < 0.05) {
+                    metresPerSecond = preset.metresPerSecond
+                }
+                .help(Format.speed(preset.metresPerSecond, units: units))
+            }
+        }
     }
 }
 
-/// Quick speed chips (for the joystick).
+/// Icon-only speed chips (for the compact joystick panel).
 struct SpeedChips: View {
     @Binding var metresPerSecond: Double
 
@@ -170,12 +195,14 @@ struct SpeedChips: View {
                     metresPerSecond = preset.metresPerSecond
                 } label: {
                     Image(systemName: preset.symbolName)
-                        .frame(width: 26, height: 22)
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 30, height: 24)
+                        .foregroundStyle(selected ? Color.white : Color.primary)
+                        .background(selected ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(Color.primary.opacity(0.07)),
+                                    in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .background(selected ? Color.accentColor.opacity(0.25) : Color.primary.opacity(0.06),
-                            in: RoundedRectangle(cornerRadius: 6))
-                .foregroundStyle(selected ? Color.accentColor : Color.primary)
                 .help(preset.name)
             }
         }
@@ -218,7 +245,7 @@ struct DurationField: View {
         return VStack(spacing: 1) {
             TextField("0", value: binding, format: .number)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: 44)
+                .frame(width: 46)
                 .multilineTextAlignment(.trailing)
                 .font(.body.monospacedDigit())
             Text(label).font(.caption2).foregroundStyle(.secondary)
@@ -242,7 +269,7 @@ struct LogConsole: View {
         let visible = showDebug ? entries : entries.filter { $0.level != .debug }
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
+                LazyVStack(alignment: .leading, spacing: 3) {
                     ForEach(visible) { entry in
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Text(Self.time.string(from: entry.date))
@@ -259,12 +286,12 @@ struct LogConsole: View {
                         .id(entry.id)
                     }
                     if visible.isEmpty {
-                        Text("Nothing yet.").font(.caption).foregroundStyle(.tertiary)
+                        Text("Nothing yet — activity shows up here.").font(.caption).foregroundStyle(.tertiary)
                     }
                 }
-                .padding(8)
+                .padding(10)
             }
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(Color(nsColor: .textBackgroundColor).opacity(0.6))
             .onChange(of: visible.last?.id) {
                 if let last = visible.last?.id {
                     withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(last, anchor: .bottom) }
@@ -286,10 +313,10 @@ struct LogConsole: View {
     static func color(_ level: LogLevel) -> Color {
         switch level {
         case .debug: return .secondary
-        case .info: return .accentColor
-        case .success: return .green
-        case .warning: return .orange
-        case .error: return .red
+        case .info: return Brand.accent
+        case .success: return Brand.live
+        case .warning: return Brand.warning
+        case .error: return Brand.danger
         }
     }
 }
@@ -302,25 +329,59 @@ struct EngineBadge: View {
 
     var body: some View {
         let d = describe
-        Text(d.text)
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(d.color.opacity(0.15), in: Capsule())
-            .foregroundStyle(d.color)
-            .help(d.help)
+        HStack(spacing: 3) {
+            Image(systemName: d.symbol)
+            Text(d.text)
+        }
+        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(d.color.opacity(0.14), in: Capsule())
+        .foregroundStyle(d.color)
+        .help(d.help)
     }
 
-    private var describe: (text: String, color: Color, help: String) {
+    private var describe: (text: String, symbol: String, color: Color, help: String) {
         if let engine {
             return engine == .live
-                ? ("LIVE", .green, "Live engine: one open channel, instant moves.")
-                : ("CLASSIC", .orange, "Classic engine: a new tunnel per move; routes replay as GPX.")
+                ? ("INSTANT", "bolt.fill", Brand.live, "Live engine: one open channel, instant moves.")
+                : ("CLASSIC", "tortoise.fill", Brand.warning, "Classic engine: a new tunnel per move; routes replay as GPX.")
         }
         switch status {
-        case .checking: return ("CHECKING", .secondary, "Checking whether the live engine works with your pymobiledevice3…")
-        case .live: return ("LIVE READY", .green, "The live engine is available.")
-        case .classicOnly(let reason): return ("CLASSIC", .orange, "Live engine unavailable: \(reason)")
+        case .checking:
+            return ("CHECKING", "hourglass", .secondary, "Checking whether the live engine works with your pymobiledevice3…")
+        case .live:
+            return ("INSTANT", "bolt.fill", Brand.live, "The live engine is ready: instant moves, smooth routes, joystick.")
+        case .classicOnly(let reason):
+            return ("CLASSIC", "tortoise.fill", Brand.warning, "Live engine unavailable: \(reason)")
         }
+    }
+}
+
+/// A row of the setup checklist.
+struct SetupCheckRow: View {
+    let check: SetupCheck
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                switch check.state {
+                case .ok:
+                    IconTile(symbol: "checkmark", colors: TileColors.live, size: 22)
+                case .pending:
+                    ProgressView().controlSize(.small).frame(width: 22, height: 22)
+                case .warning:
+                    IconTile(symbol: "exclamationmark", colors: TileColors.orange, size: 22)
+                case .failed:
+                    IconTile(symbol: "xmark", colors: TileColors.red, size: 22)
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(check.title).font(.system(size: 13, weight: .semibold))
+                Text(check.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .animation(.easeOut(duration: 0.25), value: check.state)
     }
 }

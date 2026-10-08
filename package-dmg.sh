@@ -62,57 +62,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "==> generating icon"
-if ICON_OUT="$APP/Contents/Resources/AppIcon.icns" swift - <<'SWIFT'
-import AppKit
-
-let out = ProcessInfo.processInfo.environment["ICON_OUT"]!
-let iconset = NSTemporaryDirectory() + "iosgpsspoof.iconset"
-try? FileManager.default.removeItem(atPath: iconset)
-try! FileManager.default.createDirectory(atPath: iconset, withIntermediateDirectories: true)
-
-func render(_ size: CGFloat) -> Data {
-    let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size), pixelsHigh: Int(size),
-        bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-    NSGraphicsContext.saveGraphicsState()
-    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-
-    let inset = size * 0.085
-    let r = size * 0.2237
-    let bgRect = NSRect(x: inset, y: inset, width: size - 2 * inset, height: size - 2 * inset)
-    let bg = NSBezierPath(roundedRect: bgRect, xRadius: r, yRadius: r)
-    NSGradient(colors: [NSColor(srgbRed: 0.28, green: 0.56, blue: 1.0, alpha: 1),
-                        NSColor(srgbRed: 0.10, green: 0.29, blue: 0.86, alpha: 1)])!
-        .draw(in: bg, angle: -90)
-
-    if let base = NSImage(systemSymbolName: "location.fill", accessibilityDescription: nil) {
-        let cfg = NSImage.SymbolConfiguration(pointSize: size * 0.5, weight: .semibold)
-            .applying(.init(paletteColors: [.white]))
-        let glyph = base.withSymbolConfiguration(cfg) ?? base
-        let gs = glyph.size
-        glyph.draw(in: NSRect(x: (size - gs.width) / 2, y: (size - gs.height) / 2,
-                              width: gs.width, height: gs.height))
-    }
-
-    NSGraphicsContext.restoreGraphicsState()
-    return rep.representation(using: .png, properties: [:])!
-}
-
-for pt in [16, 32, 128, 256, 512] {
-    try! render(CGFloat(pt)).write(to: URL(fileURLWithPath: "\(iconset)/icon_\(pt)x\(pt).png"))
-    try! render(CGFloat(pt * 2)).write(to: URL(fileURLWithPath: "\(iconset)/icon_\(pt)x\(pt)@2x.png"))
-}
-
-let p = Process()
-p.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
-p.arguments = ["-c", "icns", iconset, "-o", out]
-try! p.run(); p.waitUntilExit()
-exit(p.terminationStatus)
-SWIFT
-then :; else
+# The app draws its own icon (AppIcon.swift); render it to an .iconset.
+ICON_TMP="$(mktemp -d)"
+if "$BIN" --render-icon "$ICON_TMP/AppIcon.iconset" \
+   && iconutil -c icns "$ICON_TMP/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"; then
+  :
+else
   echo "   icon generation failed — app will use the default icon"
   /usr/libexec/PlistBuddy -c "Delete :CFBundleIconFile" "$APP/Contents/Info.plist" 2>/dev/null || true
 fi
+rm -rf "$ICON_TMP"
 
 if [ "$BUNDLE_VENV" = 1 ]; then
   if [ ! -x .venv/bin/pymobiledevice3 ]; then

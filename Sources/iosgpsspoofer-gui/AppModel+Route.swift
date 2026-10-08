@@ -162,6 +162,8 @@ extension AppModel {
             announcedArrival = false
             isPaused = false
             playbackSignature = routeSignature
+            pendingToast = Toast(symbol: "point.topleft.down.to.point.bottomright.curvepath", title: "Route started",
+                                 subtitle: routeSummary, style: .info)
             if s.canStream {
                 playback = RoutePlayback(path: path, loopMode: loop)
                 activity = .routing

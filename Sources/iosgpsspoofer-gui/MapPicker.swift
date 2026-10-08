@@ -102,6 +102,7 @@ struct MapPicker: NSViewRepresentable {
         private var annotations: [UUID: PinAnnotation] = [:]
         private var dragging: Set<UUID> = []
         private var deviceAnnotation: DeviceAnnotation?
+        private var casingOverlay: MKPolyline?
         private var routeOverlay: MKPolyline?
         private var travelledOverlay: MKPolyline?
         private var routeKey = ""
@@ -270,16 +271,16 @@ struct MapPicker: NSViewRepresentable {
             view.glyphText = nil
             switch role {
             case .target:
-                view.markerTintColor = .systemRed
+                view.markerTintColor = Brand.nsIndigo
                 view.glyphImage = NSImage(systemSymbolName: "location.fill", accessibilityDescription: "Target")
             case .start:
-                view.markerTintColor = .systemGreen
-                view.glyphText = "1"
+                view.markerTintColor = Brand.nsLive
+                view.glyphImage = NSImage(systemSymbolName: "flag.fill", accessibilityDescription: "Start")
             case .end:
                 view.markerTintColor = .systemRed
                 view.glyphImage = NSImage(systemSymbolName: "flag.checkered", accessibilityDescription: "Destination")
             case .waypoint(let n):
-                view.markerTintColor = .systemBlue
+                view.markerTintColor = Brand.nsSky
                 view.glyphText = "\(n)"
             case .compact:
                 break
@@ -294,12 +295,18 @@ struct MapPicker: NSViewRepresentable {
             if key != routeKey || playing != routePlaying {
                 routeKey = key
                 routePlaying = playing
-                if let routeOverlay { map.removeOverlay(routeOverlay) }
-                if let travelledOverlay { map.removeOverlay(travelledOverlay) }
+                for overlay in [casingOverlay, routeOverlay, travelledOverlay].compactMap({ $0 }) {
+                    map.removeOverlay(overlay)
+                }
+                casingOverlay = nil
                 routeOverlay = nil
                 travelledOverlay = nil
                 if route.count >= 2 {
                     let coords = route.map(\.cl)
+                    // A wide pale casing under the line keeps it readable on any map style.
+                    let casing = MKPolyline(coordinates: coords, count: coords.count)
+                    casingOverlay = casing
+                    map.addOverlay(casing, level: .aboveRoads)
                     let base = MKPolyline(coordinates: coords, count: coords.count)
                     routeOverlay = base
                     map.addOverlay(base, level: .aboveRoads)
@@ -321,18 +328,24 @@ struct MapPicker: NSViewRepresentable {
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             guard let line = overlay as? MKPolyline else { return MKOverlayRenderer(overlay: overlay) }
-            let r = MKPolylineRenderer(polyline: line)
-            r.lineWidth = 5
+            if line === casingOverlay {
+                let casing = MKPolylineRenderer(polyline: line)
+                casing.lineWidth = 10
+                casing.lineCap = .round
+                casing.lineJoin = .round
+                casing.strokeColor = NSColor.white.withAlphaComponent(routePlaying ? 0.55 : 0.85)
+                return casing
+            }
+            // Start (green) → brand indigo → destination (sky), like a progress ribbon.
+            let r = MKGradientPolylineRenderer(polyline: line)
+            r.lineWidth = 6
             r.lineCap = .round
             r.lineJoin = .round
-            if line === travelledOverlay {
-                r.strokeColor = .controlAccentColor
-                r.strokeEnd = 0
-            } else if routePlaying {
-                r.strokeColor = NSColor.controlAccentColor.withAlphaComponent(0.35)
-            } else {
-                r.strokeColor = .controlAccentColor
-            }
+            let dim: CGFloat = (routePlaying && line !== travelledOverlay) ? 0.35 : 1
+            r.setColors([Brand.nsLive.withAlphaComponent(dim), Brand.nsIndigo.withAlphaComponent(dim),
+                         Brand.nsSky.withAlphaComponent(dim)],
+                        locations: [0, 0.55, 1])
+            if line === travelledOverlay { r.strokeEnd = 0 }
             return r
         }
 
@@ -472,7 +485,7 @@ final class DeviceAnnotationView: MKAnnotationView {
             self.layer?.addSublayer(layer)
         }
         halo.path = CGPath(ellipseIn: CGRect(x: center.x - 20, y: center.y - 20, width: 40, height: 40), transform: nil)
-        halo.fillColor = NSColor.systemBlue.withAlphaComponent(0.18).cgColor
+        halo.fillColor = Brand.nsSky.withAlphaComponent(0.22).cgColor
 
         let conePath = CGMutablePath()
         conePath.move(to: CGPoint(x: center.x, y: center.y + 24))
@@ -480,10 +493,10 @@ final class DeviceAnnotationView: MKAnnotationView {
         conePath.addLine(to: CGPoint(x: center.x + 9, y: center.y + 6))
         conePath.closeSubpath()
         cone.path = conePath
-        cone.fillColor = NSColor.systemBlue.withAlphaComponent(0.85).cgColor
+        cone.fillColor = Brand.nsSky.withAlphaComponent(0.85).cgColor
 
         dot.path = CGPath(ellipseIn: CGRect(x: center.x - 9, y: center.y - 9, width: 18, height: 18), transform: nil)
-        dot.fillColor = NSColor.systemBlue.cgColor
+        dot.fillColor = Brand.nsIndigo.cgColor
         dot.strokeColor = NSColor.white.cgColor
         dot.lineWidth = 3
         dot.shadowColor = NSColor.black.cgColor
@@ -506,10 +519,11 @@ final class DeviceAnnotationView: MKAnnotationView {
         } else {
             cone.isHidden = true
         }
-        let colour = live ? NSColor.systemBlue : NSColor.systemGray
+        let colour = live ? Brand.nsIndigo : NSColor.systemGray
+        let glow = live ? Brand.nsSky : NSColor.systemGray
         dot.fillColor = colour.cgColor
-        cone.fillColor = colour.withAlphaComponent(0.85).cgColor
-        halo.fillColor = colour.withAlphaComponent(0.18).cgColor
+        cone.fillColor = glow.withAlphaComponent(0.85).cgColor
+        halo.fillColor = glow.withAlphaComponent(0.22).cgColor
         CATransaction.commit()
 
         if live != pulsing {
@@ -543,7 +557,7 @@ final class DotAnnotationView: MKAnnotationView {
         let dot = CAShapeLayer()
         dot.frame = CGRect(x: 0, y: 0, width: 14, height: 14)
         dot.path = CGPath(ellipseIn: CGRect(x: 2, y: 2, width: 10, height: 10), transform: nil)
-        dot.fillColor = NSColor.systemBlue.cgColor
+        dot.fillColor = Brand.nsSky.cgColor
         dot.strokeColor = NSColor.white.cgColor
         dot.lineWidth = 2
         layer?.addSublayer(dot)

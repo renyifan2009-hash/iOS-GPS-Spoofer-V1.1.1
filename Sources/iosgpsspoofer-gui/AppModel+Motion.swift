@@ -85,6 +85,8 @@ extension AppModel {
         guard !announcedArrival else { return }
         announcedArrival = true
         appendLog("Arrived at the destination — holding there until you stop.", level: .success)
+        showToast(Toast(symbol: "flag.checkered", title: "Arrived",
+                        subtitle: "Holding at the destination until you stop.", style: .success))
         recordRecent(point, name: routeName.map { "End of \($0)" })
     }
 
@@ -146,6 +148,8 @@ extension AppModel {
             playback = nil
             isPaused = false
             if obtained.isNew {
+                pendingToast = Toast(symbol: "gamecontroller.fill", title: "Joystick ready",
+                                     subtitle: "Drag the pad, or use WASD / the arrow keys", style: .info)
                 obtained.session.start(at: start)
                 devicePosition = start
             }

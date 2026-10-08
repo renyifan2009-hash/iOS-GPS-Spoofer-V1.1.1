@@ -44,25 +44,32 @@ public struct NamedLocation: Identifiable, Sendable, Hashable {
     public let name: String
     public let latitude: Double
     public let longitude: Double
+    /// A small visual for chips and menus.
+    public let emoji: String
 
-    public init(_ name: String, _ latitude: Double, _ longitude: Double) {
-        self.name = name; self.latitude = latitude; self.longitude = longitude
+    public init(_ name: String, _ latitude: Double, _ longitude: Double, emoji: String = "📍") {
+        self.name = name; self.latitude = latitude; self.longitude = longitude; self.emoji = emoji
     }
 
     public var point: GeoPoint { GeoPoint(latitude, longitude) }
 
+    /// The part before the first comma ("Eiffel Tower, Paris" → "Eiffel Tower").
+    public var shortName: String {
+        name.split(separator: ",").first.map(String.init) ?? name
+    }
+
     public static let presets: [NamedLocation] = [
-        .init("Apple Park, Cupertino", 37.334_9, -122.009_0),
-        .init("Golden Gate Bridge, San Francisco", 37.819_9, -122.478_3),
-        .init("Times Square, New York", 40.758_0, -73.985_5),
-        .init("Big Ben, London", 51.500_7, -0.124_6),
-        .init("Eiffel Tower, Paris", 48.858_4, 2.294_5),
-        .init("Brandenburg Gate, Berlin", 52.516_3, 13.377_7),
-        .init("Colosseum, Rome", 41.890_2, 12.492_2),
-        .init("Burj Khalifa, Dubai", 25.197_2, 55.274_4),
-        .init("Shibuya Crossing, Tokyo", 35.659_5, 139.700_5),
-        .init("Marina Bay Sands, Singapore", 1.283_4, 103.860_7),
-        .init("Sydney Opera House", -33.856_8, 151.215_3),
-        .init("Christ the Redeemer, Rio de Janeiro", -22.951_9, -43.210_5),
+        .init("Apple Park, Cupertino", 37.334_9, -122.009_0, emoji: "🍎"),
+        .init("Golden Gate Bridge, San Francisco", 37.819_9, -122.478_3, emoji: "🌉"),
+        .init("Times Square, New York", 40.758_0, -73.985_5, emoji: "🗽"),
+        .init("Big Ben, London", 51.500_7, -0.124_6, emoji: "🇬🇧"),
+        .init("Eiffel Tower, Paris", 48.858_4, 2.294_5, emoji: "🗼"),
+        .init("Brandenburg Gate, Berlin", 52.516_3, 13.377_7, emoji: "🇩🇪"),
+        .init("Colosseum, Rome", 41.890_2, 12.492_2, emoji: "🏛️"),
+        .init("Burj Khalifa, Dubai", 25.197_2, 55.274_4, emoji: "🏙️"),
+        .init("Shibuya Crossing, Tokyo", 35.659_5, 139.700_5, emoji: "🗾"),
+        .init("Marina Bay Sands, Singapore", 1.283_4, 103.860_7, emoji: "🇸🇬"),
+        .init("Sydney Opera House", -33.856_8, 151.215_3, emoji: "🦘"),
+        .init("Christ the Redeemer, Rio de Janeiro", -22.951_9, -43.210_5, emoji: "🇧🇷"),
     ]
 }

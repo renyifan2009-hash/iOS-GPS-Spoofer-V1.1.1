@@ -14,7 +14,7 @@ struct SettingsView: View {
             AboutSettings()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 520)
+        .frame(width: 560)
         .scenePadding()
     }
 }
@@ -171,27 +171,55 @@ private struct MovementSettings: View {
 }
 
 private struct AboutSettings: View {
+    @Environment(AppModel.self) private var model
+
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "location.circle.fill")
-                .font(.system(size: 54))
-                .foregroundStyle(Color.accentColor.gradient)
-            Text("iOS GPS Spoofer").font(.title2.bold())
-            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development")")
-                .foregroundStyle(.secondary)
+        VStack(spacing: 14) {
+            Image(nsImage: AppIconImage.shared)
+                .resizable()
+                .frame(width: 112, height: 112)
+                .shadow(color: Brand.indigo.opacity(0.35), radius: 14, y: 6)
+            VStack(spacing: 4) {
+                Text("iOS GPS Spoofer").font(Brand.title(24))
+                Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0 (development)")")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                badge("Instant live engine", symbol: "bolt.fill", colors: TileColors.live)
+                badge("Routes & joystick", symbol: "gamecontroller.fill", colors: TileColors.purple)
+                badge("Nothing installed on iPhone", symbol: "checkmark.shield.fill", colors: TileColors.brand)
+            }
             Text("""
                 Uses Apple's developer location-simulation service — the same one as Xcode's \
-                Simulate Location — through pymobiledevice3. Nothing is installed on the iPhone, and \
-                the real location comes back when you stop, quit, or reboot the phone.
+                Simulate Location — through pymobiledevice3. The real location comes back the \
+                moment you stop, quit, or restart the phone.
                 """)
                 .multilineTextAlignment(.center)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: 400)
+                .frame(maxWidth: 420)
+            HStack(spacing: 10) {
+                Button("Setup Checklist") { model.showWelcome = true }
+                    .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+                Button("Show Data Folder") { model.revealDataFolder() }
+                    .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+            }
             Text("For developing and testing location-aware apps on devices you own.")
                 .font(.caption).foregroundStyle(.tertiary)
         }
-        .padding(24)
+        .padding(28)
         .frame(maxWidth: .infinity)
+    }
+
+    private func badge(_ text: String, symbol: String, colors: [Color]) -> some View {
+        HStack(spacing: 6) {
+            IconTile(symbol: symbol, colors: colors, size: 18)
+            Text(text).font(.caption.weight(.medium))
+        }
+        .padding(.leading, 4)
+        .padding(.trailing, 9)
+        .padding(.vertical, 4)
+        .background(Color.primary.opacity(0.05), in: Capsule())
     }
 }

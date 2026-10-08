@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import SpooferCore
 
-@main
+/// Entry point is `main.swift` (it handles `--render-icon` first).
 struct SpooferGUIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
@@ -12,9 +12,10 @@ struct SpooferGUIApp: App {
                 .environment(AppModel.shared)
                 .environment(Preferences.shared)
                 .environment(LibraryStore.shared)
-                .frame(minWidth: 960, minHeight: 600)
+                .tint(Brand.accent)
+                .frame(minWidth: 1040, minHeight: 640)
         }
-        .defaultSize(width: 1360, height: 840)
+        .defaultSize(width: 1400, height: 860)
         .commands { AppCommands() }
 
         Settings {
@@ -22,6 +23,7 @@ struct SpooferGUIApp: App {
                 .environment(AppModel.shared)
                 .environment(Preferences.shared)
                 .environment(LibraryStore.shared)
+                .tint(Brand.accent)
         }
 
         MenuBarExtra(isInserted: menuBarInserted) {
@@ -29,6 +31,7 @@ struct SpooferGUIApp: App {
                 .environment(AppModel.shared)
                 .environment(Preferences.shared)
                 .environment(LibraryStore.shared)
+                .tint(Brand.accent)
         } label: {
             MenuBarLabel()
         }
@@ -90,6 +93,10 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("l")
         }
+        CommandGroup(replacing: .help) {
+            Button("Welcome & Setup Checklist") { model.showWelcome = true }
+            Button("Connecting an iPhone…") { model.showConnectionHelp = true }
+        }
     }
 }
 
@@ -97,6 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
         TerminationGuard.install()
+        // A raw SwiftPM build has no bundle (so no .icns): draw the icon instead.
+        if Bundle.main.bundleIdentifier == nil {
+            NSApp.applicationIconImage = AppIconRenderer.image(size: 512)
+        }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         MainActor.assumeIsolated { AppModel.shared.bootstrap() }
