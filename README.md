@@ -4,6 +4,10 @@ Change your iPhone's GPS location from your Mac. Jump anywhere in the world,
 drive a route on real roads, or steer with a joystick. Nothing gets installed
 on the iPhone, and your real location comes back when you press **Stop**.
 
+![The Mac app driving a loop around Apple Park on real roads, following the iPhone's blue dot](img/mac-app.png)
+
+What the iPhone shows:
+
 | Apple Park | North Atlantic | Eiffel Tower |
 |:---:|:---:|:---:|
 | ![The iPhone showing a simulated location at Apple Park](img/IMG_0111.PNG) | ![The iPhone showing a simulated location in the North Atlantic](img/IMG_0112.PNG) | ![The iPhone showing a simulated location at the Eiffel Tower](img/IMG_0113.PNG) |
