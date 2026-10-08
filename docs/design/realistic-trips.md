@@ -1,8 +1,8 @@
 # Design: realistic trips
 
-Status: approved for building (2026-10-08). The owner asked for "stops at
-random stoplights" and for research-backed features in the same spirit, and
-delegated the decisions.
+Status: built (2026-10-08). The owner asked for "stops at random stoplights"
+and for research-backed features in the same spirit, and delegated the
+decisions. Code map: [DEVELOPERS.md ▸ Realistic trips](../DEVELOPERS.md#realistic-trips).
 
 ## Goal
 
@@ -37,9 +37,13 @@ signs on the map, and gives an arrival time that includes the stops.
   limits: OpenStreetMap**, through the public Overpass API. It's free and needs
   no key. The app asks for the features within a few metres of the route, in
   pieces of about 15 km, one request at a time, with a clear User-Agent, and
-  caches the answers on disk for 30 days. If OpenStreetMap can't be reached, the
-  trip still slows for turns and still waits at your stops; the route card says
-  the lights couldn't be loaded and offers Try Again.
+  caches the answers on disk for 30 days. Public servers are tried in turn
+  (overpass-api.de, maps.mail.ru, overpass.private.coffee); a busy one gets one
+  more try after a short wait, and the one that answers goes first next time.
+  If none answers, the app retries after 20 s, 1 and 2 minutes, and meanwhile a
+  car treats the route's sharp turns as junctions and sometimes waits there as at
+  a red light (35% of turns slower than 7 m/s). The route card says the lights
+  couldn't be loaded and offers Try Again.
 - **Turns and curves: the route's own shape.** At each point, the radius of the
   curve through the points about 12 m before and after gives the fastest
   comfortable speed: `v = sqrt(lateral acceleration × radius)`.
@@ -173,4 +177,20 @@ panel at a red light and the markers on the map (CI draws the map).
 
 ## Research notes
 
-Filled in from the research pass below.
+Measured while building (2026-10-08):
+
+- The Cupertino test loop (about 7 mi through Apple Park and the arterials
+  around it) has 37 mapped traffic lights, 3 stop signs and speed limits for
+  most of its length. A crossing light next to a junction's lights is folded
+  into that junction, so a car isn't stopped twice at one corner.
+- Overpass answered our query in about 15 s from maps.mail.ru. From a Mac on
+  Cloudflare WARP, overpass-api.de never accepted the connection and the
+  private.coffee and kumi.systems instances returned errors, which is why the
+  loader tries several servers and the planner can guess junctions.
+- With real data, a 69 mph top speed on that loop settles at the roads' 30–40
+  mph limits, and a lap takes about half an hour with the expected red lights.
+
+The physics values (acceleration 1.8 m/s², braking 2.7 m/s², sideways 2.7 m/s²)
+and the red-light odds (45%, 8–60 s) are conventional starting points for
+comfortable urban driving; a parallel research pass was asked to source or
+correct them.

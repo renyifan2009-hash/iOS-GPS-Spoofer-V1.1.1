@@ -12,6 +12,7 @@ packaging.
 - [Engines: live and classic](#engines-live-and-classic)
 - [Tunnels (iOS 17 and later)](#tunnels-ios-17-and-later)
 - [The Mac app](#the-mac-app)
+- [Realistic trips](#realistic-trips)
 - [The command-line tool](#the-command-line-tool)
 - [Troubleshooting with pymobiledevice3](#troubleshooting-with-pymobiledevice3)
 - [Packaging](#packaging)
@@ -212,6 +213,47 @@ Two rules in the map code (`MapPicker.swift`) that each fixed a freeze:
   changes on every evaluation, and they keep invalidating each other. Use one
   `TimelineView` with a fixed start around the `ViewThatFits`.
 
+## Realistic trips
+
+Routes move like a real person: they speed up and brake, slow for curves and
+slower roads, stop at some red lights and at stop signs, wait at chosen stops,
+and take breaks on long drives. The design and its sources are in
+[design/realistic-trips.md](design/realistic-trips.md).
+
+| Part | File |
+|---|---|
+| Physics per kind of traveller, odds and waits, settings, stops | `SpooferCore/TripTypes.swift` |
+| Speed limits from the route's shape (v = √(lateral acceleration × radius)) | `SpooferCore/CurveSpeeds.swift` |
+| Lap plans: random red lights (repeatable per lap and seed), signs, your stops, zones | `SpooferCore/TripPlanner.swift` |
+| Each tick's speed: cruise, but always able to brake for what's ahead; waits; breaks | `SpooferCore/TripController.swift` |
+| Arrival time from the plan (backward and forward passes) | `SpooferCore/TripTiming.swift` |
+| GPS wobble as a slowly wandering error (Gauss–Markov) | `SpooferCore/GPSDrift.swift` |
+| Map data from OpenStreetMap (Overpass), matched onto the route | `SpooferCore/OverpassLoader.swift`, `RouteMatcher.swift`, `SpeedLimits.swift` |
+| App side: settings, planner, map data state, retries | `iosgpsspoofer-gui/AppModel+Trip.swift` |
+
+How it plays: `RoutePlayback` owns the position along the route; each tick the
+motion loop asks `TripController.step` how far to move. The classic engine and
+`iosgpsspoof route --realistic` run the same controller in one-second steps to
+build the timed GPX that pymobiledevice3 replays (a stop is the same point
+repeated).
+
+**OpenStreetMap.** After Apple Maps returns the road route, the app asks the
+public Overpass API for `highway=traffic_signals`, `highway=stop|give_way` and
+`crossing=traffic_signals` nodes near the route, and (driving) the roads under it
+for `maxspeed`. It sends pieces of 15 km or less, one request at a time, with a
+User-Agent naming the app, and caches answers for 30 days in
+`~/Library/Application Support/iOS GPS Spoofer/osm-cache`. Servers are tried in
+turn; a busy one (429/503/504) gets one more try after a short wait, and the
+one that answers is tried first next time. If none answers, the app retries
+after 20 s, 1 and 2 minutes, and meanwhile treats a road route's sharp turns as
+junctions. The route card credits "Map data © OpenStreetMap contributors", which
+the data's license (ODbL) requires.
+
+Debug snapshot mode: `SPOOFER_DEMO=route-roads` plays a loop on roads with a
+2-minute wait at Stop 1. `SNAPSHOT-STATS` includes `speed=`, `trip=` (moving, or
+stopped with the reason and time left), `roadData=`, `lights=`, `signs=`,
+`zones=` and `eta=`.
+
 ## The command-line tool
 
 The CLI is inside the app bundle. Add it to your `PATH`, or call it directly:
@@ -233,6 +275,7 @@ iosgpsspoof spoof "Sydney Opera House"  # place names are geocoded
 
 # Routes: a GPX/KML file, or waypoints
 iosgpsspoof route ./walk.gpx                           # keeps the file's own timing
+iosgpsspoof route ./drive.gpx --speed 60 --realistic   # lights, signs, turns, speed limits
 iosgpsspoof route ./drive.kml --speed 50 --loop
 iosgpsspoof route 48.8584,2.2945 48.8606,2.3376 --speed 5
 iosgpsspoof route @Home @Work --duration 25m --ping-pong

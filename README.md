@@ -75,6 +75,12 @@ The app shows a checklist. Each step gets a green tick when it's done.
 - **Route:** click **Route** at the top. Click the map to drop a start, an end
   and any stops. Pick a speed, then click **Start Route**. Turn on **Follow
   roads & paths** to stay on real streets.
+- **Drive like a real person** (on by default): with Follow roads & paths on, a
+  route stops at some red lights and at every stop sign, slows down for turns,
+  and keeps to each road's speed limit. The speed you pick is the top speed.
+  While it's stopped, the status panel says why ("Red light 0:26").
+- **Wait at a stop:** hover over a stop in the route panel, click the timer
+  and pick how long, from 30 seconds to 30 minutes.
 - **Joystick:** click **Joystick**, then **Start Joystick**. Steer with
   **W A S D** or the arrow keys. Hold **Shift** to go faster.
 - **Stop:** click **Stop** to get your real location back. Quitting the app does
@@ -168,6 +174,9 @@ don't need them.
   to end it.
 - Wi-Fi can work after the first USB setup. In Finder, select your iPhone and
   turn on "Show this iPhone when on Wi-Fi". USB is more reliable.
+- Traffic lights, stop signs and speed limits come from OpenStreetMap (map
+  data © OpenStreetMap contributors). If it can't be reached, routes still
+  slow for turns and stop at some junctions, and the app tries again by itself.
 - Some apps and games can tell when a location is fake, and may block or ban
   accounts. Use it at your own risk.
 - It's meant for testing location-based apps on devices you own.

@@ -15,7 +15,8 @@ import SwiftUI
 ///   SPOOFER_DEMO=…       play a scene: `teleport`, `route`, `route-roads`
 ///                        (Follow roads and Loop on), `joystick` (once an
 ///                        iPhone shows up), or `settings` (opens Settings;
-///                        `settings-remote` / `settings-about` for that tab).
+///                        `settings-remote` / `settings-movement` /
+///                        `settings-about` for that tab).
 ///
 /// Pair it with Tests/Fixtures/fake-pymobiledevice3 (via $PYMOBILEDEVICE3)
 /// for a pretend iPhone.
@@ -91,6 +92,7 @@ enum DebugSnapshot {
             let tab: SettingsView.Tab = switch demo {
             case "settings-remote": .remote
             case "settings-about": .about
+            case "settings-movement": .movement
             default: .general
             }
             let view = SettingsView(tab: tab)
@@ -124,6 +126,9 @@ enum DebugSnapshot {
             model.followRoads = demo == "route-roads"
             model.travelMode = .driving
             model.loopMode = .loop
+            if demo == "route-roads", model.waypoints.count > 1 {
+                model.setWait(120, forWaypoint: model.waypoints[1].id)   // shows a stop's wait
+            }
             model.pacing = .speed
             model.routeSpeed = 31   // about 70 mph, like a tester's drive
             // After the mode switch has framed the route (and Apple Maps has

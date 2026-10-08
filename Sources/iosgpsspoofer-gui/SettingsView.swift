@@ -174,7 +174,7 @@ private struct MovementSettings: View {
                 .disabled(!prefs.realisticTrips)
                 Text("""
                     Routes speed up and brake gradually, and wait at the stops you choose. Traffic lights, \
-                    signs and speed limits come from OpenStreetMap; about 45% of lights are red, with waits of \
+                    signs and speed limits come from OpenStreetMap. About 45% of lights are red, with waits of \
                     8 to 60 seconds. Your chosen speed becomes the top speed.
                     """)
                     .font(.caption).foregroundStyle(.secondary)
