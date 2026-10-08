@@ -96,6 +96,8 @@ jobs:
           shoot joystick joystick 12
           shoot teleport teleport 12
           shoot route-dark route 14 SPOOFER_APPEARANCE=dark
+          # A loop on real roads (asks Apple Maps), in a bigger window: the README's picture.
+          shoot route-roads route-roads 20 SPOOFER_WINDOW_SIZE=1440x900
           defaults write iosgpsspoofer-gui hasSeenWelcome -bool false
           shoot welcome none 8
           ls -la "$SHOTS"

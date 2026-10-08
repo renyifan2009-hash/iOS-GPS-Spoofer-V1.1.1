@@ -14,7 +14,8 @@ import SwiftUI
 ///   SPOOFER_WINDOW_SIZE=1040x692    the main window's size.
 ///   SPOOFER_DEMO=…       play a scene: `teleport`, `route`, `route-roads`
 ///                        (Follow roads and Loop on), `joystick` (once an
-///                        iPhone shows up), or `settings` (opens Settings).
+///                        iPhone shows up), or `settings` (opens Settings;
+///                        `settings-remote` / `settings-about` for that tab).
 ///
 /// Pair it with Tests/Fixtures/fake-pymobiledevice3 (via $PYMOBILEDEVICE3)
 /// for a pretend iPhone.
@@ -83,7 +84,13 @@ enum DebugSnapshot {
             demoStarted = true
             // The real Settings scene won't open for an app that never
             // activates, so host the same view in a plain window.
-            let view = SettingsView()
+            // `settings-remote` and `settings-about` open on that tab.
+            let tab: SettingsView.Tab = switch demo {
+            case "settings-remote": .remote
+            case "settings-about": .about
+            default: .general
+            }
+            let view = SettingsView(tab: tab)
                 .environment(AppModel.shared)
                 .environment(Preferences.shared)
                 .environment(LibraryStore.shared)

@@ -4,18 +4,33 @@ import SpooferRemote
 import SwiftUI
 
 struct SettingsView: View {
+    enum Tab: Hashable {
+        case general, engine, movement, remote, about
+    }
+
+    @State private var tab: Tab
+
+    init(tab: Tab = .general) {
+        _tab = State(initialValue: tab)
+    }
+
     var body: some View {
-        TabView {
+        TabView(selection: $tab) {
             GeneralSettings()
                 .tabItem { Label("General", systemImage: "gearshape") }
+                .tag(Tab.general)
             EngineSettings()
                 .tabItem { Label("Engine", systemImage: "bolt.horizontal") }
+                .tag(Tab.engine)
             MovementSettings()
                 .tabItem { Label("Movement", systemImage: "figure.walk.motion") }
+                .tag(Tab.movement)
             RemoteSettings()
                 .tabItem { Label("iPhone Remote", systemImage: "iphone.radiowaves.left.and.right") }
+                .tag(Tab.remote)
             AboutSettings()
                 .tabItem { Label("About", systemImage: "info.circle") }
+                .tag(Tab.about)
         }
         .frame(width: 620)
         .scenePadding()
@@ -183,6 +198,8 @@ private struct MovementSettings: View {
 }
 
 private struct RemoteSettings: View {
+    @Environment(AppModel.self) private var model
+
     var body: some View {
         @Bindable var host = RemoteHost.shared
         Form {
@@ -191,7 +208,7 @@ private struct RemoteSettings: View {
                 Text("""
                     Start, move and stop the simulated location from your iPhone, without touching \
                     the Mac. The iPhone finds this Mac over Bonjour on your Wi-Fi or its own Personal \
-                    Hotspot, and only paired iPhones can send commands. Keep this window's Mac awake.
+                    Hotspot, and only paired iPhones can send commands. Keep this Mac awake while you use it.
                     """)
                     .font(.caption).foregroundStyle(.secondary)
                 LabeledContent("Status") {
@@ -258,6 +275,26 @@ private struct RemoteSettings: View {
                             Button("Unpair", role: .destructive) { host.unpair(client) }
                         }
                     }
+                }
+            }
+            Section("iPhone-only mode (beta)") {
+                HStack(alignment: .center, spacing: 14) {
+                    IconTile(symbol: "iphone.gen3.radiowaves.left.and.right", colors: TileColors.brand, size: 34)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Use SpoofRemote with no Mac nearby")
+                        Text("""
+                            Save the plugged-in iPhone's pairing file and AirDrop it to that iPhone.                             SpoofRemote then changes the location by itself, even on cellular.
+                            """)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button("Save Pairing File…") { model.savePairingFile() }
+                        .disabled(!model.canSavePairingFile)
+                }
+                if !model.canSavePairingFile {
+                    Text("Plug in an iPhone with iOS 17.4 or later, unlock it and tap Trust.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
