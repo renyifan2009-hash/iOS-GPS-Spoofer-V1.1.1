@@ -36,7 +36,19 @@ cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
 DMG="dist/${APP_NAME// /-}-$VERSION.dmg"
 rm -f "$DMG"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING" -ov -format UDZO "$DMG" >/dev/null
+# hdiutil sometimes fails with "Resource busy" right after a build (a known
+# macOS hiccup, common on CI runners). Try a few times before giving up.
+for attempt in 1 2 3; do
+  if hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING" -ov -format UDZO "$DMG" >/dev/null; then
+    break
+  fi
+  if [ "$attempt" = 3 ]; then
+    echo "hdiutil couldn't create the DMG" >&2
+    exit 1
+  fi
+  echo "    hdiutil was busy; trying again in 5 seconds"
+  sleep 5
+done
 rm -rf "$STAGING"
 
 echo
