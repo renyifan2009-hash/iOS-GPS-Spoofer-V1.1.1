@@ -114,14 +114,16 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
             if self.state == .stopping {
                 throw RemoteControlError("Still restoring the real location. Try again in a moment.")
             }
-            self.wantsLocation = true
-            self.beginKeepAwake()
             if let session = self.session {
+                self.wantsLocation = true
+                self.beginKeepAwake()
                 self.log(.info, "moving to \(Self.describe(target))")
                 self.apply(target, to: session)
                 return self.makeStatus()
             }
             let device = try self.chooseDevice()
+            self.wantsLocation = true
+            self.beginKeepAwake()
             let session = self.makeSession(device: device)
             self.session = session
             self.state = .connecting("Preparing \(device.deviceName)…")

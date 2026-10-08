@@ -46,7 +46,7 @@ final class RemoteHost {
     }
 
     func start() {
-        guard server == nil else { return }
+        guard self.server == nil else { return }
         let pairing = PairingManager()
         let server = MacRemoteServer(name: serverName, port: port, controller: bridge, pairing: pairing)
         pairing.onChange = {

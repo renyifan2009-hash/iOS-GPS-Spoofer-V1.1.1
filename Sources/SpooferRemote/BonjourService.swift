@@ -80,12 +80,28 @@ public enum BonjourService {
         case .ipv4(let address):
             return isLocal(ipv4: Array(address.rawValue))
         case .ipv6(let address):
-            return isLocal(ipv6: Array(address.rawValue))
+            let bytes = Array(address.rawValue)
+            // Global IPv6 addresses count when they share the Mac's /64.
+            return isLocal(ipv6: bytes) || localIPv6Prefixes().contains(Array(bytes.prefix(8)))
         case .name:
             return false
         @unknown default:
             return false
         }
+    }
+
+    /// The /64 prefixes of the Mac's own IPv6 addresses.
+    static func localIPv6Prefixes() -> Set<[UInt8]> {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return [] }
+        defer { freeifaddrs(head) }
+        var prefixes = Set<[UInt8]>()
+        for pointer in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            guard let addr = pointer.pointee.ifa_addr, addr.pointee.sa_family == sa_family_t(AF_INET6) else { continue }
+            let socket = UnsafeRawPointer(addr).load(as: sockaddr_in6.self)
+            prefixes.insert(withUnsafeBytes(of: socket.sin6_addr) { Array($0.prefix(8)) })
+        }
+        return prefixes
     }
 
     static func isLocal(ipv4 b: [UInt8]) -> Bool {

@@ -362,8 +362,9 @@ final class HTTPConnection: @unchecked Sendable {
     private var responded = false
     private var closed = false
 
-    /// Slow or stalled clients are dropped after this long.
-    static let timeout: TimeInterval = 20
+    /// Slow or stalled clients are dropped after this long. Generous, since
+    /// a first start lists devices (which can take a while) before answering.
+    static let timeout: TimeInterval = 45
 
     init(connection: NWConnection, queue: DispatchQueue,
          handler: @escaping @Sendable (HTTPRequest) async -> HTTPResponse) {

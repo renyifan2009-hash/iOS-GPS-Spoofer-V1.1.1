@@ -209,6 +209,7 @@ enum LaunchAgent {
             "ProgramArguments": [executable] + arguments,
             "RunAtLoad": true,
             "KeepAlive": ["SuccessfulExit": false],
+            "ThrottleInterval": 60,
             "ProcessType": "Interactive",
             "StandardOutPath": logURL.path,
             "StandardErrorPath": logURL.path,

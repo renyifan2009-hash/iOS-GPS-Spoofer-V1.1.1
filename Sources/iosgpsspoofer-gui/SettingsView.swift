@@ -1,5 +1,6 @@
 import AppKit
 import SpooferCore
+import SpooferRemote
 import SwiftUI
 
 struct SettingsView: View {
@@ -241,8 +242,7 @@ private struct RemoteSettings: View {
                             IconTile(symbol: "iphone", colors: TileColors.purple, size: 26)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(client.name)
-                                Text(client.lastSeen.map { "Last seen \($0.formatted(.relative(presentation: .named)))" }
-                                     ?? "Paired \(client.pairedAt.formatted(date: .abbreviated, time: .shortened))")
+                                Text(seenText(client))
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
@@ -253,6 +253,13 @@ private struct RemoteSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func seenText(_ client: PairingManager.PairedClient) -> String {
+        if let seen = client.lastSeen {
+            return "Last seen " + seen.formatted(.relative(presentation: .named))
+        }
+        return "Paired " + client.pairedAt.formatted(date: .abbreviated, time: .shortened)
     }
 }
 
