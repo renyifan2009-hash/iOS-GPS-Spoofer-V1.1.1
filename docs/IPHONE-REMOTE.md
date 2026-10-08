@@ -150,24 +150,25 @@ curl -s -X POST localhost:47653/stop -H "Authorization: Bearer $TOKEN"
 
 ## Set up the Mac
 
+Install the Mac app first (see the [README](../README.md#install)). The
+command-line tool is inside it:
+
 ```bash
-cd ~/Downloads/iOS-GPS-Spoofer
-./setup.sh                      # first time: pymobiledevice3 in .venv, builds everything
-swift build -c release
-.build/release/iosgpsspoof serve
+alias iosgpsspoof='"/Applications/iOS GPS Spoofer.app/Contents/MacOS/iosgpsspoof"'
+iosgpsspoof serve
 ```
 
 It prints the Mac's name, the **pairing code** and the addresses the iPhone
 can use. Leave it running. Ctrl-C stops it and restores the real location.
 
 - **Start at login** (user LaunchAgent, no admin rights):
-  `.build/release/iosgpsspoof serve --install-agent`. New pairing codes go to
+  `iosgpsspoof serve --install-agent`. New pairing codes go to
   `~/Library/Logs/iosgpsspoof-remote.log`. Remove it with `--uninstall-agent`.
 - **Or use the Mac app**: Settings ▸ iPhone Remote ▸ turn it on. The code,
   addresses and paired iPhones are shown there. Run either the app's remote
   or `serve`, not both (they share the port).
 - Options: `--port`, `--name`, `--engine automatic|live|classic`, `--udid`,
-  `--connection usb|network|any`, `--transport native|tunneld|userspace`,
+  `--connection usb|network|any`, `--transport automatic|userspace|native|tunneld`,
   `--forget-paired`, `--verbose`.
 - If macOS asks whether `iosgpsspoof` may accept incoming network
   connections, click **Allow**.

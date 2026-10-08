@@ -24,7 +24,7 @@ extension AppModel {
             return StatusDisplay(title: "Connecting", detail: message, tint: Brand.warning,
                                  symbol: "antenna.radiowaves.left.and.right", busy: true, live: false)
         case .reconnecting(let message):
-            return StatusDisplay(title: "Waiting", detail: message, tint: Brand.warning,
+            return StatusDisplay(title: "Reconnecting", detail: message, tint: Brand.warning,
                                  symbol: "cable.connector", busy: true, live: false)
         case .stopping:
             return StatusDisplay(title: "Restoring", detail: "Restoring the real location…", tint: Brand.warning,

@@ -881,9 +881,9 @@ footer { padding-block: 32px 40px; color: var(--muted); font-size: 0.9rem; }
 
       <div class="split" id="build">
         <div>
-          <p class="kicker">Build from source</p>
-          <h2 style="margin-top:14px">Four commands on any Mac.</h2>
-          <p class="lede" style="margin-top:16px">You need Xcode 16 or its command line tools. <span class="mono">setup.sh</span> creates a private Python environment with pymobiledevice3 and builds the app and the command line tool.</p>
+          <p class="kicker">Install</p>
+          <h2 style="margin-top:14px">One line in Terminal.</h2>
+          <p class="lede" style="margin-top:16px">Paste it into Terminal and press Return. It downloads the newest version, builds the app on your Mac and puts it in Applications, then opens it. If Apple's command line tools are missing, it asks to install them first. Run it again any time to update.</p>
           <p class="lede">Prefer Xcode? Run <span class="mono">open Package.swift</span>, choose the <span class="mono">iosgpsspoofer-gui</span> scheme and press <kbd>⌘R</kbd>.</p>
           <div class="cta-row" style="margin-top:22px">
             <a class="btn btn-primary" data-download href="#build"><svg class="ico"><use href="#i-download"/></svg>Download the app</a>
@@ -892,10 +892,7 @@ footer { padding-block: 32px 40px; color: var(--muted); font-size: 0.9rem; }
         </div>
         <div class="code">
           <div class="code-bar"><span class="lights"><i></i><i></i><i></i></span><span class="name">Terminal</span><button class="copy" type="button" data-copy="build-code"><svg class="ico"><use href="#i-copy"/></svg><span>Copy</span></button></div>
-<pre id="build-code"><span class="p">$ </span>cd ~/Downloads/iOS-GPS-Spoofer
-<span class="p">$ </span>./setup.sh               <span class="c"># first time only</span>
-<span class="p">$ </span>swift build -c release   <span class="c"># after pulling changes</span>
-<span class="p">$ </span>./run-gui.sh             <span class="c"># launch the app</span></pre>
+<pre id="build-code"><span class="p">$ </span>curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/main/install.sh | bash</pre>
         </div>
       </div>
     </div>
@@ -953,7 +950,9 @@ footer { padding-block: 32px 40px; color: var(--muted); font-size: 0.9rem; }
 
   // Where the buttons point. Change these two lines if the project moves.
   const REPO = "https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1";
-  const DOWNLOAD = REPO + "/releases/latest";
+  // The app is built on your Mac by the one-line installer, so "Download"
+  // leads to the install steps.
+  const DOWNLOAD = REPO + "#install";
   document.querySelectorAll("[data-download]").forEach(a => { a.href = DOWNLOAD; });
   document.querySelectorAll("[data-repo]").forEach(a => { a.href = REPO; });
 
