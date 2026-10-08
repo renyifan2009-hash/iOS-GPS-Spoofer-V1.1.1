@@ -135,11 +135,12 @@ extension AppModel {
         let path = playPath
         let key = Self.pathKey(path)
         let roads = travelMode == .driving
-        if key == roadDataPathKey, roadDataState == .ready { return }
-        if case .loading = roadDataState, roadDataTask != nil, pendingRoadDataKey == key { return }
+        if key == roadDataPathKey, roadDataState == .ready, roadDataHasRoads == roads { return }
+        let pending = key + (roads ? "|roads" : "")
+        if case .loading = roadDataState, roadDataTask != nil, pendingRoadDataKey == pending { return }
         roadDataTask?.cancel()
-        if pendingRoadDataKey != key { roadDataRetries = 3 }
-        pendingRoadDataKey = key
+        if pendingRoadDataKey != pending { roadDataRetries = 3 }
+        pendingRoadDataKey = pending
         roadDataState = .loading(0)
         roadDataTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
@@ -155,6 +156,7 @@ extension AppModel {
                 guard !Task.isCancelled, let self else { return }
                 self.roadFeatures = features
                 self.roadDataPathKey = key
+                self.roadDataHasRoads = roads
                 self.roadDataState = .ready
                 self.roadDataRetries = 3
                 self.lapTimeCache = nil
@@ -168,7 +170,7 @@ extension AppModel {
                 self.roadDataState = .failed(Self.describe(error))
                 self.appendLog("Couldn't load traffic lights from OpenStreetMap: \(Self.describe(error)).",
                                level: .warning)
-                self.scheduleRoadDataRetry(for: key)
+                self.scheduleRoadDataRetry(for: pending)
             }
         }
     }

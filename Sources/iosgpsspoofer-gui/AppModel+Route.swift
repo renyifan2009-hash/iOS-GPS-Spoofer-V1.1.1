@@ -289,8 +289,12 @@ extension AppModel {
         var eta: TimeInterval? = speed > 0 && !pb.isFinished ? remaining / speed : nil
         if !pb.isFinished, canStream, let trip {
             eta = trip.timeToLapEnd(from: pb.lapDistance)
-        } else if !pb.isFinished, let track = replayTrack, let started = replayStartedAt, let end = track.last?.offset {
-            eta = max(0, end - Date().timeIntervalSince(started))
+        } else if !pb.isFinished, let track = replayTrack, let started = replayStartedAt {
+            // The track is the whole drive (laps unrolled): find when it reaches the end of this lap.
+            let lapEnd = pb.loopMode == .once ? pb.path.length : Double(pb.lap + 1) * pb.cycleLength
+            if let reach = Self.trackTime(track, reaching: lapEnd - 0.5) {
+                eta = max(0, reach - Date().timeIntervalSince(started))
+            }
         }
         return RouteProgressInfo(
             fraction: pb.lapFraction,

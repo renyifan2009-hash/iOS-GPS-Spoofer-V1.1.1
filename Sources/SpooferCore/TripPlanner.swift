@@ -88,7 +88,10 @@ public struct TripPlanner: Sendable, Equatable {
             let back = 2 * length - d
             return abs(back - d) < 1 ? [d] : [d, back]
         }
-        func clamp(_ at: Double) -> Double { min(max(at, 0), cycle) }
+        // A stop exactly at the end of a lap would be skipped: the playback
+        // starts the next lap as it gets there. Keep them just before it.
+        let lastSpot = loopMode == .once ? cycle : max(0, cycle - 0.5)
+        func clamp(_ at: Double) -> Double { min(max(at, 0), lastSpot) }
 
         for feature in features.features {
             for at in passes(feature.distance) {
@@ -129,7 +132,7 @@ public struct TripPlanner: Sendable, Equatable {
         }
 
         // No map data: sharp turns on a road route are nearly always junctions.
-        if settings.guessJunctions, settings.trafficLights, profile.kind == .drive {
+        if settings.guessJunctions, features.features.isEmpty, settings.trafficLights, profile.kind == .drive {
             for turn in curveLimits where turn.speed < TripOdds.junctionTurnSpeed {
                 for at in passes(turn.distance) where rng.chance(TripOdds.junctionStop) {
                     stops.append(TripStop(distance: clamp(at - 12), wait: TripOdds.redWait(&rng), reason: .redLight))

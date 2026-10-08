@@ -182,6 +182,8 @@ final class AppModel {
     var roadDataState: RoadDataState = .off
     /// The path `roadFeatures` belongs to: its distances only fit that path.
     @ObservationIgnored var roadDataPathKey: String?
+    /// Whether the loaded map data includes the roads (speed limits, for driving).
+    @ObservationIgnored var roadDataHasRoads = false
     @ObservationIgnored var roadDataTask: Task<Void, Never>?
     @ObservationIgnored var pendingRoadDataKey: String?
     /// Automatic retries left for the current route's map data.

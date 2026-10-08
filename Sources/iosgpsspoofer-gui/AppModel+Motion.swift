@@ -112,6 +112,16 @@ extension AppModel {
         geocodeDeviceIfNeeded()
     }
 
+    /// When a timed track has first come `distance` metres (nil if it never does).
+    static func trackTime(_ track: [RoutePoint], reaching distance: Double) -> TimeInterval? {
+        guard let index = track.firstIndex(where: { ($0.travelled ?? -1) >= distance }) else { return nil }
+        guard index > 0, let a = track[index - 1].travelled, let b = track[index].travelled, b > a else {
+            return track[index].offset
+        }
+        let f = (distance - a) / (b - a)
+        return track[index - 1].offset + f * (track[index].offset - track[index - 1].offset)
+    }
+
     /// Where a timed track is `t` seconds in, and how far it has come.
     static func trackState(_ track: [RoutePoint], at t: Double) -> (point: GeoPoint, travelled: Double?) {
         guard let first = track.first else { return (GeoPoint(0, 0), nil) }

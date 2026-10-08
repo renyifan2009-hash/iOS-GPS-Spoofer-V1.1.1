@@ -282,3 +282,37 @@ final class JunctionGuessTests: XCTestCase {
         XCTAssertTrue(walking.lapPlan(lap: 0, seed: 4).stops.isEmpty)
     }
 }
+
+final class LoopStopTests: XCTestCase {
+    func testALoopWaitsAtItsStartEachLap() {
+        let a = GeoPoint(37, -122)
+        let square = RoutePath([a, a.moved(by: 300, bearing: 0), a.moved(by: 300, bearing: 0).moved(by: 300, bearing: 90), a])
+        let planner = TripPlanner(path: square, loopMode: .loop, settings: TripSettings(topSpeed: 10),
+                                  waypointStops: [WaypointStop(index: 0, distance: 0, wait: 20)])
+        var playback = RoutePlayback(path: planner.path, loopMode: .loop)
+        var trip = TripController(planner: planner, seed: 1)
+        var waitedAtStart = 0.0
+        var t = 0.0
+        while t < 600 && playback.lap < 2 {
+            playback.advance(by: trip.step(dt: 0.5, lapDistance: playback.lapDistance, lap: playback.lap))
+            t += 0.5
+            if case .stopped(.waypoint(0), _) = trip.status {
+                waitedAtStart += 0.5
+                XCTAssertLessThan(playback.current.point.distance(to: a), 1)
+            }
+        }
+        XCTAssertEqual(playback.lap, 2)
+        XCTAssertEqual(waitedAtStart, 40, accuracy: 2)       // 20 s at the end of each of two laps
+    }
+
+    func testGuessesOnlyWithoutMapData() {
+        var points = [GeoPoint(37, -122)]
+        for i in 0..<20 { points.append(points.last!.moved(by: 150, bearing: i % 2 == 0 ? 0 : 90)) }
+        let withData = TripPlanner(path: RoutePath(points), loopMode: .loop,
+                                   settings: TripSettings(topSpeed: 15, trafficLights: true, guessJunctions: true),
+                                   features: RoadFeatures(features: [
+                                       RoadFeature(kind: .stopSign, distance: 75, point: points[0]),
+                                   ]))
+        XCTAssertTrue(withData.lapPlan(lap: 0, seed: 2).stops.allSatisfy { $0.reason != .redLight })
+    }
+}
