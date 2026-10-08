@@ -165,6 +165,8 @@ final class AppModel {
     var developerModeEnabled: Bool?
     @ObservationIgnored var developerModeCheckedUDID: String?
     @ObservationIgnored var developerModeCheckedAt = Date.distantPast
+    /// iPhones we've asked to show the Developer Mode switch this launch.
+    @ObservationIgnored var developerModeRevealed: Set<String> = []
     /// Toast to show once the device confirms the next position.
     @ObservationIgnored var pendingToast: Toast?
 

@@ -633,10 +633,8 @@ struct LogSection: View {
                         .toggleStyle(.checkbox)
                         .help("Show pymobiledevice3's own output")
                     Spacer()
-                    Button("Copy") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(model.logText, forType: .string)
-                    }
+                    Button("Copy Diagnostics") { model.copyDiagnostics() }
+                        .help("Copy versions, setup and this log, to send to the developer")
                     Button("Clear") { model.clearLog() }
                 }
                 .controlSize(.small)

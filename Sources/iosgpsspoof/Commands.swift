@@ -269,7 +269,8 @@ struct Doctor: ParsableCommand {
                 else if enabled == "false" { bad("Developer Mode is OFF — Settings ▸ Privacy & Security ▸ Developer Mode") }
             }
         }
-        print(problems == 0 ? "\nAll good." : "\n\(problems) problem(s) found. See IPHONE-SETUP.md.")
+        print(problems == 0 ? "\nAll good." : "\n\(problems) problem(s) found. Fixes for common problems: "
+              + "https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1#something-not-working")
         if problems > 0 { throw ExitCode.failure }
     }
 }

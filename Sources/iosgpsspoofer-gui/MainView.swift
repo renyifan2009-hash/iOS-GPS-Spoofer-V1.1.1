@@ -506,6 +506,9 @@ struct Banners: View {
             if let device = model.selectedDevice, model.developerModeEnabled == false, model.session == nil {
                 banner(icon: "hammer.fill", colors: TileColors.orange,
                        text: "Developer Mode is off on \(device.deviceName).") {
+                    Button("Show on iPhone") { model.revealDeveloperMode() }
+                        .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
+                        .help("Make the Developer Mode switch appear in the iPhone's Settings ▸ Privacy & Security")
                     Button("How to turn it on") { model.showConnectionHelp = true }
                         .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
                 }
@@ -606,46 +609,114 @@ struct ConnectCard: View {
 
 // MARK: - Setup card
 
+/// Shown over the map when pymobiledevice3 isn't installed (or is broken).
 struct SetupCard: View {
     @Environment(AppModel.self) private var model
+    @State private var showTerminal = false
+
+    private var installer: HelperInstaller { HelperInstaller.shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 14) {
                 IconTile(symbol: "wrench.and.screwdriver.fill", colors: TileColors.orange, size: 48)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("One quick install").font(Brand.title(20))
-                    Text("iOS GPS Spoofer talks to your iPhone through the free, open-source pymobiledevice3.")
+                    Text("One more thing to install").font(Brand.title(20))
+                    Text("The app talks to your iPhone through a free helper tool called pymobiledevice3. Installing it takes about a minute.")
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Text("Install it once in Terminal, then click Check Again:").font(.callout.weight(.medium))
-            command("pipx install pymobiledevice3")
-            Text("or, from the project folder:").font(.caption).foregroundStyle(.secondary)
-            command("./setup.sh")
-            if let error = model.setupError {
-                DisclosureGroup("Details") {
+
+            status
+
+            HStack {
+                Button("Choose pymobiledevice3…") { model.choosePymobiledevice3() }
+                    .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+                    .help("Already installed it yourself? Pick the pymobiledevice3 program.")
+                Spacer()
+                primaryButton
+            }
+
+            DisclosureGroup("Use Terminal instead", isExpanded: $showTerminal) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Paste this into Terminal, then click Check Again:").font(.caption).foregroundStyle(.secondary)
+                    command("curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/main/install.sh | bash")
+                    Button("Check Again") {
+                        model.resolveTool()
+                        Task { await model.refresh() }
+                    }
+                    .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+                }
+                .padding(.top, 6)
+            }
+            .font(.caption)
+        }
+        .padding(26)
+        .frame(width: 500)
+        .glassPanel(cornerRadius: 22)
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        switch installer.phase {
+        case .working(let step):
+            HStack(alignment: .top, spacing: 10) {
+                ProgressView().controlSize(.small)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(step).font(.callout.weight(.medium))
+                    if !installer.detail.isEmpty {
+                        Text(installer.detail).font(.caption.monospaced()).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                }
+            }
+        case .needsDeveloperTools:
+            Label("This Mac needs Apple's Command Line Tools first. They're free and include Python. Click Install Developer Tools, follow Apple's installer, then click Install again.",
+                  systemImage: "info.circle.fill")
+                .font(.callout).foregroundStyle(Brand.warning)
+                .fixedSize(horizontal: false, vertical: true)
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: 6) {
+                Label("That didn't work.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout.weight(.medium)).foregroundStyle(Brand.danger)
+                Text(message).font(.caption.monospaced()).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(6)
+            }
+        case .idle, .finished:
+            if let error = model.setupError, model.pmd == nil, !error.contains("could not find") {
+                DisclosureGroup("What went wrong") {
                     Text(error).font(.caption.monospaced()).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(.caption)
             }
-            HStack {
-                Button("Choose pymobiledevice3…") { model.choosePymobiledevice3() }
-                    .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
-                Spacer()
-                Button("Check Again") {
-                    model.resolveTool()
-                    Task { await model.refresh() }
-                }
+        }
+    }
+
+    @ViewBuilder
+    private var primaryButton: some View {
+        if case .needsDeveloperTools = installer.phase {
+            Button("Install Developer Tools") { installer.installDeveloperTools() }
                 .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
                 .keyboardShortcut(.defaultAction)
+        } else {
+            Button {
+                installer.install()
+            } label: {
+                Label(installer.isWorking ? "Installing…" : (isRetry ? "Try Again" : "Install"),
+                      systemImage: "arrow.down.circle.fill")
             }
+            .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
+            .keyboardShortcut(.defaultAction)
+            .disabled(installer.isWorking)
         }
-        .padding(26)
-        .frame(width: 480)
-        .glassPanel(cornerRadius: 22)
+    }
+
+    private var isRetry: Bool {
+        if case .failed = installer.phase { return true }
+        return false
     }
 
     private func command(_ text: String) -> some View {

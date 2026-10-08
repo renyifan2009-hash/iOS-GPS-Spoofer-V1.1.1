@@ -377,9 +377,10 @@ struct EngineBadge: View {
     }
 }
 
-/// A row of the setup checklist.
+/// A row of the setup checklist, with a button that fixes it when we can.
 struct SetupCheckRow: View {
     let check: SetupCheck
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -400,6 +401,15 @@ struct SetupCheckRow: View {
                 Text(check.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
+            if let fix = check.fix {
+                if fix == .installHelper, HelperInstaller.shared.isWorking {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button(fix.label) { model.performFix(fix) }
+                        .buttonStyle(BrandButtonStyle(kind: fix == .connectionHelp ? .secondary : .primary, large: false))
+                        .fixedSize()
+                }
+            }
         }
         .animation(.easeOut(duration: 0.25), value: check.state)
     }

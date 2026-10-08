@@ -110,6 +110,10 @@ private struct EngineSettings: View {
                     Text(model.pymobiledevice3Version ?? "—")
                 }
                 HStack {
+                    Button(model.pmd == nil ? "Install" : "Update") { HelperInstaller.shared.install() }
+                        .disabled(HelperInstaller.shared.isWorking)
+                        .help("Install or update pymobiledevice3 in the app's own Python environment")
+                    if HelperInstaller.shared.isWorking { ProgressView().controlSize(.small) }
                     Button("Choose…") { model.choosePymobiledevice3() }
                     if !prefs.pymobiledevice3Path.isEmpty {
                         Button("Use Automatic") {

@@ -69,6 +69,8 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .help) {
             Button("Welcome & Setup Checklist") { model.showWelcome = true }
             Button("Connecting an iPhone…") { model.showConnectionHelp = true }
+            Divider()
+            Button("Copy Diagnostics") { model.copyDiagnostics() }
         }
     }
 }
