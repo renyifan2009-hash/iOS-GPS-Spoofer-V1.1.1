@@ -1,182 +1,677 @@
 import Foundation
 
-/// What a session is doing.
-public enum SpoofJob: Sendable, Equatable {
-    /// Hold the device at a fixed point.
-    case fixed(latitude: Double, longitude: Double)
-    /// Replay a GPX track. `loop` restarts it when it finishes.
-    case route(gpxPath: String, loop: Bool, summary: String)
+/// How the session talks to the device.
+public enum EngineKind: String, Sendable, Codable, CaseIterable {
+    /// One long-lived helper process; moves are a single message (fast).
+    case live
+    /// One `pymobiledevice3` process per location / GPX replay (compatible).
+    case classic
+
+    public var label: String { self == .live ? "Live" : "Classic" }
 }
 
-public enum SpoofState: Equatable, Sendable {
-    case idle
-    case preparing
-    case active(latitude: Double, longitude: Double)
-    case routing(String)
-    /// A non-looping route reached its end; the device sits at the last point.
-    case completed
-    /// Ended without the caller asking (device unplugged, tunnel died, …).
-    case interrupted(String)
-    case failed(String)
+/// What the user asked for in settings.
+public enum EnginePreference: String, Sendable, Codable, CaseIterable, Identifiable {
+    case automatic, live, classic
 
-    public var isRunning: Bool {
+    public var id: String { rawValue }
+    public var label: String {
         switch self {
-        case .preparing, .active, .routing: return true
-        case .idle, .completed, .interrupted, .failed: return false
+        case .automatic: return "Automatic"
+        case .live: return "Live"
+        case .classic: return "Classic"
         }
     }
 }
 
-/// Drives one `pymobiledevice3 developer dvt simulate-location` child (a fixed
-/// `set`, or a `play` of a route) for the lifetime of a spoofing session: keeps
-/// it alive while the device stays connected, re-establishes it if the device
-/// drops and returns, and clears the simulated location on `stop()`.
+public enum LogLevel: Int, Sendable, Comparable, CaseIterable {
+    case debug, info, success, warning, error
+
+    public static func < (a: LogLevel, b: LogLevel) -> Bool { a.rawValue < b.rawValue }
+}
+
+public enum SessionState: Equatable, Sendable {
+    case idle
+    /// Mounting the disk image / opening the tunnel. The string says which.
+    case connecting(String)
+    /// The device is at the most recent position (live or classic hold).
+    case active
+    /// Classic engine replaying a GPX file.
+    case replaying
+    /// Lost the device or the channel; will retry by itself.
+    case reconnecting(String)
+    /// Restoring the real location.
+    case stopping
+    case failed(String)
+
+    /// Something is (or is about to be) holding a simulated location.
+    public var isRunning: Bool {
+        switch self {
+        case .connecting, .active, .replaying, .reconnecting: return true
+        case .idle, .stopping, .failed: return false
+        }
+    }
+
+    /// The device is currently following us.
+    public var isEngaged: Bool { self == .active || self == .replaying }
+}
+
+/// Drives the location simulation of one device for the lifetime of a
+/// spoofing session: opens the channel, keeps it alive while the device stays
+/// connected, re-establishes it if the device or tunnel drops, and restores
+/// the real location on `stop()`.
 ///
-/// Fully event-driven — no blocking waits on any control path, so `stop()` and
-/// `start()` take effect immediately. Callbacks are delivered on `callbackQueue`
-/// (default: main).
+/// Two engines:
+/// - **live**: a `LiveHelper` process holds the channel open; `move(to:)` is a
+///   single stdin message and is coalesced (newest position wins).
+/// - **classic**: a `simulate-location set` process per position (each move
+///   re-opens the tunnel), and GPX `play` for routes. iOS 16 and older use the
+///   lockdown service, where a `set` is a quick one-shot command.
+///
+/// Fully event-driven; callbacks arrive on `callbackQueue` (default: main).
+/// Set the callbacks before the first `start`.
 public final class SpoofSession: @unchecked Sendable {
-    public var onStateChange: (@Sendable (SpoofState) -> Void)?
-    public var onLog: (@Sendable (String) -> Void)?
+    public var onStateChange: (@Sendable (SessionState) -> Void)?
+    public var onLog: (@Sendable (LogLevel, String) -> Void)?
+    /// A position the device has (to our knowledge) been moved to.
+    public var onPosition: (@Sendable (GeoPoint) -> Void)?
+    /// The engine changed (the live helper turned out to be incompatible).
+    public var onEngineChange: (@Sendable (EngineKind) -> Void)?
 
     public let device: Device
 
     private let pmd: Pymobiledevice3
     private let transport: Transport
+    private let python: URL?
     private let callbackQueue: DispatchQueue
     private let ops = DispatchQueue(label: "SpoofSession.ops", qos: .userInitiated)
+    private let teardown = DispatchQueue(label: "SpoofSession.teardown", qos: .userInitiated)
+    private let io = DispatchQueue(label: "SpoofSession.io", qos: .userInitiated)
 
     private let lock = NSLock()
-    private var _state: SpoofState = .idle
+    private var _state: SessionState = .idle
+    private var _engine: EngineKind
+    private var desired: GeoPoint?
+    private var replayJob: ReplayJob?
     private var child: Process?
+    private var childStartedAt = Date.distantPast
+    private var helperInput: FileHandle?
+    private var helperOutput: LineSplitter?
+    private var helperReady = false
+    private var sawCleared = false
+    private var inFlightSince: Date?
+    private var pending: GeoPoint?
+    private var oneShotRunning = false
     private var stopping = false
+    private var started = false
     private var runToken = 0
-    private var ownedRouteFile: URL?
+    private var needsMount = true
+    private var failures = 0
+    private var lastError: String?
+    private var ownedFiles: [URL] = []
 
+    private struct ReplayJob {
+        let gpxPath: String
+        let summary: String
+    }
+
+    /// - Parameters:
+    ///   - engine: `.live` requires `python` (see `Pymobiledevice3.pythonInterpreter`);
+    ///     without it the session silently uses `.classic`.
     public init(pmd: Pymobiledevice3, device: Device, transport: Transport = .native,
-                callbackQueue: DispatchQueue = .main) {
+                engine: EngineKind = .classic, python: URL? = nil, callbackQueue: DispatchQueue = .main) {
         self.pmd = pmd
         self.device = device
         self.transport = transport
+        self.python = python
+        self._engine = (engine == .live && python != nil) ? .live : .classic
         self.callbackQueue = callbackQueue
+        signal(SIGPIPE, SIG_IGN)   // a helper dying mid-write must not kill us
     }
 
-    public var state: SpoofState {
-        lock.lock(); defer { lock.unlock() }
-        return _state
-    }
+    public var state: SessionState { locked { _state } }
+    public var engine: EngineKind { locked { _engine } }
+
+    /// Whether frequent `move(to:)` calls are cheap enough to drive a route or a
+    /// joystick in real time. False only for the classic engine on iOS 17+,
+    /// where routes go through `replay(gpxPath:summary:)` instead.
+    public var canStream: Bool { engine == .live || device.isLegacy }
 
     // MARK: - Control
 
-    /// Convenience for a fixed point.
-    public func start(latitude: Double, longitude: Double) {
-        start(.fixed(latitude: latitude, longitude: longitude))
+    /// Begin spoofing at `point` (or restart there).
+    public func start(at point: GeoPoint) {
+        guard point.isValid else { setState(.failed("invalid coordinate \(point.latitude), \(point.longitude)")); return }
+        let (token, previous) = resetRun { desired = point; replayJob = nil }
+        setState(.connecting("Preparing \(device.deviceName)…"))
+        ops.async { [self] in
+            if let previous { Self.terminate(previous, grace: 3) }
+            launch(token: token)
+        }
     }
 
-    /// Start, or (if already running) switch to, `job`.
-    public func start(_ job: SpoofJob) {
-        switch job {
-        case let .fixed(lat, lon):
-            do { try Coordinate.validate(latitude: lat, longitude: lon) }
-            catch { setState(.failed("\(error)")); return }
-        case let .route(path, _, _):
-            guard FileManager.default.fileExists(atPath: path) else {
-                setState(.failed("route file missing: \(path)")); return
-            }
-        }
-
+    /// Move the device. Live: one message, coalesced while one is in flight.
+    /// Classic: restarts the holding process (slow). Before `start`, a no-op.
+    public func move(to point: GeoPoint) {
+        guard point.isValid else { return }
         lock.lock()
-        stopping = false
-        runToken &+= 1
-        let token = runToken
-        let previousChild = child
-        child = nil
-        let staleRouteFile = ownedRouteFile
-        if case let .route(path, _, _) = job {
-            ownedRouteFile = URL(fileURLWithPath: path)
-        } else {
-            ownedRouteFile = nil
-        }
+        guard started, !stopping else { lock.unlock(); return }
+        desired = point
+        let engine = _engine
+        let ready = helperReady
+        let replaying = replayJob != nil
         lock.unlock()
 
-        if let staleRouteFile, staleRouteFile.path != ownedRouteFile?.path {
-            try? FileManager.default.removeItem(at: staleRouteFile)
-        }
-
-        setState(.preparing)
-        emit("preparing tunnel to \(device.deviceName)…")
-
-        ops.async { [self] in
-            if let previousChild { Self.kill(previousChild, grace: 3) }
-            guard isCurrent(token) else { return }
-
-            if device.majorVersion != 0 && device.majorVersion < 17 {
-                emit("note: device is iOS \(device.productVersion); this path targets iOS 17+.")
+        switch engine {
+        case .live:
+            if ready { send(point) }   // otherwise applied when the channel opens
+        case .classic where device.isLegacy && !replaying:
+            lock.lock()
+            let busy = oneShotRunning
+            oneShotRunning = true
+            let token = runToken
+            lock.unlock()
+            if !busy { ops.async { [self] in runOneShots(token: token) } }
+        case .classic:
+            let (token, previous) = resetRun { desired = point; replayJob = nil }
+            setState(.connecting("Moving…"))
+            ops.async { [self] in
+                if let previous { Self.terminate(previous, grace: 3) }
+                launch(token: token)
             }
-            do {
-                _ = try pmd.run(["mounter", "auto-mount", "--udid", device.udid], timeout: 120)
-            } catch {
-                emit("auto-mount skipped (\(error))")
-            }
-            guard isCurrent(token) else { return }
-            launch(job: job, token: token)
         }
     }
 
-    /// Stop and restore the device's real GPS. Returns immediately.
+    /// Classic engine: replay a timed GPX track with `simulate-location play`.
+    /// The session takes ownership of the file and deletes it when done.
+    public func replay(gpxPath: String, summary: String) {
+        let url = URL(fileURLWithPath: gpxPath)
+        let (token, previous) = resetRun {
+            replayJob = ReplayJob(gpxPath: gpxPath, summary: summary)
+            ownedFiles.append(url)
+        }
+        // Drop older route files now; the current one goes on stop().
+        let stale = locked { () -> [URL] in
+            let old = ownedFiles.filter { $0 != url }
+            ownedFiles = [url]
+            return old
+        }
+        for file in stale { try? FileManager.default.removeItem(at: file) }
+        setState(.connecting("Starting the route…"))
+        ops.async { [self] in
+            if let previous { Self.terminate(previous, grace: 3) }
+            launch(token: token)
+        }
+    }
+
+    /// Stop and (by default) restore the device's real location. Returns
+    /// immediately; the state goes `.stopping` → `.idle`.
     public func stop(clearLocation: Bool = true) {
-        lock.lock()
-        stopping = true
-        runToken &+= 1
-        let c = child
-        child = nil
-        let routeFile = ownedRouteFile
-        ownedRouteFile = nil
-        lock.unlock()
-
-        if let c { Self.kill(c, grace: 3) }
-        if let routeFile { try? FileManager.default.removeItem(at: routeFile) }
-
-        ops.async { [self] in
-            if clearLocation {
-                emit("restoring real GPS…")
-                do {
-                    _ = try pmd.run(clearArgs, timeout: 90)
-                    emit("real GPS restored.")
-                } catch {
-                    emit("could not clear simulated location: \(error)")
-                }
-            }
+        let teardownState = beginStop()
+        guard teardownState.wasStarted else {
+            // Already stopped — or still restoring from an earlier stop(), which
+            // will report .idle itself once the location is cleared.
+            if state != .stopping { setState(.idle) }
+            return
+        }
+        setState(.stopping)
+        teardown.async { [self] in
+            finishStop(teardownState, clearLocation: clearLocation, helperWait: 6, clearTimeout: 90)
             setState(.idle)
         }
     }
 
-    /// Best-effort synchronous teardown for app termination.
+    /// Synchronous best-effort teardown for app termination.
     public func stopBlocking() {
+        let teardownState = beginStop()
+        guard teardownState.wasStarted else { return }
+        finishStop(teardownState, clearLocation: true, helperWait: 3, clearTimeout: 15)
+        locked { _state = .idle }
+    }
+
+    // MARK: - Launching
+
+    /// Bump the run token (invalidating callbacks from anything older), detach
+    /// the current child, and apply `configure` — all under the lock.
+    private func resetRun(_ configure: () -> Void) -> (Int, Process?) {
         lock.lock()
-        stopping = true
+        defer { lock.unlock() }
+        stopping = false
+        started = true
         runToken &+= 1
-        let c = child
+        let previous = child
         child = nil
-        let routeFile = ownedRouteFile
-        ownedRouteFile = nil
+        helperInput = nil
+        helperOutput = nil
+        helperReady = false
+        inFlightSince = nil
+        pending = nil
+        oneShotRunning = false
+        failures = 0
+        lastError = nil
+        configure()
+        return (runToken, previous)
+    }
+
+    private func launch(token: Int) {
+        guard isCurrent(token) else { return }
+
+        guard pmd.isPresent(udid: device.udid) else {
+            locked { needsMount = true }
+            setState(.reconnecting("Waiting for \(device.deviceName) to reconnect…"))
+            ops.asyncAfter(deadline: .now() + 3) { [weak self] in self?.launch(token: token) }
+            return
+        }
+
+        if locked({ () -> Bool in let m = needsMount; needsMount = false; return m }) {
+            setState(.connecting("Mounting the developer disk image…"))
+            do {
+                _ = try pmd.run(["mounter", "auto-mount", "--udid", device.udid], timeout: 120)
+                emit(.debug, "developer disk image ready")
+            } catch {
+                emit(.debug, "auto-mount skipped (\(Self.firstLine(of: error)))")
+            }
+            guard isCurrent(token) else { return }
+        }
+
+        let (engine, replay, point) = locked { (_engine, replayJob, desired) }
+        if let replay {
+            launchReplay(replay, token: token)
+            return
+        }
+        guard let point else { return }
+        switch engine {
+        case .live:
+            launchHelper(at: point, token: token)
+        case .classic where device.isLegacy:
+            locked { oneShotRunning = true }
+            runOneShots(token: token)
+        case .classic:
+            launchHold(at: point, token: token)
+        }
+    }
+
+    // MARK: Live engine
+
+    private func launchHelper(at point: GeoPoint, token: Int) {
+        guard let python else { switchToClassic(reason: "no Python interpreter found", token: token); return }
+        let script: URL
+        do { script = try LiveHelper.installedScriptURL() } catch {
+            switchToClassic(reason: "\(error)", token: token)
+            return
+        }
+
+        let process = Process()
+        process.executableURL = python
+        process.arguments = ["-u", script.path, "--"] + setArguments(point)
+        process.environment = LiveHelper.helperEnvironment()
+        let input = Pipe(), output = Pipe(), errors = Pipe()
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = errors
+
+        let outLines = LineSplitter { [weak self] line in self?.handleHelperLine(line, token: token) }
+        outLines.attach(to: output.fileHandleForReading)
+        LineSplitter { [weak self] line in self?.handleToolOutput(line) }.attach(to: errors.fileHandleForReading)
+
+        process.terminationHandler = { [weak self] p in
+            ChildProcessRegistry.shared.remove(p)
+            self?.childExited(status: p.terminationStatus, token: token, live: true)
+        }
+        do {
+            try process.run()
+        } catch {
+            setState(.failed("could not start Python (\(python.path)): \(error.localizedDescription)"))
+            return
+        }
+        ChildProcessRegistry.shared.add(process)
+
+        lock.lock()
+        guard runToken == token, !stopping else {
+            lock.unlock()
+            try? input.fileHandleForWriting.close()
+            Self.terminate(process, grace: 2)
+            return
+        }
+        child = process
+        childStartedAt = Date()
+        helperInput = input.fileHandleForWriting
+        helperOutput = outLines
+        helperReady = false
         lock.unlock()
 
-        if let c { Self.kill(c, grace: 2) }
-        if let routeFile { try? FileManager.default.removeItem(at: routeFile) }
-        _ = try? pmd.run(clearArgs, timeout: 15)
+        setState(.connecting("Opening the location channel…"))
+        emit(.info, "opening a live channel to \(device.deviceName) (\(transportLabel))…")
     }
 
-    private static func kill(_ process: Process, grace: TimeInterval) {
+    private func handleHelperLine(_ line: String, token: Int) {
+        guard let message = LiveHelper.parse(line: line) else {
+            if !line.trimmingCharacters(in: .whitespaces).isEmpty { emit(.debug, line) }
+            return
+        }
+        switch message {
+        case let .ready(point):
+            lock.lock()
+            guard runToken == token, !stopping else { lock.unlock(); return }
+            helperReady = true
+            inFlightSince = nil
+            failures = 0
+            lastError = nil
+            let wanted = desired
+            lock.unlock()
+            setState(.active)
+            emit(.success, "● live channel open — device at \(Format.coordinate(point))")
+            deliver(point)
+            if let wanted, !wanted.isClose(to: point) { send(wanted) }
+
+        case let .ok(point):
+            lock.lock()
+            guard runToken == token else { lock.unlock(); return }
+            inFlightSince = nil
+            let next = pending
+            pending = nil
+            lock.unlock()
+            deliver(point)
+            if let next { send(next) }
+
+        case .cleared:
+            locked { sawCleared = true }
+
+        case let .error(text):
+            locked { lastError = text }
+            emit(.warning, text)
+
+        case let .incompatible(reason):
+            emit(.warning, "live engine unavailable: \(reason)")
+
+        case .pong, .bye, .exit, .probe:
+            break
+        }
+    }
+
+    private func send(_ point: GeoPoint) {
+        lock.lock()
+        guard helperReady, let input = helperInput else { lock.unlock(); return }
+        if let since = inFlightSince, Date().timeIntervalSince(since) < 3 {
+            pending = point   // newest wins; sent when the in-flight one is acknowledged
+            lock.unlock()
+            return
+        }
+        inFlightSince = Date()
+        pending = nil
+        lock.unlock()
+        let data = Data(LiveHelper.setCommand(point).utf8)
+        io.async { try? input.write(contentsOf: data) }
+    }
+
+    private func switchToClassic(reason: String, token: Int) {
+        lock.lock()
+        guard runToken == token, !stopping else { lock.unlock(); return }
+        _engine = .classic
+        lock.unlock()
+        emit(.warning, "live engine unavailable (\(reason)) — using the classic engine")
+        callbackQueue.async { [onEngineChange] in onEngineChange?(.classic) }
+        ops.async { [self] in launch(token: token) }
+    }
+
+    // MARK: Classic engine
+
+    private func launchHold(at point: GeoPoint, token: Int) {
+        let process: Process
+        do {
+            process = try pmd.spawn(
+                setArguments(point),
+                onOutput: { [weak self] line in self?.handleToolOutput(line) },
+                onExit: { [weak self] p in self?.childExited(status: p.terminationStatus, token: token, live: false) }
+            )
+        } catch {
+            setState(.failed("could not start pymobiledevice3: \(error.localizedDescription)"))
+            return
+        }
+        guard adopt(process, token: token) else { return }
+        setState(.active)
+        emit(.success, "● holding at \(Format.coordinate(point))")
+        deliver(point)
+    }
+
+    private func launchReplay(_ job: ReplayJob, token: Int) {
+        let process: Process
+        do {
+            process = try pmd.spawn(
+                replayArguments(job.gpxPath),
+                onOutput: { [weak self] line in self?.handleToolOutput(line) },
+                onExit: { [weak self] p in self?.childExited(status: p.terminationStatus, token: token, live: false) }
+            )
+        } catch {
+            setState(.failed("could not start pymobiledevice3: \(error.localizedDescription)"))
+            return
+        }
+        guard adopt(process, token: token) else { return }
+        setState(.replaying)
+        emit(.success, "● playing route: \(job.summary)")
+    }
+
+    /// iOS ≤ 16: `set` is a quick one-shot over lockdown. Keep applying the
+    /// newest `desired` until it sticks.
+    private func runOneShots(token: Int) {
+        var applied: GeoPoint?
+        while true {
+            let target: GeoPoint? = locked {
+                guard runToken == token, !stopping, let d = desired else { oneShotRunning = false; return nil }
+                if let applied, applied.isClose(to: d) { oneShotRunning = false; return nil }
+                return d
+            }
+            guard let target else { return }
+            do {
+                _ = try pmd.run(setArguments(target), timeout: 60)
+            } catch {
+                locked { oneShotRunning = false; lastError = Self.firstLine(of: error) }
+                guard isCurrent(token) else { return }
+                if pmd.isPresent(udid: device.udid) {
+                    setState(.failed(Self.firstLine(of: error)))
+                    emit(.error, "\(error)")
+                } else {
+                    locked { needsMount = true }
+                    setState(.reconnecting("Waiting for \(device.deviceName) to reconnect…"))
+                    ops.asyncAfter(deadline: .now() + 3) { [weak self] in self?.launch(token: token) }
+                }
+                return
+            }
+            guard isCurrent(token) else { return }
+            applied = target
+            if state != .active {
+                setState(.active)
+                emit(.success, "● location set to \(Format.coordinate(target))")
+            }
+            deliver(target)
+        }
+    }
+
+    /// Record `process` as the current child, or kill it if it's already stale.
+    private func adopt(_ process: Process, token: Int) -> Bool {
+        lock.lock()
+        guard runToken == token, !stopping else {
+            lock.unlock()
+            Self.terminate(process, grace: 2)
+            return false
+        }
+        child = process
+        childStartedAt = Date()
+        lock.unlock()
+        return true
+    }
+
+    // MARK: Exits & retries
+
+    private func childExited(status: Int32, token: Int, live: Bool) {
+        lock.lock()
+        guard runToken == token, !stopping else { lock.unlock(); return }
+        child = nil
+        helperInput = nil
+        helperReady = false
+        inFlightSince = nil
+        // A long, healthy run resets the failure streak.
+        if Date().timeIntervalSince(childStartedAt) > 30 { failures = 0 }
+        failures += 1
+        let failures = self.failures
+        let lastError = self.lastError
+        let isReplay = replayJob != nil
+        lock.unlock()
+
+        if live && status == LiveHelper.incompatibleExitStatus {
+            switchToClassic(reason: lastError ?? "the helper could not patch pymobiledevice3", token: token)
+            return
+        }
+
+        let what = live ? "location channel" : (isReplay ? "route playback" : "location hold")
+        if failures > 4 {
+            let message = lastError ?? "the \(what) keeps closing (exit status \(status)) — see the log"
+            emit(.error, message)
+            setState(.failed(message))
+            return
+        }
+        let delay = [1.0, 2.0, 4.0, 8.0][min(failures - 1, 3)]
+        emit(.warning, "\(what) closed (exit status \(status)) — retrying in \(Int(delay))s")
+        setState(.reconnecting(lastError ?? "Re-establishing the connection…"))
+        ops.asyncAfter(deadline: .now() + delay) { [weak self] in self?.launch(token: token) }
+    }
+
+    /// stderr of pymobiledevice3 (or the helper): surface errors, keep the rest
+    /// as debug output.
+    private func handleToolOutput(_ line: String) {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        if trimmed.contains(" ERROR ") || trimmed.hasPrefix("ERROR") || trimmed.contains("Traceback")
+            || trimmed.contains("Exception:") || trimmed.contains("Error:") {
+            let message = Self.cleanLogLine(trimmed)
+            locked { lastError = message }
+            emit(.error, message)
+        } else if trimmed.contains(" WARNING ") {
+            emit(.warning, Self.cleanLogLine(trimmed))
+        } else {
+            emit(.debug, Self.cleanLogLine(trimmed))
+        }
+    }
+
+    // MARK: - Teardown
+
+    private struct TeardownState {
+        let wasStarted: Bool
+        let process: Process?
+        let input: FileHandle?
+        let output: LineSplitter?
+        let helperWasReady: Bool
+        let files: [URL]
+    }
+
+    private func beginStop() -> TeardownState {
+        lock.lock()
+        defer { lock.unlock() }
+        let state = TeardownState(wasStarted: started, process: child, input: helperInput, output: helperOutput,
+                                  helperWasReady: helperReady, files: ownedFiles)
+        stopping = true
+        started = false
+        runToken &+= 1
+        child = nil
+        helperInput = nil
+        helperOutput = nil
+        helperReady = false
+        sawCleared = false
+        replayJob = nil
+        ownedFiles = []
+        return state
+    }
+
+    private func finishStop(_ s: TeardownState, clearLocation: Bool, helperWait: TimeInterval, clearTimeout: TimeInterval) {
+        var cleared = false
+        if let process = s.process, let input = s.input, s.helperWasReady {
+            // Ask the helper to clear over the open channel — no new tunnel needed.
+            try? input.write(contentsOf: Data((clearLocation ? "quit clear\n" : "quit\n").utf8))
+            _ = Self.waitForExit(process, seconds: helperWait)
+            s.output?.waitUntilFinished(timeout: 1)
+            let confirmed = locked { sawCleared }
+            cleared = clearLocation && confirmed
+        }
+        try? s.input?.close()
+        if let process = s.process { Self.terminate(process, grace: 3) }
+        for file in s.files { try? FileManager.default.removeItem(at: file) }
+
+        guard clearLocation else { return }
+        if cleared {
+            emit(.success, "real location restored")
+            return
+        }
+        emit(.info, "restoring the real location…")
+        do {
+            _ = try pmd.run(clearArguments, timeout: clearTimeout)
+            emit(.success, "real location restored")
+        } catch {
+            emit(.error, "could not clear the simulated location: \(Self.firstLine(of: error)). Rebooting the phone always clears it.")
+        }
+    }
+
+    // MARK: - Arguments
+
+    private var transportLabel: String { device.isLegacy ? "lockdown" : transport.label }
+
+    private func setArguments(_ p: GeoPoint) -> [String] {
+        if device.isLegacy {
+            return ["developer", "simulate-location", "set", "--udid", device.udid, "--",
+                    String(p.latitude), String(p.longitude)]
+        }
+        return ["developer", "dvt", "simulate-location", "set"] + transport.flags(udid: device.udid)
+            + ["--udid", device.udid, "--", String(p.latitude), String(p.longitude)]
+    }
+
+    private var clearArguments: [String] {
+        if device.isLegacy {
+            return ["developer", "simulate-location", "clear", "--udid", device.udid]
+        }
+        return ["developer", "dvt", "simulate-location", "clear"] + transport.flags(udid: device.udid)
+            + ["--udid", device.udid]
+    }
+
+    private func replayArguments(_ path: String) -> [String] {
+        ["developer", "dvt", "simulate-location", "play"] + transport.flags(udid: device.udid)
+            + ["--udid", device.udid, path]
+    }
+
+    // MARK: - Helpers
+
+    private func locked<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+
+    private func isCurrent(_ token: Int) -> Bool {
+        locked { runToken == token && !stopping }
+    }
+
+    private func setState(_ newValue: SessionState) {
+        locked { _state = newValue }
+        callbackQueue.async { [onStateChange] in onStateChange?(newValue) }
+    }
+
+    private func deliver(_ point: GeoPoint) {
+        callbackQueue.async { [onPosition] in onPosition?(point) }
+    }
+
+    private func emit(_ level: LogLevel, _ line: String) {
+        callbackQueue.async { [onLog] in onLog?(level, line) }
+    }
+
+    static func terminate(_ process: Process, grace: TimeInterval) {
         guard process.isRunning else { return }
         process.interrupt()
-        if waitFor(process, seconds: grace * 0.6) { return }
+        if waitForExit(process, seconds: grace * 0.6) { return }
         process.terminate()
-        if waitFor(process, seconds: grace * 0.4) { return }
-        if process.isRunning { Darwin.kill(process.processIdentifier, SIGKILL) }
+        if waitForExit(process, seconds: grace * 0.4) { return }
+        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
     }
 
-    private static func waitFor(_ process: Process, seconds: TimeInterval) -> Bool {
+    @discardableResult
+    static func waitForExit(_ process: Process, seconds: TimeInterval) -> Bool {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
             if !process.isRunning { return true }
@@ -185,127 +680,16 @@ public final class SpoofSession: @unchecked Sendable {
         return !process.isRunning
     }
 
-    // MARK: - Internals
-
-    private var clearArgs: [String] {
-        ["developer", "dvt", "simulate-location", "clear"]
-            + transport.flags(udid: device.udid) + ["--udid", device.udid]
+    public static func firstLine(of error: Error) -> String {
+        let text = "\(error)"
+        return text.split(separator: "\n").first.map(String.init) ?? text
     }
 
-    private func childArgs(for job: SpoofJob) -> [String] {
-        let base = ["developer", "dvt", "simulate-location"]
-        switch job {
-        case let .fixed(lat, lon):
-            return base + ["set"] + transport.flags(udid: device.udid)
-                + ["--udid", device.udid, "--", String(lat), String(lon)]
-        case let .route(path, _, _):
-            return base + ["play"] + transport.flags(udid: device.udid)
-                + ["--udid", device.udid, path]
+    /// Strip the coloredlogs prefix ("2026-01-01 12:00:00 host name[pid] LEVEL ").
+    static func cleanLogLine(_ line: String) -> String {
+        for level in [" ERROR ", " WARNING ", " INFO ", " DEBUG "] {
+            if let r = line.range(of: level) { return String(line[r.upperBound...]) }
         }
-    }
-
-    private func launch(job: SpoofJob, token: Int) {
-        guard isCurrent(token) else { return }
-
-        guard pmd.isPresent(udid: device.udid) else {
-            setState(.interrupted("device disconnected"))
-            emit("device not connected — waiting for it to return…")
-            ops.asyncAfter(deadline: .now() + 4) { [self] in
-                launch(job: job, token: token)
-            }
-            return
-        }
-
-        let proc: Process
-        do {
-            proc = try pmd.spawn(childArgs(for: job)) { [weak self] line in
-                if line.contains("ERROR") || line.contains("Traceback") || line.contains("Exception") {
-                    self?.emit(line)
-                }
-            }
-        } catch {
-            setState(.failed("could not start pymobiledevice3: \(error)"))
-            return
-        }
-
-        let registryCleanup = proc.terminationHandler
-        proc.terminationHandler = { [weak self] p in
-            registryCleanup?(p)
-            guard let self else { return }
-            self.lock.lock()
-            let mine = (self.runToken == token)
-            let bail = self.stopping
-            if mine { self.child = nil }
-            self.lock.unlock()
-            guard mine, !bail else { return }
-            self.handleChildExit(job: job, token: token, status: p.terminationStatus)
-        }
-
-        lock.lock()
-        guard runToken == token else {
-            lock.unlock()
-            proc.terminationHandler = nil
-            proc.interrupt()
-            return
-        }
-        child = proc
-        lock.unlock()
-
-        switch job {
-        case let .fixed(lat, lon):
-            setState(.active(latitude: lat, longitude: lon))
-            emit("● holding at \(lat), \(lon)")
-        case let .route(_, loop, summary):
-            setState(.routing(summary))
-            emit("● playing route: \(summary)\(loop ? " (looping)" : "")")
-        }
-    }
-
-    private func handleChildExit(job: SpoofJob, token: Int, status: Int32) {
-        switch job {
-        case .fixed:
-            emit("session ended (status \(status)) — re-establishing…")
-            ops.asyncAfter(deadline: .now() + 3) { [weak self] in
-                self?.launch(job: job, token: token)
-            }
-
-        case let .route(_, loop, summary):
-            if status == 0 {
-                if loop {
-                    emit("route finished — looping")
-                    ops.asyncAfter(deadline: .now() + 1) { [weak self] in
-                        self?.launch(job: job, token: token)
-                    }
-                } else {
-                    emit("route finished — device is at the destination")
-                    setState(.completed)
-                }
-            } else if pmd.isPresent(udid: device.udid) {
-                setState(.failed("route playback failed (status \(status)) — see log"))
-            } else {
-                setState(.interrupted("device disconnected mid-route"))
-                emit("device gone — will restart the route when it returns")
-                ops.asyncAfter(deadline: .now() + 4) { [weak self] in
-                    self?.launch(job: job, token: token)
-                }
-            }
-            _ = summary
-        }
-    }
-
-    private func isCurrent(_ token: Int) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return runToken == token && !stopping
-    }
-
-    private func setState(_ newValue: SpoofState) {
-        lock.lock()
-        _state = newValue
-        lock.unlock()
-        callbackQueue.async { [onStateChange] in onStateChange?(newValue) }
-    }
-
-    private func emit(_ line: String) {
-        callbackQueue.async { [onLog] in onLog?(line) }
+        return line
     }
 }

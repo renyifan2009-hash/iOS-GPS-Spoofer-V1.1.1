@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged with the keys Xcode generates (GENERATE_INFOPLIST_FILE = YES). -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>SpoofRemote finds your Mac on this network and sends it the places you pick.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_iosgpsspoof._tcp</string>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Shows where iOS currently reports this iPhone to be, so you can check the simulated location.</string>
+</dict>
+</plist>
