@@ -246,6 +246,8 @@ struct StatTile: View {
     let label: String
     let value: String
     var symbol: String?
+    /// Colours the label (a red light, a stop sign…).
+    var tint: Color?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -254,7 +256,7 @@ struct StatTile: View {
                 Text(label.uppercased()).kerning(0.5)
             }
             .font(.system(size: 9.5, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary))
             Text(value)
                 .font(Brand.title(15, weight: .semibold).monospacedDigit())
                 .lineLimit(1)

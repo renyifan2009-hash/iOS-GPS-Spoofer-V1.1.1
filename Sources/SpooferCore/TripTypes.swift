@@ -99,6 +99,11 @@ public enum TripOdds {
         Double.random(in: 1...3, using: &rng)
     }
 
+    /// Without map data: a sharp turn (slower than this, m/s) is taken to be a
+    /// junction, and a car waits there this often.
+    public static let junctionTurnSpeed = 7.0
+    public static let junctionStop = 0.35
+
     /// Drivers keep a little under or over the limit for the whole trip.
     public static let driverFactor = 0.95...1.05
 
@@ -136,10 +141,14 @@ public struct TripSettings: Sendable, Equatable {
     public var speedVariation: Double
     /// Multiplies every cruise speed (pacing by duration fits the lap time with it).
     public var paceFactor: Double
+    /// No map data for this road route: treat its sharp turns as junctions,
+    /// where a car sometimes waits as if at a red light.
+    public var guessJunctions: Bool
 
     public init(topSpeed: Double, profile: MotionProfile? = nil, trafficLights: Bool = true,
                 stopSigns: Bool = true, slowForTurns: Bool = true, speedLimits: Bool = true,
-                breaks: Bool = true, speedVariation: Double = 0, paceFactor: Double = 1) {
+                breaks: Bool = true, speedVariation: Double = 0, paceFactor: Double = 1,
+                guessJunctions: Bool = false) {
         self.topSpeed = topSpeed
         self.profile = profile ?? .forSpeed(topSpeed)
         self.trafficLights = trafficLights
@@ -149,12 +158,14 @@ public struct TripSettings: Sendable, Equatable {
         self.breaks = breaks
         self.speedVariation = speedVariation
         self.paceFactor = paceFactor
+        self.guessJunctions = guessJunctions
     }
 
     /// Changing these needs a new plan; the others are read every tick.
     func plansDiffer(from other: TripSettings) -> Bool {
         profile != other.profile || trafficLights != other.trafficLights || stopSigns != other.stopSigns
             || slowForTurns != other.slowForTurns || speedLimits != other.speedLimits
+            || guessJunctions != other.guessJunctions
     }
 }
 

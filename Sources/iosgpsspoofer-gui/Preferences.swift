@@ -45,6 +45,12 @@ final class Preferences {
         static let routeSpeed = "defaultRouteSpeed"
         static let debugLog = "showDebugLog"
         static let recents = "recordRecents"
+        static let trips = "realisticTrips"
+        static let tripLights = "tripTrafficLights"
+        static let tripSigns = "tripStopSigns"
+        static let tripTurns = "tripSlowForTurns"
+        static let tripLimits = "tripSpeedLimits"
+        static let tripBreaks = "tripBreaks"
     }
 
     var units: UnitSystem { didSet { store(units.rawValue, Key.units) } }
@@ -72,6 +78,16 @@ final class Preferences {
     var showDebugLog: Bool { didSet { store(showDebugLog, Key.debugLog) } }
     var recordRecents: Bool { didSet { store(recordRecents, Key.recents) } }
 
+    // Realistic trips (docs/design/realistic-trips.md).
+    /// Routes and the joystick move like a real person: speeding up and
+    /// braking, slowing for turns, stopping at lights and signs.
+    var realisticTrips: Bool { didSet { store(realisticTrips, Key.trips) } }
+    var tripTrafficLights: Bool { didSet { store(tripTrafficLights, Key.tripLights) } }
+    var tripStopSigns: Bool { didSet { store(tripStopSigns, Key.tripSigns) } }
+    var tripSlowForTurns: Bool { didSet { store(tripSlowForTurns, Key.tripTurns) } }
+    var tripSpeedLimits: Bool { didSet { store(tripSpeedLimits, Key.tripLimits) } }
+    var tripBreaks: Bool { didSet { store(tripBreaks, Key.tripBreaks) } }
+
     private init() {
         let d = UserDefaults.standard
         units = d.string(forKey: Key.units).flatMap(UnitSystem.init(rawValue:))
@@ -91,6 +107,12 @@ final class Preferences {
         defaultRouteSpeed = Self.clamp(d.object(forKey: Key.routeSpeed) as? Double ?? 1.4, 0.3, 70)
         showDebugLog = d.object(forKey: Key.debugLog) as? Bool ?? false
         recordRecents = d.object(forKey: Key.recents) as? Bool ?? true
+        realisticTrips = d.object(forKey: Key.trips) as? Bool ?? true
+        tripTrafficLights = d.object(forKey: Key.tripLights) as? Bool ?? true
+        tripStopSigns = d.object(forKey: Key.tripSigns) as? Bool ?? true
+        tripSlowForTurns = d.object(forKey: Key.tripTurns) as? Bool ?? true
+        tripSpeedLimits = d.object(forKey: Key.tripLimits) as? Bool ?? true
+        tripBreaks = d.object(forKey: Key.tripBreaks) as? Bool ?? true
     }
 
     private func store(_ value: Any, _ key: String) {
@@ -105,7 +127,8 @@ final class Preferences {
     func resetAll() {
         for key in [Key.units, Key.engine, Key.transport, Key.toolPath, Key.menuBar, Key.mapStyle, Key.follow,
                     Key.instant, Key.interval, Key.variation, Key.jitter, Key.refresh, Key.joystickSpeed,
-                    Key.routeSpeed, Key.debugLog, Key.recents] {
+                    Key.routeSpeed, Key.debugLog, Key.recents, Key.trips, Key.tripLights, Key.tripSigns,
+                    Key.tripTurns, Key.tripLimits, Key.tripBreaks] {
             UserDefaults.standard.removeObject(forKey: key)
         }
         units = Locale.current.measurementSystem == .us ? .imperial : .metric
@@ -124,6 +147,12 @@ final class Preferences {
         defaultRouteSpeed = 1.4
         showDebugLog = false
         recordRecents = true
+        realisticTrips = true
+        tripTrafficLights = true
+        tripStopSigns = true
+        tripSlowForTurns = true
+        tripSpeedLimits = true
+        tripBreaks = true
     }
 }
 

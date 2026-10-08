@@ -6,11 +6,14 @@ public struct RoutePoint: Sendable, Equatable {
     public let latitude: Double
     public let longitude: Double
     public let offset: TimeInterval
+    /// Metres travelled along the route by then, when known (realistic tracks).
+    public var travelled: Double?
 
-    public init(latitude: Double, longitude: Double, offset: TimeInterval) {
+    public init(latitude: Double, longitude: Double, offset: TimeInterval, travelled: Double? = nil) {
         self.latitude = latitude
         self.longitude = longitude
         self.offset = offset
+        self.travelled = travelled
     }
 
     public var point: GeoPoint { GeoPoint(latitude, longitude) }
@@ -111,7 +114,7 @@ public enum RouteBuilder {
             return drift?.apply(to: p, dt: step) ?? p
         }
         let first = position()
-        var points = [RoutePoint(latitude: first.latitude, longitude: first.longitude, offset: 0)]
+        var points = [RoutePoint(latitude: first.latitude, longitude: first.longitude, offset: 0, travelled: 0)]
         var t = 0.0
         var holding = false
         while t < maxDuration && points.count < maxPoints {
@@ -123,16 +126,19 @@ public enum RouteBuilder {
             } else {
                 if holding, let last = points.last {
                     // End of a wait: the same place until a moment ago.
-                    points.append(RoutePoint(latitude: last.latitude, longitude: last.longitude, offset: t - step))
+                    points.append(RoutePoint(latitude: last.latitude, longitude: last.longitude, offset: t - step,
+                                             travelled: last.travelled))
                 }
                 holding = false
                 let p = position()
-                points.append(RoutePoint(latitude: p.latitude, longitude: p.longitude, offset: t))
+                points.append(RoutePoint(latitude: p.latitude, longitude: p.longitude, offset: t,
+                                         travelled: playback.travelled))
             }
             if case .stopped(.destination, _) = trip.status { break }
         }
         if holding, let last = points.last, last.offset < t {
-            points.append(RoutePoint(latitude: last.latitude, longitude: last.longitude, offset: t))
+            points.append(RoutePoint(latitude: last.latitude, longitude: last.longitude, offset: t,
+                                     travelled: last.travelled))
         }
         return points
     }

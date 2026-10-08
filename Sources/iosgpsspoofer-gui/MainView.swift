@@ -228,6 +228,7 @@ struct MainView: View {
             follow: model.isFollowingDevice && model.session != nil,
             // The search bar and map controls at the top, the panels at the bottom.
             coveredInsets: NSEdgeInsets(top: 70, left: 0, bottom: bottomPanelsHeight, right: 0),
+            roadMarkers: model.roadMarkers,
             contextActions: [.teleportHere, .setTarget, .addWaypoint, .joystickHere, .addFavorite, .copyCoordinates],
             onClick: { model.mapClicked($0) },
             onDragPin: { id, point in model.pinDragged(id, to: point) },

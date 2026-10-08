@@ -70,6 +70,7 @@ extension AppModel {
             directionsState = .idle
             routeGeometry = points
             closingLeg = nil
+            refreshRoadData()
             return
         }
         directionsState = .computing
@@ -95,6 +96,8 @@ extension AppModel {
             } else {
                 self.directionsState = .idle
             }
+            // Now the roads are known: their traffic lights, signs and limits.
+            self.refreshRoadData()
         }
     }
 
@@ -135,6 +138,7 @@ extension AppModel {
 
     /// Time for one pass (start → end; a full lap for loops).
     var routePassDuration: TimeInterval? {
+        if let realistic = expectedTripPassTime { return realistic }
         let speed = effectiveRouteSpeed
         guard speed > 0 else { return nil }
         return (loopMode == .loop ? lapLength : routeLength) / speed
@@ -192,16 +196,30 @@ extension AppModel {
             pendingToast = Toast(symbol: "point.topleft.down.to.point.bottomright.curvepath", title: "Route started",
                                  subtitle: routeSummary, style: .info)
             if s.canStream {
-                playback = RoutePlayback(path: path, loopMode: loop)
+                let started = RoutePlayback(path: path, loopMode: loop)
+                playback = started
+                trip = prefs.realisticTrips ? makeTrip(for: started) : nil
+                tripStatus = .moving
+                drift = GPSDrift(size: prefs.positionJitter)
                 activity = .routing
                 devicePosition = start
                 if obtained.isNew { s.start(at: start) } else { s.move(to: start) }
                 appendLog("Route started — \(routeSummary).", level: .info)
             } else {
                 do {
-                    let track = try RouteBuilder.timedTrack(path: path, speed: speed, loopMode: loop)
+                    let started = RoutePlayback(path: path, loopMode: loop)
+                    let track: [RoutePoint]
+                    if prefs.realisticTrips {
+                        // The same trip, baked into the timed track pymobiledevice3 replays.
+                        track = try RouteBuilder.timedTrack(
+                            path: started.path, loopMode: loop, trip: makeTrip(for: started),
+                            drift: prefs.positionJitter > 0 ? GPSDrift(size: prefs.positionJitter) : nil)
+                    } else {
+                        track = try RouteBuilder.timedTrack(path: path, speed: speed, loopMode: loop)
+                    }
                     let url = try RouteBuilder.writeGPX(track, name: routeName ?? "iOS GPS Spoofer route")
-                    playback = RoutePlayback(path: path, loopMode: loop)
+                    playback = started
+                    replayTrack = prefs.realisticTrips ? track : nil
                     replaySpeed = speed
                     replayStartedAt = nil
                     activity = .routing
@@ -219,7 +237,9 @@ extension AppModel {
         guard activity == .routing, let session else { return }
         guard routeGeometry.count >= 2 else { return }
         if session.canStream, let old = playback {
-            playback = RoutePlayback(path: routePath, loopMode: loopMode, travelled: old.travelled)
+            let updated = RoutePlayback(path: routePath, loopMode: loopMode, travelled: old.travelled)
+            playback = updated
+            if prefs.realisticTrips { trip = makeTrip(for: updated, speed: trip?.speed ?? deviceSpeed) }
             playbackSignature = routeSignature
             announcedArrival = false
             appendLog("Route updated.", level: .info)
@@ -231,7 +251,10 @@ extension AppModel {
     func togglePause() {
         guard canPauseRoute else { return }
         isPaused.toggle()
-        if isPaused { deviceSpeed = 0 }
+        if isPaused {
+            deviceSpeed = 0
+            trip?.halt()   // it'll set off again from a standstill
+        }
         appendLog(isPaused ? "Route paused." : "Route resumed.", level: .info)
     }
 
@@ -263,12 +286,18 @@ extension AppModel {
         guard activity == .routing, let pb = playback else { return nil }
         let speed = canStream ? effectiveRouteSpeed : replaySpeed
         let remaining = pb.loopMode == .once ? max(0, pb.path.length - pb.travelled) : pb.remainingInLap
+        var eta: TimeInterval? = speed > 0 && !pb.isFinished ? remaining / speed : nil
+        if !pb.isFinished, canStream, let trip {
+            eta = trip.timeToLapEnd(from: pb.lapDistance)
+        } else if !pb.isFinished, let track = replayTrack, let started = replayStartedAt, let end = track.last?.offset {
+            eta = max(0, end - Date().timeIntervalSince(started))
+        }
         return RouteProgressInfo(
             fraction: pb.lapFraction,
             lapDistance: pb.lapDistance,
             lapLength: pb.cycleLength,
             remaining: remaining,
-            eta: speed > 0 && !pb.isFinished ? remaining / speed : nil,
+            eta: eta,
             lap: pb.lap,
             finished: pb.isFinished,
             loopMode: pb.loopMode

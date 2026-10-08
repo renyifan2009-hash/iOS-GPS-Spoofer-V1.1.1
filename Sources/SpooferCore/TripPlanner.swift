@@ -128,6 +128,15 @@ public struct TripPlanner: Sendable, Equatable {
             }
         }
 
+        // No map data: sharp turns on a road route are nearly always junctions.
+        if settings.guessJunctions, settings.trafficLights, profile.kind == .drive {
+            for turn in curveLimits where turn.speed < TripOdds.junctionTurnSpeed {
+                for at in passes(turn.distance) where rng.chance(TripOdds.junctionStop) {
+                    stops.append(TripStop(distance: clamp(at - 12), wait: TripOdds.redWait(&rng), reason: .redLight))
+                }
+            }
+        }
+
         for waypoint in waypointStops where waypoint.wait > 0 {
             var places = passes(waypoint.distance)
             if waypoint.distance < 0.5 {

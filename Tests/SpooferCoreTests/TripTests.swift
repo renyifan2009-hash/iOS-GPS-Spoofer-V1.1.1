@@ -258,3 +258,27 @@ final class DriftAndTrackTests: XCTestCase {
         XCTAssertEqual(GeoPoint(last.latitude, last.longitude).distance(to: path.end!), 0, accuracy: 0.5)
     }
 }
+
+final class JunctionGuessTests: XCTestCase {
+    /// A city grid: 30 blocks of 150 m with a right-angle turn after each.
+    private func zigzag() -> RoutePath {
+        var points = [GeoPoint(37, -122)]
+        for i in 0..<30 { points.append(points.last!.moved(by: 150, bearing: i % 2 == 0 ? 0 : 90)) }
+        return RoutePath(points)
+    }
+
+    func testSharpTurnsBecomeJunctionsOnlyWhenAsked() {
+        let path = zigzag()
+        let plain = TripPlanner(path: path, loopMode: .loop, settings: TripSettings(topSpeed: 15))
+        XCTAssertTrue(plain.lapPlan(lap: 0, seed: 4).stops.isEmpty)
+        let guessing = TripPlanner(path: path, loopMode: .loop,
+                                   settings: TripSettings(topSpeed: 15, guessJunctions: true))
+        let reds = guessing.lapPlan(lap: 0, seed: 4).stops.filter { $0.reason == .redLight }
+        XCTAssertGreaterThan(reds.count, 3)      // about 35% of 29 turns
+        XCTAssertLessThan(reds.count, 20)
+        // Walkers don't guess.
+        let walking = TripPlanner(path: path, loopMode: .loop,
+                                  settings: TripSettings(topSpeed: 1.4, guessJunctions: true))
+        XCTAssertTrue(walking.lapPlan(lap: 0, seed: 4).stops.isEmpty)
+    }
+}

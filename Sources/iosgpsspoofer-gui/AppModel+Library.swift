@@ -177,7 +177,8 @@ extension AppModel {
                                        defaultValue: suggestion) else { return }
         let route = SavedRoute(id: savedRouteID ?? UUID(), name: name, waypoints: waypoints.map(\.point),
                                followRoads: followRoads, travelMode: travelMode, loopMode: loopMode,
-                               speed: effectiveRouteSpeed > 0 ? effectiveRouteSpeed : routeSpeed)
+                               speed: effectiveRouteSpeed > 0 ? effectiveRouteSpeed : routeSpeed,
+                               waits: waypoints.contains { $0.wait > 0 } ? waypoints.map(\.wait) : nil)
         library.saveRoute(route)
         savedRouteID = route.id
         routeName = route.name
@@ -188,7 +189,10 @@ extension AppModel {
     func loadSavedRoute(_ route: SavedRoute) {
         travelMode = route.travelMode
         followRoads = route.followRoads
-        waypoints = route.waypoints.map { Waypoint(point: $0) }
+        let waits = route.waits ?? []
+        waypoints = route.waypoints.enumerated().map { i, point in
+            Waypoint(point: point, wait: i < waits.count ? max(0, waits[i]) : 0)
+        }
         loopMode = route.loopMode
         pacing = .speed
         routeSpeed = route.speed

@@ -161,6 +161,28 @@ private struct MovementSettings: View {
                 Text("How often a moving device gets a new position (live engine).")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Realistic trips") {
+                Toggle("Drive like a real person", isOn: $prefs.realisticTrips)
+                Group {
+                    Toggle("Stop at some red lights", isOn: $prefs.tripTrafficLights)
+                    Toggle("Stop at stop signs, slow at yield signs", isOn: $prefs.tripStopSigns)
+                    Toggle("Slow down for turns and curves", isOn: $prefs.tripSlowForTurns)
+                    Toggle("Keep to each road's speed limit", isOn: $prefs.tripSpeedLimits)
+                    Toggle("Take a break about every 2 hours of driving", isOn: $prefs.tripBreaks)
+                }
+                .padding(.leading, 18)
+                .disabled(!prefs.realisticTrips)
+                Text("""
+                    Routes speed up and brake gradually, and wait at the stops you choose. Traffic lights, \
+                    signs and speed limits come from OpenStreetMap; about 45% of lights are red, with waits of \
+                    8 to 60 seconds. Your chosen speed becomes the top speed.
+                    """)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .onChange(of: [prefs.realisticTrips, prefs.tripTrafficLights, prefs.tripStopSigns,
+                           prefs.tripSlowForTurns, prefs.tripSpeedLimits, prefs.tripBreaks]) { _, _ in
+                model.tripPreferencesChanged()
+            }
             Section("Realism") {
                 LabeledContent("Speed variation") {
                     HStack {
@@ -174,8 +196,9 @@ private struct MovementSettings: View {
                         Text(prefs.positionJitter == 0 ? "Off" : "\(Int(prefs.positionJitter)) m").monospacedDigit().frame(width: 44)
                     }
                 }
-                Text("Small random changes make routes look less robotic to apps that inspect movement.")
+                Text("Speed variation adds slow changes in speed. GPS wobble makes the reported position wander a few meters from the true one, slowly, like a real phone's GPS, even while standing still.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Section("Defaults") {
                 LabeledContent("Route speed") {

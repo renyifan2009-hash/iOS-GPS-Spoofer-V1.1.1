@@ -185,8 +185,16 @@ struct HUDView: View {
         StatTile(label: "Heading", value: headingText, symbol: "location.north.line")
     }
 
+    /// The speed, or while a route is stopped, why and for how long.
+    @ViewBuilder
     private var speedTile: some View {
-        StatTile(label: "Speed", value: Format.speed(model.deviceSpeed, units: prefs.units), symbol: "speedometer")
+        if model.activity == .routing, case let .stopped(reason, remaining) = model.tripStatus {
+            let text = TripText(reason: reason, waypointCount: model.waypoints.count)
+            StatTile(label: text.label, value: remaining.map(TripText.countdown) ?? "—",
+                     symbol: text.symbol, tint: text.tint)
+        } else {
+            StatTile(label: "Speed", value: Format.speed(model.deviceSpeed, units: prefs.units), symbol: "speedometer")
+        }
     }
 
     private var headingText: String {
@@ -253,6 +261,56 @@ struct HUDView: View {
                 }
             }
         }
+    }
+}
+
+/// Words, symbols and colours for why a trip has stopped.
+struct TripText {
+    let reason: TripStop.Reason
+    let waypointCount: Int
+
+    var label: String {
+        switch reason {
+        case .redLight: return "Red light"
+        case .stopSign: return "Stop sign"
+        case .giveWay: return "Yield"
+        case .crossing: return "Crosswalk"
+        case .waypoint(let index):
+            if index == 0 { return "At the start" }
+            if index == waypointCount - 1 { return "At the destination" }
+            return "At stop \(index)"
+        case .destination: return "Arrived"
+        case .turnaround: return "Turning around"
+        case .rest: return "Break"
+        }
+    }
+
+    var symbol: String {
+        switch reason {
+        case .redLight: return "circle.fill"
+        case .stopSign: return "octagon.fill"
+        case .giveWay: return "triangle.fill"
+        case .crossing: return "figure.walk"
+        case .waypoint: return "mappin.and.ellipse"
+        case .destination: return "flag.checkered"
+        case .turnaround: return "arrow.uturn.left"
+        case .rest: return "cup.and.saucer.fill"
+        }
+    }
+
+    var tint: Color? {
+        switch reason {
+        case .redLight, .stopSign: return Color(red: 0.86, green: 0.15, blue: 0.20)
+        case .giveWay: return .orange
+        case .crossing: return Brand.sky
+        default: return nil
+        }
+    }
+
+    /// "0:34", "12:05".
+    static func countdown(_ seconds: TimeInterval) -> String {
+        let total = max(0, Int(seconds.rounded(.up)))
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 }
 

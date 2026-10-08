@@ -73,7 +73,10 @@ enum DebugSnapshot {
             let device = AppModel.shared.devicePosition.map { String(format: "%.5f,%.5f", $0.latitude, $0.longitude) } ?? "-"
             print("SNAPSHOT-STATS frames=\(frameTicks) visibleWindows=\(visible) following=\(following) gliding=\(gliding) "
                   + "cameraOffset=\(String(format: "%.1f", cameraOffset))m device=\(device) "
-                  + "route=\(model.routeGeometry.count)+\(model.closingLeg?.count ?? 0) directions=\(model.directionsState)")
+                  + "route=\(model.routeGeometry.count)+\(model.closingLeg?.count ?? 0) directions=\(model.directionsState) "
+                  + "speed=\(String(format: "%.1f", model.deviceSpeed)) trip=\(model.tripStatus) roadData=\(model.roadDataState) "
+                  + "lights=\(model.roadFeatures.uniqueCount(of: .trafficSignal)) signs=\(model.roadFeatures.uniqueCount(of: .stopSign)) "
+                  + "zones=\(model.roadFeatures.zones.count) eta=\(model.routeProgress?.eta.map { String(format: "%.0f", $0) } ?? "-")")
             fflush(stdout)
         }
     }

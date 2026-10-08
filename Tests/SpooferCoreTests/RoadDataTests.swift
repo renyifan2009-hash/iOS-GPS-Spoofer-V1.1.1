@@ -75,6 +75,7 @@ final class RoadDataTests: XCTestCase {
             node(4, at(700, east: 20), ["highway": "stop"]),                        // a side street's: ignored
             node(5, at(850, east: 2), ["highway": "crossing", "crossing": "traffic_signals"]),
             node(6, at(950, east: 0), ["highway": "traffic_signals", "traffic_signals": "emergency"]),
+            node(7, at(225, east: 5), ["highway": "crossing", "crossing": "traffic_signals"]),   // part of the 200 m junction
             way(10, [at(0, east: 0), at(600, east: 0)], ["highway": "primary", "maxspeed": "35 mph"]),
             way(11, [at(600, east: 0), at(1000, east: 0)], ["highway": "residential"]),
         ]
@@ -84,7 +85,7 @@ final class RoadDataTests: XCTestCase {
     func testParseAndMatchAnOverpassAnswer() throws {
         let path = RoutePath([a, a.moved(by: 1000, bearing: 0)])
         let answer = try OverpassLoader.parse(answerJSON(path: path))
-        XCTAssertEqual(answer.nodes.count, 6)
+        XCTAssertEqual(answer.nodes.count, 7)
         XCTAssertEqual(answer.ways.count, 2)
         let features = OverpassLoader.features(from: answer, along: path)
         XCTAssertEqual(features.features.filter { $0.kind == .trafficSignal }.map { $0.distance.rounded() }, [200])

@@ -58,6 +58,7 @@ struct Route: ParsableCommand {
               iosgpsspoof route ./drive.kml --speed 50 --loop
               iosgpsspoof route 48.8584,2.2945 48.8606,2.3376 --speed 5
               iosgpsspoof route @Home @Work --duration 25m --ping-pong
+              iosgpsspoof route ./drive.gpx --speed 60 --realistic   (lights, signs, turns, limits)
 
             Without --speed/--duration, a timestamped GPX track replays at its recorded
             pace; anything else moves at 5 km/h. The device stays at the destination
@@ -85,6 +86,13 @@ struct Route: ParsableCommand {
 
     @Option(name: .customLong("timing-randomness"), help: "Jitter (ms) added between points for realism.")
     var timingRandomness: Int = 0
+
+    @Flag(name: .customLong("realistic"), help: """
+        Move like a real person: speed up and brake gradually, slow for turns, and wait at waypoints' corners. \
+        For a GPX/KML track on roads, also stop at some red lights and at stop signs, and keep to speed limits \
+        (from OpenStreetMap).
+        """)
+    var realistic: Bool = false
 
     @Flag(name: .customLong("no-clear-on-exit"),
           help: "Leave the simulated location in place when the tool exits.")
@@ -142,12 +150,21 @@ struct Route: ParsableCommand {
             } else {
                 metresPerSecond = imported?.averageSpeed ?? (5 / 3.6)
             }
-            let track = try RouteBuilder.timedTrack(path: path, speed: metresPerSecond, loopMode: loopMode)
+            let track: [RoutePoint]
+            var pass = Format.duration(oneWay / metresPerSecond)
+            if realistic {
+                let trip = Self.realisticTrip(path: path, loopMode: loopMode, speed: metresPerSecond,
+                                              duration: duration.flatMap(parseDuration), onRoads: imported != nil)
+                track = try RouteBuilder.timedTrack(path: trip.planner.path, loopMode: loopMode, trip: trip)
+                let lap = trip.planner.expectedLapTime()
+                pass = "about " + Format.duration(loopMode == .pingPong ? lap / 2 : lap)
+            } else {
+                track = try RouteBuilder.timedTrack(path: path, speed: metresPerSecond, loopMode: loopMode)
+            }
             let url = try RouteBuilder.writeGPX(track, name: imported?.name ?? "iosgpsspoof route")
             temporary = url
             gpxPath = url.path
-            let pass = Format.duration(oneWay / metresPerSecond)
-            summary = "\(Format.distance(oneWay)) at \(Format.speed(metresPerSecond)) (\(pass) per pass"
+            summary = "\(Format.distance(oneWay)) at \(realistic ? "up to " : "")\(Format.speed(metresPerSecond)) (\(pass) per pass"
                 + (loopMode == .once ? ")" : ", \(loopMode.label.lowercased()))")
         }
         defer { if let temporary { try? FileManager.default.removeItem(at: temporary) } }
@@ -161,6 +178,63 @@ struct Route: ParsableCommand {
             clearOnExit: !noClearOnExit,
             holdAfterSuccessfulExit: true
         ).run()
+    }
+}
+
+extension Route {
+    /// A trip for `--realistic`. A recorded track (from a file) follows real
+    /// roads, so its lights, signs and limits come from OpenStreetMap; straight
+    /// legs between typed waypoints only get speeding up, braking and corners.
+    static func realisticTrip(path: RoutePath, loopMode: LoopMode, speed: Double,
+                              duration: TimeInterval?, onRoads: Bool) -> TripController {
+        let played = RoutePlayback(path: path, loopMode: loopMode).path
+        var settings = TripSettings(topSpeed: speed)
+        var features = RoadFeatures.none
+        if onRoads {
+            log("realistic: looking up traffic lights, signs and speed limits on OpenStreetMap…")
+            let loader = OverpassLoader(userAgent: "iosgpsspoof (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1)",
+                                        cacheDirectory: AppSupport.directory.appendingPathComponent("osm-cache"))
+            let roads = settings.profile.kind == .drive
+            let result = Blocking.run { try await loader.features(along: played, roads: roads) }
+            switch result {
+            case .success(let loaded):
+                features = loaded
+                log("realistic: \(loaded.uniqueCount(of: .trafficSignal)) traffic lights, "
+                    + "\(loaded.uniqueCount(of: .stopSign)) stop signs (map data © OpenStreetMap contributors)")
+            case .failure(let error):
+                settings.guessJunctions = true
+                log("realistic: couldn't load map data (\(error)); stopping at some sharp turns instead")
+            }
+        }
+        var planner = TripPlanner(path: played, loopMode: loopMode, settings: settings, features: features)
+        if let duration, duration > 0 {
+            settings.paceFactor = planner.fittedPaceFactor(for: loopMode == .pingPong ? duration * 2 : duration)
+            planner.update(settings: settings)
+        }
+        return TripController(planner: planner)
+    }
+}
+
+/// Runs async work from synchronous command code.
+enum Blocking {
+    /// Holds the answer until the waiting thread reads it (the semaphore orders the two).
+    private final class Box<T>: @unchecked Sendable {
+        var result: Result<T, Error>?
+    }
+
+    static func run<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) -> Result<T, Error> {
+        let box = Box<T>()
+        let done = DispatchSemaphore(value: 0)
+        Task {
+            do {
+                box.result = Result<T, Error>.success(try await work())
+            } catch {
+                box.result = Result<T, Error>.failure(error)
+            }
+            done.signal()
+        }
+        done.wait()
+        return box.result ?? .failure(SpoofError("no result"))
     }
 }
 

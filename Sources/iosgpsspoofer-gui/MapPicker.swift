@@ -33,6 +33,12 @@ struct DeviceMarker: Equatable {
     var moving = false
 }
 
+/// A traffic light, stop or yield sign, or signal crossing along the route.
+struct RoadMarker: Equatable {
+    let point: GeoPoint
+    let kind: RoadFeature.Kind
+}
+
 enum MapContextAction {
     case teleportHere, setTarget, addWaypoint, joystickHere, addFavorite, copyCoordinates
 }
@@ -53,6 +59,8 @@ struct MapPicker: NSViewRepresentable {
     /// How much of the map's edges floating panels cover. Following keeps the
     /// dot in the middle of the rest.
     var coveredInsets = NSEdgeInsets()
+    /// Lights and signs along the route (realistic trips).
+    var roadMarkers: [RoadMarker] = []
     var contextActions: [MapContextAction]
     var onClick: (GeoPoint) -> Void
     var onDragPin: (UUID, GeoPoint) -> Void
@@ -91,6 +99,7 @@ struct MapPicker: NSViewRepresentable {
         c.coveredInsets = coveredInsets
         c.applyStyle(style)
         c.sync(pins: pins)
+        c.sync(roadMarkers: roadMarkers)
         // The dot first: the route's travelled line glides along with it.
         c.syncDevice(device)
         c.syncRoute(route, travelled: travelledFraction, playing: isPlaying)
@@ -543,6 +552,17 @@ struct MapPicker: NSViewRepresentable {
             }
         }
 
+        private var roadAnnotations: [RoadMarkerAnnotation] = []
+        private var shownRoadMarkers: [RoadMarker] = []
+
+        func sync(roadMarkers: [RoadMarker]) {
+            guard let map = mapView, roadMarkers != shownRoadMarkers else { return }
+            shownRoadMarkers = roadMarkers
+            map.removeAnnotations(roadAnnotations)
+            roadAnnotations = roadMarkers.map { RoadMarkerAnnotation(marker: $0) }
+            map.addAnnotations(roadAnnotations)
+        }
+
         private static func style(_ view: MKMarkerAnnotationView, for role: MapPin.Role) {
             view.glyphImage = nil
             view.glyphText = nil
@@ -748,6 +768,13 @@ struct MapPicker: NSViewRepresentable {
         // MARK: Annotation views
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let marker = annotation as? RoadMarkerAnnotation {
+                let id = "road-\(marker.kind.rawValue)"
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: id)
+                    ?? RoadMarkerView(annotation: marker, reuseIdentifier: id)
+                view.annotation = marker
+                return view
+            }
             if let device = annotation as? DeviceAnnotation {
                 let id = "device"
                 let view = (mapView.dequeueReusableAnnotationView(withIdentifier: id) as? DeviceAnnotationView)
@@ -920,6 +947,119 @@ final class DeviceAnnotationView: MKAnnotationView {
                 halo.removeAnimation(forKey: "pulse")
             }
         }
+    }
+}
+
+final class RoadMarkerAnnotation: NSObject, MKAnnotation {
+    let kind: RoadFeature.Kind
+    let coordinate: CLLocationCoordinate2D
+
+    init(marker: RoadMarker) {
+        kind = marker.kind
+        coordinate = marker.point.cl
+    }
+}
+
+/// A small traffic light, stop sign, yield sign or crossing light. They give way
+/// to everything else on the map, and hide when the map is too crowded.
+final class RoadMarkerView: MKAnnotationView {
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        let kind = (annotation as? RoadMarkerAnnotation)?.kind ?? .trafficSignal
+        image = Self.image(for: kind)
+        displayPriority = .defaultLow
+        collisionMode = .circle
+        canShowCallout = false
+        isEnabled = false
+        toolTip = Self.name(kind)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    static func name(_ kind: RoadFeature.Kind) -> String {
+        switch kind {
+        case .trafficSignal: return "Traffic light"
+        case .stopSign: return "Stop sign"
+        case .giveWay: return "Yield sign"
+        case .signalCrossing: return "Crosswalk light"
+        }
+    }
+
+    @MainActor private static var cache: [RoadFeature.Kind: NSImage] = [:]
+
+    @MainActor static func image(for kind: RoadFeature.Kind) -> NSImage {
+        if let cached = cache[kind] { return cached }
+        let image: NSImage
+        switch kind {
+        case .trafficSignal:
+            image = NSImage(size: NSSize(width: 11, height: 23), flipped: false) { rect in
+                let body = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 3.5, yRadius: 3.5)
+                NSColor(white: 0.12, alpha: 1).setFill()
+                body.fill()
+                NSColor.white.withAlphaComponent(0.9).setStroke()
+                body.lineWidth = 1
+                body.stroke()
+                let colors: [NSColor] = [.systemGreen, .systemYellow, .systemRed]   // bottom to top
+                for (i, color) in colors.enumerated() {
+                    color.setFill()
+                    NSBezierPath(ovalIn: NSRect(x: 2.5, y: 2.5 + CGFloat(i) * 6.2, width: 6, height: 6)).fill()
+                }
+                return true
+            }
+        case .stopSign:
+            image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+                let path = NSBezierPath()
+                let c = NSPoint(x: rect.midX, y: rect.midY), r = rect.width / 2 - 0.5
+                for i in 0..<8 {
+                    let angle = (CGFloat(i) * 45 + 22.5) * .pi / 180
+                    let p = NSPoint(x: c.x + r * cos(angle), y: c.y + r * sin(angle))
+                    if i == 0 { path.move(to: p) } else { path.line(to: p) }
+                }
+                path.close()
+                NSColor(red: 0.84, green: 0.11, blue: 0.13, alpha: 1).setFill()
+                path.fill()
+                NSColor.white.setStroke()
+                path.lineWidth = 1.5
+                path.stroke()
+                return true
+            }
+        case .giveWay:
+            image = NSImage(size: NSSize(width: 17, height: 15), flipped: false) { rect in
+                let path = NSBezierPath()
+                path.move(to: NSPoint(x: rect.minX + 1, y: rect.maxY - 1))
+                path.line(to: NSPoint(x: rect.maxX - 1, y: rect.maxY - 1))
+                path.line(to: NSPoint(x: rect.midX, y: rect.minY + 1))
+                path.close()
+                NSColor.white.setFill()
+                path.fill()
+                NSColor(red: 0.84, green: 0.11, blue: 0.13, alpha: 1).setStroke()
+                path.lineWidth = 2.2
+                path.stroke()
+                return true
+            }
+        case .signalCrossing:
+            image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+                NSColor(red: 0.10, green: 0.36, blue: 0.75, alpha: 1).setFill()
+                NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 3.5, yRadius: 3.5).fill()
+                if let figure = NSImage(systemSymbolName: "figure.walk", accessibilityDescription: nil)?
+                    .withSymbolConfiguration(.init(pointSize: 10, weight: .bold)) {
+                    let tinted = NSImage(size: figure.size, flipped: false) { r in
+                        figure.draw(in: r)
+                        NSColor.white.set()
+                        r.fill(using: .sourceAtop)
+                        return true
+                    }
+                    let size = tinted.size
+                    tinted.draw(in: NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2,
+                                           width: size.width, height: size.height))
+                }
+                return true
+            }
+        }
+        cache[kind] = image
+        return image
     }
 }
 

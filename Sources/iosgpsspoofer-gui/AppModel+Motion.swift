@@ -57,27 +57,76 @@ extension AppModel {
                 if deviceSpeed != 0, isPaused || pb.isFinished || sessionState != .active { deviceSpeed = 0 }
                 return
             }
-            let speed = variedSpeed(effectiveRouteSpeed)
-            let sample = pb.advance(by: speed * dt)
+            // Realistic trips switched on or off mid-route.
+            if prefs.realisticTrips, trip == nil {
+                trip = makeTrip(for: pb, speed: deviceSpeed)
+            } else if !prefs.realisticTrips, trip != nil {
+                trip = nil
+                tripStatus = .moving
+            }
+            let distance: Double
+            if var trip {
+                trip.update(settings: liveTripSettings(for: trip))
+                distance = trip.step(dt: dt, lapDistance: pb.lapDistance, lap: pb.lap)
+                self.trip = trip
+                deviceSpeed = trip.speed
+                if tripStatus != trip.status { tripStatus = trip.status }
+            } else {
+                let speed = variedSpeed(effectiveRouteSpeed)
+                distance = speed * dt
+                deviceSpeed = speed
+            }
+            let sample = pb.advance(by: distance)
             playback = pb
-            let point = prefs.positionJitter > 0 ? jittered(sample.point) : sample.point
+            let point = withDrift(sample.point, dt: dt)
             devicePosition = point
             deviceHeading = sample.bearing
-            deviceSpeed = speed
             session.move(to: point)
             if pb.isFinished { arrived(at: sample.point) }
         } else {
-            // Classic engine: pymobiledevice3 replays the GPX; estimate where it is.
+            // Classic engine: pymobiledevice3 replays the GPX; work out where it is.
             guard sessionState == .replaying, let started = replayStartedAt else { return }
-            pb.seek(toDistance: Date().timeIntervalSince(started) * replaySpeed)
-            playback = pb
-            let sample = pb.current
-            devicePosition = sample.point
-            deviceHeading = sample.bearing
-            deviceSpeed = pb.isFinished ? 0 : replaySpeed
-            if pb.isFinished { arrived(at: sample.point) }
+            let elapsed = Date().timeIntervalSince(started)
+            if let track = replayTrack, track.count >= 2 {
+                // A realistic track: speeds and stops vary, so read where it is from the track itself.
+                let now = Self.trackState(track, at: elapsed)
+                let before = Self.trackState(track, at: max(0, elapsed - 1))
+                devicePosition = now.point
+                let moved = (now.travelled ?? 0) - (before.travelled ?? 0)
+                if moved > 0.05 { deviceHeading = before.point.bearing(to: now.point) }
+                deviceSpeed = max(0, moved)
+                if let travelled = now.travelled { pb.seek(toDistance: travelled) }
+                if pb.loopMode == .once, elapsed >= (track.last?.offset ?? 0) { pb.seek(toDistance: pb.path.length) }
+                playback = pb
+                if pb.isFinished { arrived(at: now.point) }
+            } else {
+                pb.seek(toDistance: elapsed * replaySpeed)
+                playback = pb
+                let sample = pb.current
+                devicePosition = sample.point
+                deviceHeading = sample.bearing
+                deviceSpeed = pb.isFinished ? 0 : replaySpeed
+                if pb.isFinished { arrived(at: sample.point) }
+            }
         }
         geocodeDeviceIfNeeded()
+    }
+
+    /// Where a timed track is `t` seconds in, and how far it has come.
+    static func trackState(_ track: [RoutePoint], at t: Double) -> (point: GeoPoint, travelled: Double?) {
+        guard let first = track.first else { return (GeoPoint(0, 0), nil) }
+        guard t > first.offset else { return (first.point, first.travelled) }
+        var lo = 0, hi = track.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if track[mid].offset <= t { lo = mid } else { hi = mid - 1 }
+        }
+        let a = track[lo]
+        guard lo + 1 < track.count else { return (a.point, a.travelled) }
+        let b = track[lo + 1]
+        let f = b.offset > a.offset ? (t - a.offset) / (b.offset - a.offset) : 0
+        let travelled = a.travelled.flatMap { ta in b.travelled.map { ta + ($0 - ta) * f } }
+        return (Geo.interpolate(a.point, b.point, fraction: f), travelled)
     }
 
     private func arrived(at point: GeoPoint) {
@@ -95,18 +144,33 @@ extension AppModel {
         let input = joystickInput
         let dx = Double(input.dx), dy = Double(input.dy)
         let magnitude = min(1.0, hypot(dx, dy))
-        guard magnitude > 0.05, let from = devicePosition ?? target else {
+        guard let from = joystickPosition ?? devicePosition ?? target else { return }
+        var goal = 0.0
+        if magnitude > 0.05 {
+            goal = prefs.joystickSpeed * magnitude * (sprinting ? 2.5 : 1)
+            // Pad "up" is screen-up, whichever way the map is rotated.
+            joystickHeadingNow = Geo.normalizedBearing(atan2(dx, dy) * 180 / .pi + mapHeading)
+        }
+        var speed = goal
+        if prefs.realisticTrips {
+            // Ease in and out, a little brisker than a planned trip so it feels responsive.
+            let profile = MotionProfile.forSpeed(prefs.joystickSpeed)
+            speed = joystickSpeedNow < goal ? min(goal, joystickSpeedNow + 2 * profile.acceleration * dt)
+                                            : max(goal, joystickSpeedNow - 2 * profile.braking * dt)
+        }
+        joystickSpeedNow = speed
+        let next = speed > 0.01 ? from.moved(by: speed * dt, bearing: joystickHeadingNow) : from
+        joystickPosition = next
+        let shown = withDrift(next, dt: dt)
+        // Standing still with no GPS wobble: nothing to send.
+        guard speed > 0.01 || prefs.positionJitter > 0 else {
             if deviceSpeed != 0 { deviceSpeed = 0 }
             return
         }
-        // Pad "up" is screen-up, whichever way the map is rotated.
-        let heading = Geo.normalizedBearing(atan2(dx, dy) * 180 / .pi + mapHeading)
-        let speed = prefs.joystickSpeed * magnitude * (sprinting ? 2.5 : 1)
-        let next = from.moved(by: speed * dt, bearing: heading)
-        devicePosition = next
-        deviceHeading = heading
+        devicePosition = shown
+        if speed > 0.01 { deviceHeading = joystickHeadingNow }
         deviceSpeed = speed
-        session.move(to: next)
+        session.move(to: shown)
         geocodeDeviceIfNeeded()
     }
 
@@ -118,8 +182,12 @@ extension AppModel {
         return max(0.1, base * (1 + variation * speedNoise))
     }
 
-    private func jittered(_ point: GeoPoint) -> GeoPoint {
-        point.moved(by: Double.random(in: 0...prefs.positionJitter), bearing: Double.random(in: 0..<360))
+    /// The point as a GPS receiver would report it: off by a slowly wandering
+    /// error the size of Settings ▸ Movement ▸ GPS wobble.
+    private func withDrift(_ point: GeoPoint, dt: Double) -> GeoPoint {
+        guard prefs.positionJitter > 0 else { return point }
+        if drift.size != prefs.positionJitter { drift.size = prefs.positionJitter }
+        return drift.apply(to: point, dt: dt)
     }
 
     // MARK: - Joystick
@@ -153,6 +221,8 @@ extension AppModel {
                 obtained.session.start(at: start)
                 devicePosition = start
             }
+            joystickPosition = devicePosition ?? start
+            joystickSpeedNow = 0
             activity = .joystick
             appendLog("Joystick on — drag the pad, or use the arrow keys / WASD (hold ⇧ to go faster).", level: .info)
         }
@@ -167,6 +237,8 @@ extension AppModel {
         }
         playback = nil
         isPaused = false
+        joystickPosition = devicePosition
+        joystickSpeedNow = 0
         activity = .joystick
     }
 

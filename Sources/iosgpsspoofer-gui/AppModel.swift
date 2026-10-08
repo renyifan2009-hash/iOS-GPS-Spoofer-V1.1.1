@@ -14,6 +14,20 @@ struct LogEntry: Identifiable, Equatable {
 struct Waypoint: Identifiable, Equatable, Codable {
     var id = UUID()
     var point: GeoPoint
+    /// Seconds to wait here before carrying on (realistic trips).
+    var wait: TimeInterval = 0
+
+    init(point: GeoPoint, wait: TimeInterval = 0) {
+        self.point = point
+        self.wait = wait
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+        point = try c.decode(GeoPoint.self, forKey: .point)
+        wait = (try? c.decodeIfPresent(TimeInterval.self, forKey: .wait)) ?? 0
+    }
 }
 
 /// A one-shot request for the map to move its camera.
@@ -113,7 +127,13 @@ final class AppModel {
     var sessionStartedAt: Date?
 
     // MARK: Route
-    var waypoints: [Waypoint] = [] { didSet { if waypoints != oldValue { routeInputsChanged() } } }
+    var waypoints: [Waypoint] = [] {
+        didSet {
+            guard waypoints != oldValue else { return }
+            // Only the waits changed: the roads stay the same.
+            if waypoints.map(\.point) == oldValue.map(\.point) { waitsChanged() } else { routeInputsChanged() }
+        }
+    }
     var followRoads = false { didSet { if followRoads != oldValue { routeInputsChanged() } } }
     var travelMode: TravelMode = .walking { didSet { if travelMode != oldValue { routeInputsChanged() } } }
     var loopMode: LoopMode = .once {
@@ -138,12 +158,44 @@ final class AppModel {
     /// the start. Without it, a loop closes with a straight line.
     var closingLeg: [GeoPoint]?
     var directionsState: DirectionsState = .idle
-    var playback: RoutePlayback?
+    var playback: RoutePlayback? {
+        didSet {
+            // The route ended (stopped, teleported, joystick): so did its trip.
+            if playback == nil, trip != nil || replayTrack != nil || tripStatus != .moving {
+                trip = nil
+                replayTrack = nil
+                tripStatus = .moving
+            }
+        }
+    }
     var isPaused = false
     @ObservationIgnored var playbackSignature: String?
     @ObservationIgnored var replayStartedAt: Date?
     @ObservationIgnored var replaySpeed: Double = 1.4
+    /// The classic engine's realistic track: where it is at each moment.
+    @ObservationIgnored var replayTrack: [RoutePoint]?
     @ObservationIgnored var announcedArrival = false
+
+    // MARK: Realistic trips
+    /// Traffic lights, signs and speed limits along the route (OpenStreetMap).
+    var roadFeatures: RoadFeatures = .none
+    var roadDataState: RoadDataState = .off
+    /// The path `roadFeatures` belongs to: its distances only fit that path.
+    @ObservationIgnored var roadDataPathKey: String?
+    @ObservationIgnored var roadDataTask: Task<Void, Never>?
+    @ObservationIgnored var pendingRoadDataKey: String?
+    /// Automatic retries left for the current route's map data.
+    @ObservationIgnored var roadDataRetries = 0
+    /// Moves a playing route when realistic trips are on.
+    @ObservationIgnored var trip: TripController?
+    @ObservationIgnored var tripPaceKey: String?
+    var tripStatus: TripStatus = .moving
+    @ObservationIgnored var drift = GPSDrift(size: 0)
+    @ObservationIgnored var joystickSpeedNow = 0.0
+    @ObservationIgnored var joystickHeadingNow = 0.0
+    /// Where the joystick really is, before GPS drift is added.
+    @ObservationIgnored var joystickPosition: GeoPoint?
+    @ObservationIgnored var lapTimeCache: (key: String, value: TimeInterval)?
 
     // MARK: Joystick
     /// On-screen pad deflection, x right / y up, magnitude ≤ 1.
@@ -812,7 +864,10 @@ final class AppModel {
         routeSpeed = prefs.defaultRouteSpeed
         if let data = d.data(forKey: StateKey.routeDraft),
            let draft = try? JSONDecoder().decode(RouteDraft.self, from: data) {
-            waypoints = draft.waypoints.map { Waypoint(point: $0) }
+            let waits = draft.waits ?? []
+            waypoints = draft.waypoints.enumerated().map { i, point in
+                Waypoint(point: point, wait: i < waits.count ? max(0, waits[i]) : 0)
+            }
             followRoads = draft.followRoads
             travelMode = draft.travelMode
             loopMode = draft.loopMode
@@ -824,6 +879,8 @@ final class AppModel {
 
     struct RouteDraft: Codable {
         var waypoints: [GeoPoint]
+        /// Seconds to wait at each waypoint; missing in drafts from older builds.
+        var waits: [Double]?
         var followRoads: Bool
         var travelMode: TravelMode
         var loopMode: LoopMode
@@ -834,7 +891,9 @@ final class AppModel {
 
     func saveRouteDraft() {
         guard !restoring else { return }
-        let draft = RouteDraft(waypoints: waypoints.map(\.point), followRoads: followRoads, travelMode: travelMode,
+        let draft = RouteDraft(waypoints: waypoints.map(\.point),
+                               waits: waypoints.contains { $0.wait > 0 } ? waypoints.map(\.wait) : nil,
+                               followRoads: followRoads, travelMode: travelMode,
                                loopMode: loopMode, pacing: pacing.rawValue, speed: routeSpeed, duration: routeDuration)
         if let data = try? JSONEncoder().encode(draft) {
             UserDefaults.standard.set(data, forKey: StateKey.routeDraft)

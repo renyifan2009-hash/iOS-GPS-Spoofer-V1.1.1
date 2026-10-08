@@ -24,21 +24,50 @@ public struct OverpassAnswer: Sendable, Equatable {
 public struct OverpassLoader: Sendable {
     public typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
-    /// The main public instance first; another public instance if it's busy.
+    /// Public Overpass instances: the main one first, then others for when it's
+    /// busy or unreachable (some networks and VPNs can't reach every one).
     public static let endpoints = [
         URL(string: "https://overpass-api.de/api/interpreter")!,
+        URL(string: "https://maps.mail.ru/osm/tools/overpass/api/interpreter")!,
         URL(string: "https://overpass.private.coffee/api/interpreter")!,
     ]
+
+    /// Seconds to wait for one server before trying the next.
+    static let requestTimeout: TimeInterval = 25
 
     let userAgent: String
     let cacheDirectory: URL?
     let transport: Transport
+    /// Which servers answered lately, so later lookups start with one that works.
+    private let servers: ServerOrder
 
     public init(userAgent: String, cacheDirectory: URL?,
                 transport: @escaping Transport = { try await URLSession.shared.data(for: $0) }) {
         self.userAgent = userAgent
         self.cacheDirectory = cacheDirectory
         self.transport = transport
+        servers = ServerOrder(Self.endpoints)
+    }
+
+    /// The servers to try, best first: one that answered moves to the front,
+    /// one that failed to the back.
+    actor ServerOrder {
+        private var order: [URL]
+
+        init(_ order: [URL]) { self.order = order }
+
+        var current: [URL] { order }
+
+        func answered(_ url: URL) {
+            order.removeAll { $0 == url }
+            order.insert(url, at: 0)
+        }
+
+        func failed(_ url: URL) {
+            guard order.count > 1, order.contains(url) else { return }
+            order.removeAll { $0 == url }
+            order.append(url)
+        }
     }
 
     /// Search radii in metres around the route. Lights cover a whole junction;
@@ -188,6 +217,12 @@ public struct OverpassLoader: Sendable {
             }
             kept.append(feature)
         }
+        // A crossing light at a junction with traffic lights is part of that
+        // junction's lights: only mid-block crossing lights stand on their own.
+        let lights = kept.filter { $0.kind == .trafficSignal }.map(\.distance)
+        kept.removeAll { feature in
+            feature.kind == .signalCrossing && lights.contains { abs($0 - feature.distance) < 40 }
+        }
         return RoadFeatures(features: kept, zones: SpeedLimits.zones(along: path, ways: answer.ways))
     }
 
@@ -201,35 +236,45 @@ public struct OverpassLoader: Sendable {
             return answer
         }
         var lastError: Error = SpoofError("couldn't reach OpenStreetMap")
-        for (index, endpoint) in Self.endpoints.enumerated() {
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? query
+        for (index, endpoint) in await servers.current.enumerated() {
             if index > 0 { try await Task.sleep(for: .seconds(1)) }
-            var request = URLRequest(url: endpoint, timeoutInterval: 40)
+            var request = URLRequest(url: endpoint, timeoutInterval: Self.requestTimeout)
             request.httpMethod = "POST"
             request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
             request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
-            let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? query
             request.httpBody = Data("data=\(encoded)".utf8)
-            do {
-                let (data, response) = try await transport(request)
-                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                guard status == 200 else {
+            attempts: for attempt in 0..<2 {
+                do {
+                    let (data, response) = try await transport(request)
+                    let http = response as? HTTPURLResponse
+                    let status = http?.statusCode ?? 0
+                    if status == 200 {
+                        let answer = try Self.parse(data)
+                        await servers.answered(endpoint)
+                        if let cacheFile {
+                            try? FileManager.default.createDirectory(at: cacheFile.deletingLastPathComponent(),
+                                                                     withIntermediateDirectories: true)
+                            try? data.write(to: cacheFile)
+                        }
+                        return answer
+                    }
                     lastError = SpoofError("OpenStreetMap answered \(status)")
-                    continue
+                    // Busy: wait a moment and ask the same server once more.
+                    guard attempt == 0, [429, 503, 504].contains(status) else { break attempts }
+                    let wait = http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? 3
+                    try await Task.sleep(for: .seconds(min(10, max(1, wait))))
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let error as URLError where error.code == .cancelled {
+                    throw CancellationError()
+                } catch {
+                    // Unreachable, timed out, or an answer it couldn't read: the next server.
+                    lastError = error
+                    break attempts
                 }
-                let answer = try Self.parse(data)
-                if let cacheFile {
-                    try? FileManager.default.createDirectory(at: cacheFile.deletingLastPathComponent(),
-                                                             withIntermediateDirectories: true)
-                    try? data.write(to: cacheFile)
-                }
-                return answer
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let error as URLError where error.code == .cancelled {
-                throw CancellationError()
-            } catch {
-                lastError = error
             }
+            await servers.failed(endpoint)
         }
         throw lastError
     }

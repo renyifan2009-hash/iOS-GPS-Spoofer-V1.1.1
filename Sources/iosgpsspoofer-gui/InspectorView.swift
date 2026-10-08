@@ -350,6 +350,8 @@ struct RouteSection: View {
                 }
             }
 
+            RealisticTripCard()
+
             VStack(alignment: .leading, spacing: 8) {
                 SectionHeader("At the end", systemImage: "flag.checkered")
                 HStack(spacing: 6) {
@@ -396,6 +398,83 @@ struct RouteSection: View {
     }
 }
 
+/// "Drive like a real person": the switch, and what the map data says.
+struct RealisticTripCard: View {
+    @Environment(AppModel.self) private var model
+    @Environment(Preferences.self) private var prefs
+
+    var body: some View {
+        Card {
+            Toggle(isOn: Binding(get: { prefs.realisticTrips }, set: { on in
+                prefs.realisticTrips = on
+                model.tripPreferencesChanged()
+            })) {
+                HStack(spacing: 10) {
+                    IconTile(symbol: "steeringwheel", colors: TileColors.orange, size: 26)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Drive like a real person").font(.system(size: 13, weight: .semibold))
+                        Text("Stops at some red lights and every stop sign, slows for turns, keeps to speed limits.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            if prefs.realisticTrips, model.waypoints.count >= 2 {
+                status
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        switch model.roadDataState {
+        case .off:
+            EmptyView()
+        case .needsRoads:
+            Label("Turn on Follow roads & paths to stop at real traffic lights.", systemImage: "info.circle")
+                .foregroundStyle(.secondary)
+        case .loading:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Looking for traffic lights and stop signs…").foregroundStyle(.secondary)
+            }
+        case .ready:
+            VStack(alignment: .leading, spacing: 3) {
+                Label(summary, systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                Text("Map data © OpenStreetMap contributors")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
+            }
+        case .failed(let reason):
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Label("Couldn't load traffic lights (\(reason)). It still stops at some junctions and tries again by itself.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Brand.warning)
+                Spacer(minLength: 0)
+                Button("Try Again") { model.retryRoadData() }
+                    .controlSize(.small)
+                    .fixedSize()
+            }
+        }
+    }
+
+    private var summary: String {
+        let features = model.roadFeatures
+        let lights = features.uniqueCount(of: .trafficSignal), signs = features.uniqueCount(of: .stopSign)
+        var parts: [String] = []
+        if lights > 0 { parts.append("\(lights) traffic light\(lights == 1 ? "" : "s")") }
+        if signs > 0 { parts.append("\(signs) stop sign\(signs == 1 ? "" : "s")") }
+        if features.speedLimitCoverage(of: model.playPath.length) > 0.3 { parts.append("speed limits") }
+        if parts.isEmpty { return "No traffic lights or stop signs on this route." }
+        return parts.joined(separator: " · ") + (features.complete ? "" : " (some of the route couldn't be checked)")
+    }
+}
+
 /// Start → stops → destination, drawn as a connected timeline.
 struct WaypointTimeline: View {
     @Environment(AppModel.self) private var model
@@ -425,6 +504,12 @@ struct WaypointTimeline: View {
                             .font(.caption2.monospaced())
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                        if waypoint.wait > 0, waitApplies(index: index, count: count) {
+                            Label("Waits \(Self.waitText(waypoint.wait))", systemImage: "timer")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Brand.accent)
+                                .labelStyle(.titleAndIcon)
+                        }
                     }
                     Spacer(minLength: 0)
                     if hovered == waypoint.id {
@@ -435,6 +520,21 @@ struct WaypointTimeline: View {
                                 .disabled(index == count - 1)
                             Button { model.insertMidpoint(after: waypoint.id) } label: { Image(systemName: "plus") }
                                 .help("Insert a stop after this one")
+                            if waitApplies(index: index, count: count) {
+                                Menu {
+                                    ForEach(Self.waitChoices, id: \.self) { seconds in
+                                        Button(seconds == 0 ? "No Wait" : "Wait \(Self.waitText(seconds))") {
+                                            model.setWait(seconds, forWaypoint: waypoint.id)
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: waypoint.wait > 0 ? "timer.circle.fill" : "timer")
+                                }
+                                .menuStyle(.borderlessButton)
+                                .menuIndicator(.hidden)
+                                .fixedSize()
+                                .help("Wait here before carrying on")
+                            }
                             Button { model.focus(on: waypoint.point) } label: { Image(systemName: "scope") }
                                 .help("Show on map")
                             Button { model.removeWaypoint(id: waypoint.id) } label: { Image(systemName: "trash") }
@@ -472,6 +572,20 @@ struct WaypointTimeline: View {
                 .shadow(color: .black.opacity(0.2), radius: 1.5, y: 1)
         }
         .frame(width: 18)
+    }
+
+    static let waitChoices: [TimeInterval] = [0, 30, 60, 120, 300, 600, 1800]
+
+    /// "30 s", "5 min".
+    static func waitText(_ seconds: TimeInterval) -> String {
+        seconds < 60 ? "\(Int(seconds)) s" : "\(Int((seconds / 60).rounded())) min"
+    }
+
+    /// A wait means nothing at the end of a one-way route (it stays there), or
+    /// at the start of one (it's just leaving).
+    private func waitApplies(index: Int, count: Int) -> Bool {
+        guard model.loopMode == .once else { return true }
+        return index > 0 && index < count - 1
     }
 
     private func label(_ index: Int, _ count: Int) -> String {

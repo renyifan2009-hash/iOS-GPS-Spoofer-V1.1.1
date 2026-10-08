@@ -41,11 +41,13 @@ public struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
     public var loopMode: LoopMode
     /// Pace, in metres per second.
     public var speed: Double
+    /// Seconds to wait at each waypoint (nil: no waits).
+    public var waits: [Double]?
     public var created: Date
 
     public init(id: UUID = UUID(), name: String, waypoints: [GeoPoint], followRoads: Bool = false,
                 travelMode: TravelMode = .walking, loopMode: LoopMode = .once, speed: Double = 1.4,
-                created: Date = Date()) {
+                waits: [Double]? = nil, created: Date = Date()) {
         self.id = id
         self.name = name
         self.waypoints = waypoints
@@ -53,11 +55,12 @@ public struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
         self.travelMode = travelMode
         self.loopMode = loopMode
         self.speed = speed
+        self.waits = waits
         self.created = created
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, waypoints, followRoads, travelMode, loopMode, speed, created
+        case id, name, waypoints, followRoads, travelMode, loopMode, speed, waits, created
     }
 
     // Lenient decoding so files written by newer/older builds still load.
@@ -70,6 +73,7 @@ public struct SavedRoute: Codable, Identifiable, Hashable, Sendable {
         travelMode = (try? c.decode(TravelMode.self, forKey: .travelMode)) ?? .walking
         loopMode = (try? c.decode(LoopMode.self, forKey: .loopMode)) ?? .once
         speed = (try? c.decode(Double.self, forKey: .speed)) ?? 1.4
+        waits = try? c.decodeIfPresent([Double].self, forKey: .waits)
         created = (try? c.decode(Date.self, forKey: .created)) ?? Date()
     }
 }
