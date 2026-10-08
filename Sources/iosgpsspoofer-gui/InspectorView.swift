@@ -444,8 +444,17 @@ struct RealisticTripCard: View {
             }
         case .ready:
             VStack(alignment: .leading, spacing: 3) {
-                Label(summary, systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Label(summary, systemImage: model.roadFeatures.complete ? "checkmark.circle.fill"
+                                                                              : "exclamationmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                    if !model.roadFeatures.complete {
+                        Spacer(minLength: 0)
+                        Button("Try Again") { model.retryRoadData() }
+                            .controlSize(.small)
+                            .fixedSize()
+                    }
+                }
                 Text("Map data © OpenStreetMap contributors")
                     .font(.system(size: 9.5))
                     .foregroundStyle(.tertiary)

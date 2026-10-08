@@ -55,6 +55,8 @@ extension AppModel {
         if session.canStream {
             guard sessionState == .active, !isPaused, !pb.isFinished, dt > 0 else {
                 if deviceSpeed != 0, isPaused || pb.isFinished || sessionState != .active { deviceSpeed = 0 }
+                // Scrubbed to the end: "Arrived", not a light that was counting down.
+                if pb.isFinished, tripStatus != .moving { tripStatus = .moving }
                 return
             }
             // Realistic trips switched on or off mid-route.
@@ -77,6 +79,7 @@ extension AppModel {
                 deviceSpeed = speed
             }
             let sample = pb.advance(by: distance)
+            tripETA = trip?.timeToLapEnd(from: pb.lapDistance)
             playback = pb
             let point = withDrift(sample.point, dt: dt)
             devicePosition = point

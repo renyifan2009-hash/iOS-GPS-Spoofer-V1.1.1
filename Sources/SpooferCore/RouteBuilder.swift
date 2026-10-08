@@ -109,6 +109,14 @@ public enum RouteBuilder {
         var playback = RoutePlayback(path: path, loopMode: loopMode)
         var trip = trip
         var drift = drift
+        var step = step, maxDuration = maxDuration
+        if loopMode == .once {
+            // A one-way trip runs to its destination, however long: coarser steps
+            // for very long ones keep the track under `maxPoints`.
+            let expected = trip.timeToLapEnd(from: 0) * 1.3 + 60
+            step = max(step, expected / Double(maxPoints))
+            maxDuration = max(maxDuration, expected * 2)
+        }
         func position() -> GeoPoint {
             let p = playback.current.point
             return drift?.apply(to: p, dt: step) ?? p

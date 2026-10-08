@@ -151,3 +151,14 @@ actor Counter {
         return value
     }
 }
+
+extension RoadDataTests {
+    func testALightNearALoopsStartCountsOnce() {
+        let square = RoutePath([a, a.moved(by: 300, bearing: 0), a.moved(by: 300, bearing: 0).moved(by: 300, bearing: 90),
+                                a.moved(by: 300, bearing: 90), a])
+        let light = OSMNode(id: 1, point: a.moved(by: 5, bearing: 45), tags: ["highway": "traffic_signals"])
+        let features = OverpassLoader.features(from: OverpassAnswer(nodes: [light], ways: []), along: square)
+        XCTAssertEqual(features.features.count, 1)
+        XCTAssertGreaterThan(features.features.first?.distance ?? 0, square.length - 40)   // met as the lap ends
+    }
+}

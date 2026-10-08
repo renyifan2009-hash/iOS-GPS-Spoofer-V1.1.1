@@ -75,7 +75,10 @@ extension AppModel {
     /// The settings to use this tick: today's preferences, keeping the fitted pace
     /// unless the duration changed.
     func liveTripSettings(for trip: TripController) -> TripSettings {
-        guard targetLapTime != nil else { return tripSettings() }
+        guard targetLapTime != nil else {
+            tripPaceKey = nil   // back to Duration later: fit the pace again
+            return tripSettings()
+        }
         if tripPaceKey == paceKey { return tripSettings(paceFactor: trip.planner.settings.paceFactor) }
         var probe = trip.planner
         probe.update(settings: tripSettings())
@@ -161,6 +164,8 @@ extension AppModel {
                 self.roadDataRetries = 3
                 self.lapTimeCache = nil
                 self.appendLog(Self.describe(features, length: path.length), level: .info)
+                // Some pieces couldn't be checked: try them again later (the rest is cached).
+                if !features.complete { self.scheduleRoadDataRetry(for: pending) }
                 if var trip = self.trip, Self.pathKey(trip.planner.path) == key {
                     trip.update(features: features)
                     self.trip = trip
@@ -183,7 +188,12 @@ extension AppModel {
         roadDataRetries -= 1
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard let self, self.pendingRoadDataKey == key, case .failed = self.roadDataState else { return }
+            guard let self, self.pendingRoadDataKey == key else { return }
+            switch self.roadDataState {
+            case .failed: break
+            case .ready where !self.roadFeatures.complete: break
+            default: return
+            }
             self.roadDataState = .off
             self.refreshRoadData()
         }

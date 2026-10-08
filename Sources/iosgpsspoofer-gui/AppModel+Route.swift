@@ -199,6 +199,7 @@ extension AppModel {
                 let started = RoutePlayback(path: path, loopMode: loop)
                 playback = started
                 trip = prefs.realisticTrips ? makeTrip(for: started) : nil
+                tripETA = nil
                 tripStatus = .moving
                 drift = GPSDrift(size: prefs.positionJitter)
                 activity = .routing
@@ -240,6 +241,7 @@ extension AppModel {
             let updated = RoutePlayback(path: routePath, loopMode: loopMode, travelled: old.travelled)
             playback = updated
             if prefs.realisticTrips { trip = makeTrip(for: updated, speed: trip?.speed ?? deviceSpeed) }
+            tripETA = nil
             playbackSignature = routeSignature
             announcedArrival = false
             appendLog("Route updated.", level: .info)
@@ -288,7 +290,7 @@ extension AppModel {
         let remaining = pb.loopMode == .once ? max(0, pb.path.length - pb.travelled) : pb.remainingInLap
         var eta: TimeInterval? = speed > 0 && !pb.isFinished ? remaining / speed : nil
         if !pb.isFinished, canStream, let trip {
-            eta = trip.timeToLapEnd(from: pb.lapDistance)
+            eta = tripETA ?? trip.timeToLapEnd(from: pb.lapDistance)
         } else if !pb.isFinished, let track = replayTrack, let started = replayStartedAt {
             // The track is the whole drive (laps unrolled): find when it reaches the end of this lap.
             let lapEnd = pb.loopMode == .once ? pb.path.length : Double(pb.lap + 1) * pb.cycleLength

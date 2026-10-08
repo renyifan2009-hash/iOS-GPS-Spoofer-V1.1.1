@@ -18,6 +18,9 @@ public struct TripController: Sendable {
     }
 
     private let seed: UInt64
+    /// The next lap's plan, made early so the trip can slow for what's just
+    /// past the end of this lap.
+    private var nextPlan: LapPlan?
     private var nextStop = 0
     private var waiting: Waiting?
     /// Where the next tick should find the playback; a jump means a seek.
@@ -47,6 +50,11 @@ public struct TripController: Sendable {
     public mutating func update(settings: TripSettings) {
         guard settings != planner.settings else { return }
         let replan = settings.plansDiffer(from: planner.settings)
+        if settings.profile.isOnFoot != planner.settings.profile.isOnFoot {
+            // Walking pauses and driving breaks keep different clocks.
+            drivenSinceBreak = 0
+            breakDue = settings.profile.isOnFoot ? TripOdds.pauseInterval(&rng) : TripOdds.breakInterval(&rng)
+        }
         planner.update(settings: settings)
         if replan { rebuildPlan() }
     }
@@ -66,6 +74,7 @@ public struct TripController: Sendable {
 
     private mutating func rebuildPlan() {
         plan = planner.lapPlan(lap: lap, seed: seed)
+        nextPlan = nil
         resync(to: waiting.map { $0.at + 0.5 } ?? expected ?? 0)
         if waiting != nil { expected = waiting?.at }
     }
@@ -81,15 +90,18 @@ public struct TripController: Sendable {
     public mutating func step(dt: TimeInterval, lapDistance s: Double, lap current: Int) -> Double {
         guard dt > 0, dt.isFinite else { return 0 }
         if current != lap {
+            let followsOn = current == lap + 1
             lap = current
-            plan = planner.lapPlan(lap: lap, seed: seed)
+            plan = (followsOn ? nextPlan : nil) ?? planner.lapPlan(lap: lap, seed: seed)
+            nextPlan = nil
             waiting = nil
             resync(to: s)
+            speed = min(speed, target(at: s, dt: 0))
         } else if let expected, abs(s - expected) > 5 {
             // A seek, or the route changed underneath.
             waiting = nil
             resync(to: s)
-            speed = min(speed, target(at: s))
+            speed = min(speed, target(at: s, dt: 0))
         }
 
         if var wait = waiting {
@@ -113,7 +125,7 @@ public struct TripController: Sendable {
         status = .moving
         scheduleBreakIfDue(at: s, dt: dt)
 
-        let goal = target(at: s)
+        let goal = target(at: s, dt: dt)
         var v = speed < goal ? min(goal, speed + profile.acceleration * dt)
                              : max(goal, speed - 1.6 * profile.braking * dt)
         var moved = (speed + v) / 2 * dt
@@ -130,16 +142,29 @@ public struct TripController: Sendable {
                 }
             }
         }
+        // Loops and back-and-forths: stop exactly at the end of the lap, so the
+        // next lap starts from 0 with nothing near its start skipped.
+        if planner.loopMode != .once, s + moved > plan.length {
+            moved = max(0, plan.length - s) + 0.001
+        }
         speed = v
         expected = s + moved
         return moved
     }
 
     /// The fastest speed now: the cruise speed, while still able to slow down in
-    /// time for every stop, curve and slower road ahead.
-    private mutating func target(at s: Double) -> Double {
+    /// time for every stop, curve and slower road ahead, measured from where
+    /// this tick will end (a tick of `dt` seconds moves (old + new speed) ÷ 2 × dt).
+    private mutating func target(at s: Double, dt: TimeInterval) -> Double {
         let settings = planner.settings
         let b = profile.braking
+        let now = speed
+        /// The highest new speed v with v² ≤ limit² + 2·b·(distance − (now + v)·dt/2).
+        func bound(_ limit: Double, _ distance: Double) -> Double {
+            let c = limit * limit + 2 * b * distance - b * dt * now
+            guard c > 0 else { return 0 }
+            return (-b * dt + (b * b * dt * dt + 4 * c).squareRoot()) / 2
+        }
         if settings.speedVariation > 0 {
             variation = min(1, max(-1, variation * 0.92 + Double.random(in: -0.25...0.25, using: &rng)))
         }
@@ -150,18 +175,31 @@ public struct TripController: Sendable {
 
         var i = nextStop
         while i < plan.stops.count, plan.stops[i].distance - s <= horizon {
-            goal = min(goal, (2 * b * max(0, plan.stops[i].distance - s)).squareRoot())
+            goal = min(goal, bound(0, max(0, plan.stops[i].distance - s)))
             i += 1
         }
         var j = plan.firstLimit(atOrAfter: s)
         while j < plan.limits.count, plan.limits[j].distance - s <= horizon {
             let limit = plan.limits[j]
-            goal = min(goal, (limit.speed * limit.speed + 2 * b * (limit.distance - s)).squareRoot())
+            goal = min(goal, bound(limit.speed, limit.distance - s))
             j += 1
         }
         for zone in plan.zones where zone.start > s && zone.start - s <= horizon {
             let ahead = plan.cruise(at: zone.start + 0.01, settings: settings)
-            if ahead < cruise { goal = min(goal, (ahead * ahead + 2 * b * (zone.start - s)).squareRoot()) }
+            if ahead < cruise { goal = min(goal, bound(ahead, zone.start - s)) }
+        }
+        // Near the end of a lap, look into the next one.
+        if planner.loopMode != .once, s + horizon > plan.length {
+            if nextPlan == nil { nextPlan = planner.lapPlan(lap: lap + 1, seed: seed) }
+            if let next = nextPlan {
+                let gap = plan.length - s
+                for stop in next.stops where gap + stop.distance <= horizon {
+                    goal = min(goal, bound(0, max(0, gap + stop.distance)))
+                }
+                for limit in next.limits where gap + limit.distance <= horizon {
+                    goal = min(goal, bound(limit.speed, gap + limit.distance))
+                }
+            }
         }
         return max(0, goal)
     }
@@ -204,15 +242,8 @@ public struct TripController: Sendable {
             first = plan.stops.firstIndex { $0.distance > waiting.at + 0.5 } ?? plan.stops.count
             if waiting.remaining.isFinite { extra = waiting.remaining }
         }
-        var total = TripTiming.time(plan: plan, from: s, speed: waiting == nil ? speed : 0,
+        let total = TripTiming.time(plan: plan, from: s, speed: waiting == nil ? speed : 0,
                                     settings: planner.settings, firstStop: first) + extra
-        if planner.settings.breaks, profile.kind == .drive {
-            let upcoming = Int((drivenSinceBreak + total) / TripOdds.meanBreakInterval)
-            total += Double(upcoming) * TripOdds.meanBreakLength
-        } else if planner.settings.breaks, profile.isOnFoot {
-            let upcoming = Int((drivenSinceBreak + total) / TripOdds.meanPauseInterval)
-            total += Double(upcoming) * TripOdds.meanPauseLength
-        }
-        return total
+        return TripPlanner.withBreaks(total, settings: planner.settings, alreadyMoving: drivenSinceBreak)
     }
 }

@@ -77,6 +77,7 @@ public struct OverpassLoader: Sendable {
     /// Everything known along `path`. `roads` also loads speed limits (for driving).
     public func features(along path: RoutePath, roads: Bool,
                          progress: (@Sendable (Double) -> Void)? = nil) async throws -> RoadFeatures {
+        if let cacheDirectory { Self.pruneCache(cacheDirectory) }
         let chunks = Self.chunks(of: path)
         guard !chunks.isEmpty else { return .none }
         var nodes: [Int64: OSMNode] = [:]
@@ -203,7 +204,14 @@ public struct OverpassLoader: Sendable {
             default:
                 continue
             }
-            for pass in matcher.passes(near: node.point, radius: radius) {
+            var passes = matcher.passes(near: node.point, radius: radius)
+            // A closed loop starts and ends at the same place: something near it
+            // is met once, as the lap ends.
+            if path.isClosed, passes.count >= 2, let first = passes.first, let last = passes.last,
+               first.distance < 40, last.distance > path.length - 40 {
+                passes.removeFirst()
+            }
+            for pass in passes {
                 features.append(RoadFeature(kind: kind, distance: pass.distance, point: node.point))
             }
         }
@@ -277,6 +285,18 @@ public struct OverpassLoader: Sendable {
             await servers.failed(endpoint)
         }
         throw lastError
+    }
+
+    /// Answers older than 30 days are no use (they're refetched): remove them.
+    static func pruneCache(_ directory: URL) {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for file in files where file.pathExtension == "json" {
+            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let modified, Date().timeIntervalSince(modified) > 30 * 86_400 {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
     }
 
     /// FNV-1a: a stable file name for a query.

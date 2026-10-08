@@ -161,8 +161,9 @@ public struct TripPlanner: Sendable, Equatable {
         case .once:
             stops.append(TripStop(distance: length, wait: .infinity, reason: .destination))
         case .pingPong:
-            if !stops.contains(where: { abs($0.distance - length) < 1 }) {
-                stops.append(TripStop(distance: length, wait: 0, reason: .turnaround))
+            // A U-turn at each end: out at the far end, and back at the start.
+            for end in [length, lastSpot] where !stops.contains(where: { abs($0.distance - end) < 1 }) {
+                stops.append(TripStop(distance: end, wait: 0, reason: .turnaround))
             }
         case .loop:
             break
@@ -192,22 +193,31 @@ public struct TripPlanner: Sendable, Equatable {
     }
 
     /// Stops a few metres apart are one stop: the first place, the longest wait.
+    /// The destination and a turnaround keep their own place, so a sign just
+    /// before the end can't leave the trip waiting short of it.
     static func merged(_ stops: [TripStop]) -> [TripStop] {
+        func isEnd(_ stop: TripStop) -> Bool { stop.reason == .destination || stop.reason == .turnaround }
         var result: [TripStop] = []
         for stop in stops {
-            if let last = result.last, stop.distance - last.distance < 3 {
-                if stop.wait > last.wait {
-                    result[result.count - 1].wait = stop.wait
-                    result[result.count - 1].reason = stop.reason
-                }
-            } else {
+            guard let last = result.last, stop.distance - last.distance < 3 else {
                 result.append(stop)
+                continue
+            }
+            let wait = max(last.wait, stop.wait)
+            if isEnd(stop) {
+                result[result.count - 1] = TripStop(distance: stop.distance, wait: wait, reason: stop.reason)
+            } else if isEnd(last) {
+                result[result.count - 1].wait = wait
+            } else if stop.wait > last.wait {
+                result[result.count - 1].wait = stop.wait
+                result[result.count - 1].reason = stop.reason
             }
         }
         return result
     }
 
-    /// Average lap time over a few sampled laps (their lights differ), from a standing start.
+    /// Average lap time over a few sampled laps (their lights differ), from a
+    /// standing start, with the breaks or pauses expected along the way.
     public func expectedLapTime(seed: UInt64 = 0x5EED, samples: Int = 8) -> TimeInterval {
         guard samples > 0, path.length > 0 else { return 0 }
         var total = 0.0
@@ -215,20 +225,39 @@ public struct TripPlanner: Sendable, Equatable {
             total += TripTiming.time(plan: lapPlan(lap: lap, seed: seed), from: 0, speed: 0,
                                      settings: settings, firstStop: 0)
         }
-        return total / Double(samples)
+        return Self.withBreaks(total / Double(samples), settings: settings)
     }
 
-    /// The pace factor that makes the expected lap take `duration` seconds.
+    /// `time` plus the breaks (driving) or pauses (on foot) expected in it.
+    static func withBreaks(_ time: TimeInterval, settings: TripSettings, alreadyMoving: TimeInterval = 0) -> TimeInterval {
+        guard settings.breaks else { return time }
+        let profile = settings.profile
+        if profile.kind == .drive {
+            return time + Double(Int((alreadyMoving + time) / TripOdds.meanBreakInterval)) * TripOdds.meanBreakLength
+        }
+        if profile.isOnFoot {
+            return time + Double(Int((alreadyMoving + time) / TripOdds.meanPauseInterval)) * TripOdds.meanPauseLength
+        }
+        return time
+    }
+
+    /// The pace factor (0.05–4) that makes the expected lap take `duration`
+    /// seconds, or as close as that range gets (waits can't be hurried).
     public func fittedPaceFactor(for duration: TimeInterval) -> Double {
         guard duration > 0, path.length > 0 else { return 1 }
-        var low = 0.02, high = 50.0
+        var low = 0.05, high = 4.0
         var probe = self
-        for _ in 0..<40 {
-            let mid = (low * high).squareRoot()
+        func time(_ factor: Double) -> TimeInterval {
             var trial = settings
-            trial.paceFactor = mid
+            trial.paceFactor = factor
             probe.update(settings: trial)
-            if probe.expectedLapTime() > duration { low = mid } else { high = mid }
+            return probe.expectedLapTime(samples: 4)
+        }
+        if time(high) > duration { return high }
+        if time(low) < duration { return low }
+        for _ in 0..<26 {
+            let mid = (low * high).squareRoot()
+            if time(mid) > duration { low = mid } else { high = mid }
         }
         return (low * high).squareRoot()
     }

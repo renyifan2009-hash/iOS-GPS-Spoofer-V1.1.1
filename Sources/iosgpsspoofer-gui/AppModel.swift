@@ -192,6 +192,8 @@ final class AppModel {
     @ObservationIgnored var trip: TripController?
     @ObservationIgnored var tripPaceKey: String?
     var tripStatus: TripStatus = .moving
+    /// The trip's arrival time, worked out once a tick (views read it often).
+    @ObservationIgnored var tripETA: TimeInterval?
     @ObservationIgnored var drift = GPSDrift(size: 0)
     @ObservationIgnored var joystickSpeedNow = 0.0
     @ObservationIgnored var joystickHeadingNow = 0.0

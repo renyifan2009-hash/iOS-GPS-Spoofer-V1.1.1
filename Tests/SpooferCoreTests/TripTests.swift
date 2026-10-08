@@ -344,3 +344,103 @@ final class PauseTests: XCTestCase {
         XCTAssertLessThan(pausedFor / Double(pauses), 26)
     }
 }
+
+/// Cases found in review.
+final class TripEdgeTests: XCTestCase {
+    private func drive(_ planner: TripPlanner, seed: UInt64 = 1, dt: Double = 0.5, seconds: Double,
+                       each: (RoutePlayback, TripController, Double) -> Void = { _, _, _ in }) -> (RoutePlayback, TripController) {
+        var playback = RoutePlayback(path: planner.path, loopMode: planner.loopMode)
+        var trip = TripController(planner: planner, seed: seed)
+        var t = 0.0
+        while t < seconds && !playback.isFinished {
+            let before = trip.speed
+            playback.advance(by: trip.step(dt: dt, lapDistance: playback.lapDistance, lap: playback.lap))
+            t += dt
+            each(playback, trip, before)
+        }
+        return (playback, trip)
+    }
+
+    func testASignAtTheEndCantStopTheTripShortOfIt() {
+        let path = TripPlannerTests.line(1000)
+        let planner = TripPlanner(path: path, loopMode: .once, settings: TripSettings(topSpeed: 15),
+                                  features: RoadFeatures(features: [
+                                      RoadFeature(kind: .stopSign, distance: 1000, point: path.end!),
+                                  ]))
+        let plan = planner.lapPlan(lap: 0, seed: 1)
+        XCTAssertEqual(plan.stops.last?.reason, .destination)
+        XCTAssertEqual(plan.stops.last?.distance ?? 0, 1000, accuracy: 1e-9)
+        let (playback, _) = drive(planner, seconds: 600)
+        XCTAssertTrue(playback.isFinished)
+    }
+
+    func testALoopSlowsForAStopJustPastItsStart() {
+        let a = GeoPoint(37, -122)
+        let square = RoutePath([a, a.moved(by: 400, bearing: 0), a.moved(by: 400, bearing: 0).moved(by: 400, bearing: 90),
+                                a.moved(by: 400, bearing: 90), a])
+        let planner = TripPlanner(path: square, loopMode: .loop, settings: TripSettings(topSpeed: 15),
+                                  features: RoadFeatures(features: [
+                                      RoadFeature(kind: .stopSign, distance: 16, point: a.moved(by: 16, bearing: 0)),
+                                  ]))
+        let braking = MotionProfile.drive.braking
+        var hardest = 0.0
+        var stoppedAtTheSign = 0
+        _ = drive(planner, seconds: 900) { playback, trip, before in
+            hardest = max(hardest, (before - trip.speed) / 0.5)
+            if case .stopped(.stopSign, _) = trip.status, playback.lap >= 1 { stoppedAtTheSign += 1 }
+        }
+        XCTAssertGreaterThan(stoppedAtTheSign, 0)                 // the sign after the seam still counts
+        XCTAssertLessThanOrEqual(hardest, 1.6 * braking + 1e-6)  // and it brakes for it in time
+    }
+
+    func testBackAndForthTurnsAroundAtBothEnds() {
+        let planner = TripPlanner(path: TripPlannerTests.line(800), loopMode: .pingPong, settings: TripSettings(topSpeed: 15))
+        let plan = planner.lapPlan(lap: 0, seed: 1)
+        let turns = plan.stops.filter { $0.reason == .turnaround }.map(\.distance)
+        XCTAssertEqual(turns.count, 2)
+        XCTAssertEqual(turns.last ?? 0, 1599.5, accuracy: 1e-6)
+    }
+
+    func testAClosedLoopSlowsForTheCornerWhereItCloses() {
+        let a = GeoPoint(37, -122)
+        let square = RoutePath([a, a.moved(by: 300, bearing: 0), a.moved(by: 300, bearing: 0).moved(by: 300, bearing: 90),
+                                a.moved(by: 300, bearing: 90), a])
+        let limits = CurveSpeeds.limits(along: square, profile: .drive)
+        XCTAssertEqual(limits.first?.distance ?? -1, 0, accuracy: 1e-9)
+        XCTAssertEqual(limits.last?.distance ?? -1, square.length, accuracy: 1e-6)
+        XCTAssertEqual(limits.count, 5)                           // 3 corners inside, plus the closing one twice
+    }
+
+    func testASlightKinkIsNotACorner() {
+        let a = GeoPoint(37, -122)
+        let kink = RoutePath([a, a.moved(by: 300, bearing: 0), a.moved(by: 300, bearing: 0).moved(by: 300, bearing: 6)])
+        XCTAssertTrue(CurveSpeeds.limits(along: kink, profile: .drive).isEmpty)
+        // A real 100 m-radius curve, drawn every 5 m.
+        let centre = a.moved(by: 100, bearing: 90)
+        let arc = RoutePath((0...30).map { centre.moved(by: 100, bearing: 270 + Double($0) * 3) })
+        let slowest = CurveSpeeds.limits(along: arc, profile: .drive).map(\.speed).min() ?? 0
+        XCTAssertEqual(slowest, (2.7 * 100).squareRoot(), accuracy: 2.5)
+    }
+
+    func testSwitchingFromWalkingToDrivingDoesntBringABreakForward() {
+        var settings = TripSettings(topSpeed: 1.4)
+        let path = TripPlannerTests.line(60_000)
+        var trip = TripController(planner: TripPlanner(path: path, loopMode: .once, settings: settings), seed: 2)
+        var playback = RoutePlayback(path: path, loopMode: .once)
+        for _ in 0..<20 { playback.advance(by: trip.step(dt: 0.5, lapDistance: playback.lapDistance, lap: 0)) }
+        settings = TripSettings(topSpeed: 25)
+        trip.update(settings: settings)
+        var t = 0.0
+        while t < 1800 {
+            playback.advance(by: trip.step(dt: 1, lapDistance: playback.lapDistance, lap: 0))
+            t += 1
+            if case .stopped(.rest, _) = trip.status { XCTFail("a break \(t) s after switching to driving"); return }
+        }
+    }
+
+    func testPaceFitStaysSaneWhenWaitsExceedTheTime() {
+        let planner = TripPlanner(path: TripPlannerTests.line(2000), loopMode: .once, settings: TripSettings(topSpeed: 10),
+                                  waypointStops: [WaypointStop(index: 1, distance: 1000, wait: 1800)])
+        XCTAssertEqual(planner.fittedPaceFactor(for: 600), 4, accuracy: 1e-9)
+    }
+}
