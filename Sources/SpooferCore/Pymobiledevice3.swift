@@ -30,7 +30,8 @@ public struct Pymobiledevice3: Sendable {
     /// Locate `pymobiledevice3`.
     ///
     /// Order: explicit path, `$PYMOBILEDEVICE3`, a venv bundled in the .app,
-    /// a `.venv` beside the cwd / running binary / repo root, `$PATH`, then the
+    /// the helper environment `setup.sh` installs in Application Support, a
+    /// `.venv` beside the cwd / running binary / repo root, `$PATH`, then the
     /// usual install locations (Homebrew, pipx, `pip --user`) — apps launched
     /// from Finder get a minimal `$PATH` that misses all of those.
     public static func resolve(explicit: String? = nil) throws -> Pymobiledevice3 {
@@ -49,11 +50,18 @@ public struct Pymobiledevice3: Sendable {
             return fromExecutable(URL(fileURLWithPath: env))
         }
 
-        // Bundled venv inside a packaged .app: run it as `python3 -m pymobiledevice3`
-        // so a broken script shebang doesn't matter.
+        // A venv bundled in the .app, then the one setup.sh installs: run them
+        // as `python3 -m pymobiledevice3`, so a stale script shebang doesn't
+        // matter. (`isExecutableFile` follows the venv's python symlink, so a
+        // venv whose base Python was removed is skipped.)
+        var environments: [URL] = []
         if let resources = Bundle.main.resourceURL {
-            let py = resources.appendingPathComponent("venv/bin/python3")
-            if fm.isExecutableFile(atPath: py.path) {
+            environments.append(resources.appendingPathComponent("venv"))
+        }
+        environments.append(AppSupport.helperEnvironment)
+        for venv in environments {
+            let py = venv.appendingPathComponent("bin/python3")
+            if fm.isExecutableFile(atPath: py.path), hasPymobiledevice3(venv: venv) {
                 return Pymobiledevice3(executableURL: py, argPrefix: ["-m", "pymobiledevice3"])
             }
         }
@@ -84,9 +92,30 @@ public struct Pymobiledevice3: Sendable {
         }
         throw SpoofError("""
             could not find `pymobiledevice3`.
-            Install it with:  python3 -m venv .venv && .venv/bin/pip install pymobiledevice3
-            (or `pipx install pymobiledevice3`), or set $PYMOBILEDEVICE3 to its path.
+            Install it by running ./setup.sh in the project folder (or `pipx install pymobiledevice3`),
+            or set $PYMOBILEDEVICE3 to its path.
             """)
+    }
+
+    /// Whether `venv` (a Python virtual environment) has pymobiledevice3 installed.
+    static func hasPymobiledevice3(venv: URL) -> Bool {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: venv.appendingPathComponent("pyvenv.cfg").path) else { return false }
+        let lib = venv.appendingPathComponent("lib")
+        let pythons = (try? fm.contentsOfDirectory(atPath: lib.path)) ?? []
+        return pythons.contains { name in
+            name.hasPrefix("python") && fm.fileExists(atPath: lib.appendingPathComponent(name)
+                .appendingPathComponent("site-packages/pymobiledevice3/__init__.py").path)
+        }
+    }
+
+    /// The environment for pymobiledevice3 processes: the app's own, without
+    /// Python's warnings (Apple's Python 3.9 prints one about LibreSSL on every
+    /// run, which would otherwise land in the log).
+    public static var childEnvironment: [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["PYTHONWARNINGS"] = "ignore"
+        return env
     }
 
     /// A `pymobiledevice3` script, or a Python interpreter (run as `-m pymobiledevice3`).
@@ -146,7 +175,8 @@ public struct Pymobiledevice3: Sendable {
     /// Run to completion, capturing stdout. Throws on non-zero exit or timeout.
     @discardableResult
     public func run(_ args: [String], timeout: TimeInterval? = nil) throws -> String {
-        let result = try ProcessRunner.run(executableURL, arguments: argPrefix + args, timeout: timeout)
+        let result = try ProcessRunner.run(executableURL, arguments: argPrefix + args, timeout: timeout,
+                                           environment: Self.childEnvironment)
         guard result.status == 0 else {
             throw SpoofError("`pymobiledevice3 \(args.joined(separator: " "))` failed (\(result.status))\n\(result.errorSummary)")
         }
@@ -174,6 +204,7 @@ public struct Pymobiledevice3: Sendable {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = argPrefix + args
+        process.environment = Self.childEnvironment
 
         if let onOutput {
             let errPipe = Pipe()

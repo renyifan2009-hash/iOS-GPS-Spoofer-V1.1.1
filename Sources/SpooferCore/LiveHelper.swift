@@ -142,7 +142,7 @@ public enum LiveHelper {
 
     /// Environment for helper processes: unbuffered UTF-8 I/O, no colour codes.
     public static func helperEnvironment() -> [String: String] {
-        var env = ProcessInfo.processInfo.environment
+        var env = Pymobiledevice3.childEnvironment
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
         env["NO_COLOR"] = "1"

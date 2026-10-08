@@ -155,4 +155,10 @@ public enum AppSupport {
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         return base.appendingPathComponent("iOS GPS Spoofer", isDirectory: true)
     }
+
+    /// The Python environment holding pymobiledevice3, as installed by
+    /// `setup.sh` (and by the app's own installer).
+    public static var helperEnvironment: URL {
+        directory.appendingPathComponent("venv", isDirectory: true)
+    }
 }
