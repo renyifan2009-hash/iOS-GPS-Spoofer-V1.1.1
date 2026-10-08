@@ -485,11 +485,17 @@ public final class SpoofSession: @unchecked Sendable {
             do {
                 _ = try pmd.run(setArguments(target), timeout: 60)
             } catch {
-                locked { oneShotRunning = false; lastError = Self.firstLine(of: error) }
+                let detail = Self.toolErrorDetail(error)
+                let failures = locked { () -> Int in
+                    oneShotRunning = false
+                    lastError = detail
+                    failures += 1
+                    return failures
+                }
                 guard isCurrent(token) else { return }
+                emit(.debug, "\(error)")
                 if pmd.isPresent(udid: device.udid) {
-                    setState(.failed(Self.firstLine(of: error)))
-                    emit(.error, "\(error)")
+                    retryOrFail(failures: failures, lastError: detail, problem: "setting the location failed", token: token)
                 } else {
                     locked { needsMount = true }
                     setState(.reconnecting("Waiting for \(device.deviceName) to reconnect…"))
@@ -498,6 +504,7 @@ public final class SpoofSession: @unchecked Sendable {
                 return
             }
             guard isCurrent(token) else { return }
+            locked { failures = 0 }
             applied = target
             if state != .active {
                 setState(.active)
@@ -544,29 +551,45 @@ public final class SpoofSession: @unchecked Sendable {
         }
 
         let what = live ? "location channel" : (isReplay ? "route playback" : "location hold")
-        // Some problems won't fix themselves by retrying: say what to do.
+        retryOrFail(failures: failures, lastError: lastError, problem: "\(what) closed (exit status \(status))",
+                    token: token)
+    }
+
+    /// After a failure: give up with advice if retrying can't help; otherwise
+    /// try again after a growing pause.
+    ///
+    /// Connections drop now and then (a cable wobble, the phone's tunnel being
+    /// re-made). Retrying for about two minutes before giving up lets a long
+    /// route survive a hiccup and carry on from where it was.
+    private func retryOrFail(failures: Int, lastError: String?, problem: String, token: Int) {
         if let lastError, let advice = Self.advice(for: lastError), advice.permanent {
             emit(.error, advice.message)
             setState(.failed(advice.message))
             return
         }
-        // Connections drop now and then (a cable wobble, the phone's tunnel
-        // being re-made). Keep trying for about two minutes before giving up,
-        // so a long route survives a hiccup and carries on from where it was.
         let delays = [1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0, 30.0, 30.0]
         if failures > delays.count {
             let message = "Lost the connection to \(device.deviceName). Unplug it, plug it back in and unlock it, then press Start again."
-            emit(.error, "\(message) (last error: \(lastError ?? "exit status \(status)"))")
+            emit(.error, "\(message) (last error: \(lastError ?? problem))")
             setState(.failed(message))
             return
         }
         // After a few tries, check the developer disk image is still mounted.
         if failures >= 3 { locked { needsMount = true } }
         let delay = delays[failures - 1]
-        emit(.warning, "\(what) closed (exit status \(status)) — retrying in \(Int(delay))s (try \(failures) of \(delays.count))")
+        emit(.warning, "\(problem) — retrying in \(Int(delay))s (try \(failures) of \(delays.count))")
         let reason = lastError.flatMap { Self.advice(for: $0)?.message } ?? "Reconnecting to \(device.deviceName)…"
         setState(.reconnecting(reason))
         ops.asyncAfter(deadline: .now() + delay) { [weak self] in self?.launch(token: token) }
+    }
+
+    /// The useful part of a failed pymobiledevice3 run: its error lines, not
+    /// the command line that `Pymobiledevice3.run` puts first.
+    static func toolErrorDetail(_ error: Error) -> String {
+        let lines = "\(error)".split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        let detail = lines.count > 1 ? lines.dropFirst().last ?? lines[0] : (lines.first ?? "\(error)")
+        return cleanLogLine(detail)
     }
 
     /// A plain-English reading of a pymobiledevice3 error, and whether retrying

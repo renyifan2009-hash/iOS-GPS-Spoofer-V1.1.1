@@ -123,9 +123,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if Bundle.main.bundleIdentifier == nil {
             NSApp.applicationIconImage = AppIconRenderer.image(size: 512)
         }
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate()
         MainActor.assumeIsolated {
+            #if DEBUG
+            let snapshot = DebugSnapshot.isOn
+            DebugSnapshot.start()
+            #else
+            let snapshot = false
+            #endif
+            if !snapshot {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate()
+            }
             AppModel.shared.bootstrap()
             RemoteHost.shared.bootstrap()
         }

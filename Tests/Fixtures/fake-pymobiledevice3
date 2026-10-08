@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+"""A stand-in for pymobiledevice3, to try the app without an iPhone.
+
+    PYMOBILEDEVICE3=Tests/Fixtures/fake-pymobiledevice3 .build/debug/iosgpsspoofer-gui
+
+It reports one connected iPhone on iOS 16 (so the app drives moves itself,
+one quick `set` each, like a real iOS 16 phone) with Developer Mode on.
+Every command succeeds; `set` and `play` on the iOS 17 path hold until
+they're interrupted, like the real thing. Nothing talks to a device.
+Environment knobs:
+  FAKE_PMD_LOG=<file>      record the commands the app sends
+  FAKE_PMD_NO_DEVICE=1     no iPhone connected
+  FAKE_PMD_DEVMODE=false   Developer Mode is off
+  FAKE_PMD_FAIL_SET=1      setting a location fails, as when the link drops
+  FAKE_PMD_IOS=17.5        the iOS version to report (default 16.7.10)
+"""
+import json
+import os
+import signal
+import sys
+import time
+
+args = sys.argv[1:]
+if os.environ.get("FAKE_PMD_LOG"):
+    with open(os.environ["FAKE_PMD_LOG"], "a") as log:
+        log.write(" ".join(args) + "\n")
+
+DEVICE = {
+    "DeviceName": os.environ.get("FAKE_PMD_NAME", "Demo iPhone"),
+    "Identifier": "00008110-000DEMO0000DEMO",
+    "ConnectionType": "USB",
+    "ProductType": "iPhone15,3",
+    "ProductVersion": os.environ.get("FAKE_PMD_IOS", "16.7.10"),
+}
+
+if args[:1] == ["version"]:
+    print("11.25.0")
+elif args[:2] == ["usbmux", "list"]:
+    print(json.dumps([DEVICE] if os.environ.get("FAKE_PMD_NO_DEVICE") != "1" else []))
+elif args[:2] == ["amfi", "developer-mode-status"]:
+    print(os.environ.get("FAKE_PMD_DEVMODE", "true"))
+elif "simulate-location" in args and "set" in args and os.environ.get("FAKE_PMD_FAIL_SET") == "1":
+    print("ERROR ConnectionTerminatedError: Connection closed", file=sys.stderr)
+    sys.exit(1)
+elif args[:3] == ["developer", "dvt", "simulate-location"] and args[3:4] != ["clear"]:
+    # iOS 17+ `set` / `play`: hold the location until interrupted.
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: sys.exit(0))
+    while True:
+        time.sleep(1)
+# Everything else (mounter auto-mount, iOS 16 set/clear, amfi reveal…) succeeds at once.

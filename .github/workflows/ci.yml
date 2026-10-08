@@ -54,6 +54,27 @@ jobs:
       - name: Unit tests
         run: swift test --skip-build
 
+      # The real app (debug build), with a pretend iPhone: play a route and a
+      # joystick session and check the app keeps moving the "device".
+      - name: App smoke test with a pretend iPhone
+        run: |
+          BIN="$(swift build --show-bin-path)/iosgpsspoofer-gui"
+          defaults write iosgpsspoofer-gui hasSeenWelcome -bool true
+          for demo in route joystick; do
+            LOG="$RUNNER_TEMP/fake-$demo.log"
+            SPOOFER_SNAPSHOT=1 SPOOFER_DEMO=$demo PYMOBILEDEVICE3="$PWD/Tests/Fixtures/fake-pymobiledevice3" \
+              FAKE_PMD_LOG="$LOG" "$BIN" > "$RUNNER_TEMP/app-$demo.log" 2>&1 &
+            PID=$!
+            sleep 15
+            kill -0 $PID   # still running: no crash
+            kill -TERM $PID
+            wait $PID || true
+            MOVES=$(grep -c "simulate-location set" "$LOG" || true)
+            echo "$demo: $MOVES location updates"
+            grep "SNAPSHOT-STATS" "$RUNNER_TEMP/app-$demo.log" | tail -2
+            test "$MOVES" -ge 10
+          done
+
       - name: "Build (release: CLI + GUI)"
         run: swift build -c release
 

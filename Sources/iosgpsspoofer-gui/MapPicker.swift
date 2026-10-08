@@ -94,18 +94,25 @@ struct MapPicker: NSViewRepresentable {
         if !follow { c.awaitingFollowStop = false }
         if let focus, c.lastFocusID != focus.id {
             c.lastFocusID = focus.id
-            // Showing something else: stop pulling the camera back to the dot.
-            // The model hears about it after this update (it can't change
-            // during one), so ignore `follow` until it has.
-            if wantsFollow {
+            if wantsFollow, !Self.focus(focus, isOn: device) {
+                // Showing something else: stop pulling the camera back to the
+                // dot. The model hears about it after this update (it can't
+                // change during one), so ignore `follow` until it has.
                 c.awaitingFollowStop = true
                 let stop = onStopFollowing
                 Task { @MainActor in stop() }
+                c.setFollowing(false)
             }
-            c.setFollowing(false)
             c.apply(focus)
         }
         c.setFollowing(wantsFollow && !c.awaitingFollowStop)
+    }
+
+    /// The focus request shows the device itself (a teleport or a search to
+    /// where the phone is), so following can carry on.
+    static func focus(_ focus: MapFocusRequest, isOn device: DeviceMarker?) -> Bool {
+        guard let device, case let .point(point, _) = focus.kind else { return false }
+        return Geo.distance(point, device.point) < 50
     }
 
     static func dismantleNSView(_ map: SpoofMapView, coordinator: Coordinator) {
@@ -220,6 +227,7 @@ struct MapPicker: NSViewRepresentable {
 
         func apply(_ focus: MapFocusRequest) {
             guard let map = mapView else { return }
+            cameraBusyUntil = CACurrentMediaTime() + 0.6
             switch focus.kind {
             case let .point(p, zoomIn):
                 guard p.isValid else { return }
@@ -337,6 +345,14 @@ struct MapPicker: NSViewRepresentable {
         /// One display frame: move the dot along its glide, and keep the camera
         /// on it while following. Stops itself once nothing is moving.
         @objc private func tick(_ link: CADisplayLink) {
+            #if DEBUG
+            DebugSnapshot.frameTicks += 1
+            if let map = mapView, let device = displayedDevice {
+                DebugSnapshot.cameraOffset = Geo.distance(GeoPoint(map.centerCoordinate), GeoPoint(device))
+                DebugSnapshot.following = following
+                DebugSnapshot.gliding = deviceGlide != nil
+            }
+            #endif
             let now = CACurrentMediaTime()
             var busy = false
             if let glide = deviceGlide {
@@ -789,10 +805,14 @@ final class DeviceAnnotationView: MKAnnotationView {
         halo.path = CGPath(ellipseIn: CGRect(x: center.x - 20, y: center.y - 20, width: 40, height: 40), transform: nil)
         halo.fillColor = Brand.nsSky.withAlphaComponent(0.22).cgColor
 
+        // Point the cone at screen-up (north on an unrotated map). The view's
+        // layers are flipped (y down), so "up" is -y here; `up` keeps it right
+        // either way.
+        let up: CGFloat = isFlipped ? -1 : 1
         let conePath = CGMutablePath()
-        conePath.move(to: CGPoint(x: center.x, y: center.y + 24))
-        conePath.addLine(to: CGPoint(x: center.x - 9, y: center.y + 6))
-        conePath.addLine(to: CGPoint(x: center.x + 9, y: center.y + 6))
+        conePath.move(to: CGPoint(x: center.x, y: center.y + 24 * up))
+        conePath.addLine(to: CGPoint(x: center.x - 9, y: center.y + 6 * up))
+        conePath.addLine(to: CGPoint(x: center.x + 9, y: center.y + 6 * up))
         conePath.closeSubpath()
         cone.path = conePath
         cone.fillColor = Brand.nsSky.withAlphaComponent(0.85).cgColor
@@ -816,8 +836,10 @@ final class DeviceAnnotationView: MKAnnotationView {
         CATransaction.setDisableActions(true)
         if let heading {
             cone.isHidden = false
+            // Compass headings turn clockwise. In flipped (y-down) layers a
+            // positive angle turns clockwise on screen; in y-up ones, negative.
             let radians = (heading - mapHeading) * .pi / 180
-            cone.setAffineTransform(CGAffineTransform(rotationAngle: -radians))
+            cone.setAffineTransform(CGAffineTransform(rotationAngle: isFlipped ? radians : -radians))
         } else {
             cone.isHidden = true
         }

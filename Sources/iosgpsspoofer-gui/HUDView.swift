@@ -23,8 +23,9 @@ struct HUDView: View {
                         }
                     }
                     Text(primaryLine(status))
-                        .font(Brand.title(17, weight: .semibold))
-                        .lineLimit(1)
+                        .font(Brand.title(status.live ? 17 : 15, weight: .semibold))
+                        .lineLimit(status.live ? 1 : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                         .contentTransition(.opacity)
                     Text(secondaryLine)
                         .font(.caption.monospacedDigit())
