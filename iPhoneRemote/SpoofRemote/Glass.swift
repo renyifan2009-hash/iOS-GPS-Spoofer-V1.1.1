@@ -1,9 +1,13 @@
 import SwiftUI
 
 /// SpoofRemote's look: Apple's Liquid Glass (iOS 26 and later, when built
-/// with Xcode 26) over a night-sky brand gradient. Every helper falls back
-/// to system materials, so the app still builds with Xcode 16 and runs on
-/// iOS 17.
+/// with the iOS 26 SDK) over a night-sky brand gradient. Every helper falls
+/// back to system materials, so the app still builds with Xcode 16 and runs
+/// on iOS 17.
+///
+/// The glass code is gated on the SDK (`canImport(SwiftUI, _version: 7.0)`;
+/// SwiftUI 7 ships in the iOS 26 SDK), not on the compiler version: a newer
+/// Swift toolchain can be paired with an older SDK that has no Liquid Glass.
 enum Brand {
     static let indigo = Color(red: 0.31, green: 0.27, blue: 0.90)
     static let violet = Color(red: 0.49, green: 0.23, blue: 0.93)
@@ -34,7 +38,7 @@ extension View {
     /// A Liquid Glass surface (iOS 26+), or a frosted material before that.
     @ViewBuilder
     func glassSurface(cornerRadius: CGFloat = 28, tint: Color? = nil, interactive: Bool = false) -> some View {
-        #if compiler(>=6.2)
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(iOS 26.0, *) {
             self.glassEffect(Glass.regular.tint(tint).interactive(interactive), in: .rect(cornerRadius: cornerRadius))
         } else {
@@ -48,7 +52,7 @@ extension View {
     /// Capsule-shaped glass, for pills and floating controls.
     @ViewBuilder
     func glassCapsule(tint: Color? = nil, interactive: Bool = false) -> some View {
-        #if compiler(>=6.2)
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(iOS 26.0, *) {
             self.glassEffect(Glass.regular.tint(tint).interactive(interactive), in: .capsule)
         } else {
@@ -62,7 +66,7 @@ extension View {
     /// Circular glass, for icon buttons.
     @ViewBuilder
     func glassCircle(tint: Color? = nil) -> some View {
-        #if compiler(>=6.2)
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(iOS 26.0, *) {
             self.glassEffect(Glass.regular.tint(tint).interactive(), in: .circle)
         } else {
@@ -91,7 +95,7 @@ extension View {
     /// The big call-to-action: glass prominent, tinted.
     @ViewBuilder
     func prominentButton(tint: Color = Brand.indigo) -> some View {
-        #if compiler(>=6.2)
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(iOS 26.0, *) {
             self.buttonStyle(.glassProminent).tint(tint).controlSize(.large)
         } else {
@@ -105,7 +109,7 @@ extension View {
     /// Secondary actions: plain glass.
     @ViewBuilder
     func glassButton() -> some View {
-        #if compiler(>=6.2)
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(iOS 26.0, *) {
             self.buttonStyle(.glass).controlSize(.large)
         } else {
@@ -124,7 +128,7 @@ struct GlassGroup<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        #if compiler(>=6.2)
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(iOS 26.0, *) {
             GlassEffectContainer(spacing: spacing) { content }
         } else {

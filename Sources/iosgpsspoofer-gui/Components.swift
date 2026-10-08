@@ -116,14 +116,17 @@ struct Card<Content: View>: View {
     }
 }
 
-/// Floating panels over the map. On macOS 26 (built with Xcode 26) they're
-/// real Liquid Glass; before that, a frosted material with a lit edge.
+/// Floating panels over the map. On macOS 26 (built with the macOS 26 SDK)
+/// they're real Liquid Glass; before that, a frosted material with a lit edge.
 struct GlassPanel: ViewModifier {
     var cornerRadius: CGFloat = 14
 
     @ViewBuilder
     func body(content: Content) -> some View {
-        #if compiler(>=6.2)
+        // Gate on the SDK, not the compiler: a swift.org toolchain can pair
+        // Swift 6.2+ with an older Command Line Tools SDK that has no Liquid
+        // Glass. SwiftUI 7 is the version in the macOS 26 SDK.
+        #if canImport(SwiftUI, _version: 7.0)
         if #available(macOS 26.0, *) {
             content
                 .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))

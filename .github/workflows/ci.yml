@@ -93,6 +93,59 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The job above builds with Xcode 16 (macOS 15 SDK), so Liquid Glass compiles
+  # out there. This one builds the Liquid Glass code path with the newest Xcode 26.
+  macos-xcode26:
+    name: Build · Xcode 26 (Liquid Glass)
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode 26
+        run: |
+          XCODES=(/Applications/Xcode_26*.app)
+          XCODE="$(printf '%s\n' "${XCODES[@]}" | sort -V | tail -1)"
+          sudo xcode-select -s "$XCODE"
+          swift --version
+          xcodebuild -version
+          echo "macOS SDK $(xcrun --show-sdk-version)"
+
+      - name: "Build (release: CLI + GUI)"
+        run: swift build -c release
+
+      - name: Unit tests
+        run: swift test
+
+  # A tester's setup that once broke the build: a newer Swift from swift.org
+  # (installed with swiftly) paired with the older macOS 15 SDK of Command Line
+  # Tools / Xcode 16. The compiler is new enough for Liquid Glass but the SDK
+  # isn't, so the glass code must compile out.
+  macos-swiftorg-old-sdk:
+    name: Build · swift.org toolchain + macOS 15 SDK
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the latest swift.org toolchain (swiftly)
+        run: |
+          curl -fsSLO https://download.swift.org/swiftly/darwin/swiftly.pkg
+          installer -pkg swiftly.pkg -target CurrentUserHomeDirectory
+          ~/.swiftly/bin/swiftly init --quiet-shell-followup --assume-yes
+
+      - name: Toolchain
+        run: |
+          . "$HOME/.swiftly/env.sh"
+          command -v swift
+          swift --version
+          echo "macOS SDK $(xcrun --show-sdk-version) at $(xcrun --show-sdk-path)"
+
+      - name: "Build (release: CLI + GUI)"
+        run: |
+          . "$HOME/.swiftly/env.sh"
+          swift build -c release
+
   iphone-remote:
     name: Build · SpoofRemote iPhone app
     runs-on: macos-15
