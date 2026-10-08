@@ -31,8 +31,23 @@ extension AppModel {
 
     var deviceMarker: DeviceMarker? {
         guard session != nil, let devicePosition else { return nil }
-        return DeviceMarker(point: devicePosition, heading: deviceSpeed > 0 ? deviceHeading : nil, live: isEngaged)
+        return DeviceMarker(point: devicePosition, heading: deviceSpeed > 0 ? deviceHeading : nil, live: isEngaged,
+                            moving: (activity == .routing || activity == .joystick) && !isPaused)
     }
+
+    /// Centre the map on the blue dot and keep it there.
+    func recenterOnDevice() {
+        guard session != nil, devicePosition != nil else { return }
+        isFollowingDevice = true
+    }
+
+    /// The map was moved by hand, or asked to show something else.
+    func stopFollowingDevice() {
+        if isFollowingDevice { isFollowingDevice = false }
+    }
+
+    /// Show the Re-center button: there's a dot, and the map isn't on it.
+    var canRecenter: Bool { session != nil && devicePosition != nil && !isFollowingDevice }
 
     func pinDragged(_ id: UUID, to point: GeoPoint) {
         if id == Self.targetPinID {
@@ -114,12 +129,19 @@ struct MainView: View {
                 .animation(.spring(duration: 0.35), value: model.toast)
             }
             .overlay(alignment: .bottom) {
-                if model.hasSession {
-                    HUDView()
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 16)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                VStack(spacing: 10) {
+                    if model.canRecenter {
+                        RecenterButton()
+                            .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
+                    }
+                    if model.hasSession {
+                        HUDView()
+                            .padding(.horizontal, 16)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
+                .padding(.bottom, 16)
+                .animation(.spring(duration: 0.35, bounce: 0.2), value: model.canRecenter)
             }
             .overlay(alignment: .bottomLeading) {
                 if model.mode == .joystick {
@@ -192,7 +214,7 @@ struct MainView: View {
             device: model.deviceMarker,
             style: prefs.mapStyle,
             focus: model.mapFocus,
-            follow: prefs.followDevice && model.session != nil,
+            follow: model.isFollowingDevice && model.session != nil,
             contextActions: [.teleportHere, .setTarget, .addWaypoint, .joystickHere, .addFavorite, .copyCoordinates],
             onClick: { model.mapClicked($0) },
             onDragPin: { id, point in model.pinDragged(id, to: point) },
@@ -200,7 +222,8 @@ struct MainView: View {
             onCameraChange: { center, span, heading in
                 if abs(model.mapHeading - heading) > 0.01 { model.mapHeading = heading }
                 search.setRegion(center: center, spanDegrees: min(max(span * 2, 0.2), 40))
-            }
+            },
+            onStopFollowing: { model.stopFollowingDevice() }
         )
     }
 }
@@ -399,6 +422,8 @@ struct MapControls: View {
     @Environment(AppModel.self) private var model
     @Environment(Preferences.self) private var prefs
 
+    private var following: Bool { model.isFollowingDevice && model.session != nil && model.devicePosition != nil }
+
     var body: some View {
         @Bindable var prefs = prefs
         VStack(spacing: 6) {
@@ -429,15 +454,45 @@ struct MapControls: View {
             .help("Fit the map to what matters (⌘0)")
 
             Button {
-                prefs.followDevice.toggle()
+                if model.isFollowingDevice { model.stopFollowingDevice() } else { model.recenterOnDevice() }
             } label: {
-                Image(systemName: prefs.followDevice ? "location.fill" : "location")
+                Image(systemName: following ? "location.fill" : "location")
+                    .contentTransition(.symbolEffect(.replace))
             }
-            .buttonStyle(CircleIconButtonStyle(prominent: prefs.followDevice))
-            .help(prefs.followDevice ? "Following the device — click to stop" : "Follow the device")
+            .buttonStyle(CircleIconButtonStyle(prominent: following))
+            .disabled(model.session == nil || model.devicePosition == nil)
+            .help(following ? "Following your iPhone. Click to stop (⌘L)"
+                            : "Re-center on your iPhone and follow it (⌘L)")
         }
         .padding(5)
         .glassPanel(cornerRadius: 22)
+    }
+}
+
+// MARK: - Re-center
+
+/// Brings the map back to the blue dot after you've moved it away.
+struct RecenterButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button {
+            model.recenterOnDevice()
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Brand.gradient)
+                Text("Re-center")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 9)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassPanel(cornerRadius: 20)
+        .help("Center the map on your iPhone's simulated location and follow it (⌘L)")
     }
 }
 

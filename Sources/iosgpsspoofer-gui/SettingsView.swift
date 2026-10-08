@@ -36,7 +36,7 @@ private struct GeneralSettings: View {
             Picker("Map style", selection: $prefs.mapStyle) {
                 ForEach(MapStyle.allCases) { Text($0.label).tag($0) }
             }
-            Toggle("Keep the moving device on screen", isOn: $prefs.followDevice)
+            Toggle("Follow the iPhone on the map when spoofing starts", isOn: $prefs.followDevice)
             Toggle("Show in the menu bar", isOn: $prefs.showMenuBarExtra)
             Toggle("Remember recent locations", isOn: $prefs.recordRecents)
             LabeledContent("Scan for devices every") {

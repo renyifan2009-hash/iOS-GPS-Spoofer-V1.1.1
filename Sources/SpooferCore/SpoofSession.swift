@@ -106,6 +106,8 @@ public final class SpoofSession: @unchecked Sendable {
     private var started = false
     private var runToken = 0
     private var needsMount = true
+    /// The device went missing and we've said so in the log.
+    private var waitingForDevice = false
     private var failures = 0
     private var lastError: String?
     private var ownedFiles: [URL] = []
@@ -257,10 +259,20 @@ public final class SpoofSession: @unchecked Sendable {
         guard isCurrent(token) else { return }
 
         guard pmd.isPresent(udid: device.udid) else {
-            locked { needsMount = true }
+            let firstMiss = locked { () -> Bool in
+                needsMount = true
+                defer { waitingForDevice = true }
+                return !waitingForDevice
+            }
+            if firstMiss {
+                emit(.warning, "\(device.deviceName) isn't connected. Waiting for it: plug it in and unlock it.")
+            }
             setState(.reconnecting("Waiting for \(device.deviceName) to reconnect…"))
             ops.asyncAfter(deadline: .now() + 3) { [weak self] in self?.launch(token: token) }
             return
+        }
+        if locked({ () -> Bool in defer { waitingForDevice = false }; return waitingForDevice }) {
+            emit(.info, "\(device.deviceName) is back. Reconnecting…")
         }
 
         if locked({ () -> Bool in let m = needsMount; needsMount = false; return m }) {
@@ -524,16 +536,57 @@ public final class SpoofSession: @unchecked Sendable {
         }
 
         let what = live ? "location channel" : (isReplay ? "route playback" : "location hold")
-        if failures > 4 {
-            let message = lastError ?? "the \(what) keeps closing (exit status \(status)) — see the log"
-            emit(.error, message)
+        // Some problems won't fix themselves by retrying: say what to do.
+        if let lastError, let advice = Self.advice(for: lastError), advice.permanent {
+            emit(.error, advice.message)
+            setState(.failed(advice.message))
+            return
+        }
+        // Connections drop now and then (a cable wobble, the phone's tunnel
+        // being re-made). Keep trying for about two minutes before giving up,
+        // so a long route survives a hiccup and carries on from where it was.
+        let delays = [1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0, 30.0, 30.0]
+        if failures > delays.count {
+            let message = "Lost the connection to \(device.deviceName). Unplug it, plug it back in and unlock it, then press Start again."
+            emit(.error, "\(message) (last error: \(lastError ?? "exit status \(status)"))")
             setState(.failed(message))
             return
         }
-        let delay = [1.0, 2.0, 4.0, 8.0][min(failures - 1, 3)]
-        emit(.warning, "\(what) closed (exit status \(status)) — retrying in \(Int(delay))s")
-        setState(.reconnecting(lastError ?? "Re-establishing the connection…"))
+        // After a few tries, check the developer disk image is still mounted.
+        if failures >= 3 { locked { needsMount = true } }
+        let delay = delays[failures - 1]
+        emit(.warning, "\(what) closed (exit status \(status)) — retrying in \(Int(delay))s (try \(failures) of \(delays.count))")
+        let reason = lastError.flatMap { Self.advice(for: $0)?.message } ?? "Reconnecting to \(device.deviceName)…"
+        setState(.reconnecting(reason))
         ops.asyncAfter(deadline: .now() + delay) { [weak self] in self?.launch(token: token) }
+    }
+
+    /// A plain-English reading of a pymobiledevice3 error, and whether retrying
+    /// can help. Nil when the error isn't one we recognise.
+    public static func advice(for error: String) -> (message: String, permanent: Bool)? {
+        let e = error.lowercased()
+        if e.contains("developermode") || e.contains("developer mode") {
+            return ("Developer Mode is off on the iPhone. Turn it on in Settings ▸ Privacy & Security ▸ Developer Mode, then restart the phone.", true)
+        }
+        if e.contains("userdeniedpairing") {
+            return ("The iPhone said Don't Trust. Unplug it, plug it back in and tap Trust, then press Start again.", true)
+        }
+        // These two the user can fix while we keep retrying.
+        if e.contains("passwordrequired") || e.contains("password protected") || e.contains("device is locked") {
+            return ("Unlock your iPhone to reconnect…", false)
+        }
+        if e.contains("notpaired") || e.contains("pairingdialog") || (e.contains("trust") && e.contains("dialog")) {
+            return ("Tap Trust on your iPhone (and enter its passcode) to connect…", false)
+        }
+        if e.contains("no route to host") || e.contains("connectionterminated") || e.contains("terminated abruptly")
+            || e.contains("connection reset") || e.contains("broken pipe") || e.contains("timed out")
+            || e.contains("connection refused") {
+            return ("The connection to the iPhone dropped. Reconnecting…", false)
+        }
+        if e.contains("developerdiskimage") || e.contains("invalidservice") || e.contains("mount") {
+            return ("Couldn't load Apple's developer support onto the iPhone. Keep it unlocked and online; retrying…", false)
+        }
+        return nil
     }
 
     /// stderr of pymobiledevice3 (or the helper): surface errors, keep the rest

@@ -88,10 +88,11 @@ struct AppCommands: Commands {
             Divider()
             Button("Fit Map") { model.fitMap() }
                 .keyboardShortcut("0")
-            Button(Preferences.shared.followDevice ? "Stop Following Device" : "Follow Device") {
-                Preferences.shared.followDevice.toggle()
+            Button(model.isFollowingDevice && model.session != nil ? "Stop Following iPhone" : "Re-center on iPhone") {
+                if model.isFollowingDevice && model.session != nil { model.stopFollowingDevice() } else { model.recenterOnDevice() }
             }
             .keyboardShortcut("l")
+            .disabled(model.session == nil || model.devicePosition == nil)
         }
         CommandGroup(replacing: .help) {
             Button("Welcome & Setup Checklist") { model.showWelcome = true }

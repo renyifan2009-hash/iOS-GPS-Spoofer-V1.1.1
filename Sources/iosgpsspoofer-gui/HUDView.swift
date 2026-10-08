@@ -102,6 +102,15 @@ struct HUDView: View {
                 .buttonStyle(CircleIconButtonStyle(size: 34))
                 .help("Back to the start of the route")
             }
+            if model.canRetryConnection {
+                Button {
+                    model.retryConnection()
+                } label: {
+                    Label("Try Again", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
+                .help("Reconnect to the iPhone and carry on")
+            }
             if model.mode == .joystick, model.activity != .joystick, model.canStream {
                 Button("Take Control") { model.takeJoystickControl() }
                     .buttonStyle(BrandButtonStyle(kind: .primary, large: false))

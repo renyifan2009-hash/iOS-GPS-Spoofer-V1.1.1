@@ -148,6 +148,9 @@ final class AppModel {
     var mapHeading: Double = 0
     var searchFocusRequest = 0
     var showInspector = true
+    /// The map keeps the simulated position centred, like Maps' tracking
+    /// mode. Dragging the map turns it off; Re-center turns it back on.
+    var isFollowingDevice = true
 
     // MARK: Experience
     /// The transient confirmation shown over the map.
@@ -393,6 +396,7 @@ final class AppModel {
         sessionStartedAt = Date()
         devicePosition = nil
         devicePlaceName = nil
+        isFollowingDevice = prefs.followDevice
         startMotionLoop()
         let how = device.isLegacy ? "lockdown service" : prefs.transport.label
         appendLog("Starting a \(s.engine.label.lowercased())-engine session on \(device.deviceName) (\(device.modelName), iOS \(device.productVersion), \(how)).", level: .info)
@@ -518,6 +522,23 @@ final class AppModel {
         pressedKeys.removeAll()
         appendLog("Stopping — restoring the real location…", level: .info)
         session.stop()
+    }
+
+    /// The connection failed for good: try the same session again, from where
+    /// the device was (a route carries on from the same spot).
+    func retryConnection() {
+        guard let session, case .failed = sessionState else { return }
+        appendLog("Trying again…", level: .info)
+        if activity == .routing, !session.canStream {
+            startRoute()
+        } else if let point = devicePosition ?? target {
+            session.start(at: point)
+        }
+    }
+
+    var canRetryConnection: Bool {
+        if case .failed = sessionState, session != nil { return true }
+        return false
     }
 
     /// The big button: start whatever the current mode does, or stop.

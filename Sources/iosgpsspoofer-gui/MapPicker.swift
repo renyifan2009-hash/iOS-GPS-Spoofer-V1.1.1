@@ -28,6 +28,9 @@ struct DeviceMarker: Equatable {
     var point: GeoPoint
     var heading: Double?
     var live: Bool
+    /// Travelling along a route or steered by the joystick: the dot glides
+    /// from one position update to the next instead of jumping.
+    var moving = false
 }
 
 enum MapContextAction {
@@ -45,12 +48,16 @@ struct MapPicker: NSViewRepresentable {
     var device: DeviceMarker?
     var style: MapStyle
     var focus: MapFocusRequest?
+    /// Keep the device centred, like Maps' tracking mode.
     var follow: Bool
     var contextActions: [MapContextAction]
     var onClick: (GeoPoint) -> Void
     var onDragPin: (UUID, GeoPoint) -> Void
     var onContextAction: (MapContextAction, GeoPoint) -> Void
     var onCameraChange: (_ center: GeoPoint, _ spanDegrees: Double, _ heading: Double) -> Void
+    /// The user dragged or scrolled the map (or asked it to show something
+    /// else) while it was following the device.
+    var onStopFollowing: () -> Void = {}
 
     func makeNSView(context: Context) -> SpoofMapView {
         let map = SpoofMapView()
@@ -67,6 +74,7 @@ struct MapPicker: NSViewRepresentable {
             coordinator?.menu(at: coordinate)
         }
         context.coordinator.mapView = map
+        context.coordinator.installEventMonitor()
         if let first = pins.first?.point ?? device?.point {
             map.setRegion(MKCoordinateRegion(center: first.cl, span: MKCoordinateSpan(latitudeDelta: 0.04, longitudeDelta: 0.04)),
                           animated: false)
@@ -79,14 +87,29 @@ struct MapPicker: NSViewRepresentable {
         c.parent = self
         c.applyStyle(style)
         c.sync(pins: pins)
-        c.syncRoute(route, travelled: travelledFraction, playing: isPlaying)
+        // The dot first: the route's travelled line glides along with it.
         c.syncDevice(device)
+        c.syncRoute(route, travelled: travelledFraction, playing: isPlaying)
+        let wantsFollow = follow && device != nil
+        if !follow { c.awaitingFollowStop = false }
         if let focus, c.lastFocusID != focus.id {
             c.lastFocusID = focus.id
+            // Showing something else: stop pulling the camera back to the dot.
+            // The model hears about it after this update (it can't change
+            // during one), so ignore `follow` until it has.
+            if wantsFollow {
+                c.awaitingFollowStop = true
+                let stop = onStopFollowing
+                Task { @MainActor in stop() }
+            }
+            c.setFollowing(false)
             c.apply(focus)
-        } else if follow, let device {
-            c.keepVisible(device.point)
         }
+        c.setFollowing(wantsFollow && !c.awaitingFollowStop)
+    }
+
+    static func dismantleNSView(_ map: SpoofMapView, coordinator: Coordinator) {
+        coordinator.tearDown()
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -98,6 +121,8 @@ struct MapPicker: NSViewRepresentable {
         var parent: MapPicker
         weak var mapView: MKMapView?
         var lastFocusID: UUID?
+        /// Asked the model to stop following; waiting for it to say so.
+        var awaitingFollowStop = false
 
         private var annotations: [UUID: PinAnnotation] = [:]
         private var dragging: Set<UUID> = []
@@ -219,25 +244,210 @@ struct MapPicker: NSViewRepresentable {
             }
         }
 
-        /// Recentre when the device nears the edge of the view.
-        func keepVisible(_ point: GeoPoint) {
-            guard let map = mapView, point.isValid else { return }
-            let visible = map.visibleMapRect
-            let inner = visible.insetBy(dx: visible.size.width * 0.18, dy: visible.size.height * 0.2)
-            if !inner.contains(MKMapPoint(point.cl)) {
-                map.setCenter(point.cl, animated: true)
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            if let device = deviceAnnotation, let view = mapView.view(for: device) as? DeviceAnnotationView {
+                view.update(heading: displayedHeading ?? device.heading, mapHeading: mapView.camera.heading,
+                            live: device.live)
+            }
+            reportCamera()
+        }
+
+        /// Tell the model where the camera is, at most a few times a second:
+        /// while following a moving device the region changes every frame.
+        /// Deferred either way, since this can fire inside a SwiftUI update.
+        private func reportCamera() {
+            guard !cameraReportPending else { return }
+            cameraReportPending = true
+            let delay = following && deviceGlide != nil ? 0.3 : 0
+            Task { @MainActor [weak self] in
+                if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+                guard let self, let map = self.mapView else { return }
+                self.cameraReportPending = false
+                self.parent.onCameraChange(GeoPoint(map.region.center), map.region.span.latitudeDelta,
+                                           map.camera.heading)
             }
         }
 
-        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
-            let center = GeoPoint(mapView.region.center)
-            let span = mapView.region.span.latitudeDelta
-            let heading = mapView.camera.heading
-            if let device = deviceAnnotation, let view = mapView.view(for: device) as? DeviceAnnotationView {
-                view.update(heading: device.heading, mapHeading: heading, live: device.live)
+        // MARK: Following the device
+
+        private var following = false
+        private var cameraReportPending = false
+        /// A camera glide onto the dot: where it started, and when.
+        private var cameraGlide: (from: CLLocationCoordinate2D, start: CFTimeInterval)?
+        /// While MapKit animates a zoom for a recentre, don't steer the camera.
+        private var cameraBusyUntil: CFTimeInterval = 0
+
+        func setFollowing(_ on: Bool) {
+            guard on != following else { return }
+            following = on
+            if on {
+                recenter()
+            } else {
+                cameraGlide = nil
             }
-            // Deferred: this can fire inside a SwiftUI update.
-            Task { @MainActor [weak self] in self?.parent.onCameraChange(center, span, heading) }
+        }
+
+        /// Bring the camera back to the dot: a short glide at the current zoom,
+        /// a cut when the dot is far off screen (after a teleport), or a zoom
+        /// to street level when the map is far out or in.
+        private func recenter() {
+            guard let map = mapView, let device = displayedDevice else { return }
+            let span = map.region.span.latitudeDelta
+            let visible = map.visibleMapRect
+            let nearby = visible.insetBy(dx: -visible.size.width, dy: -visible.size.height)
+            if span > 1.5 || span < 0.0005 {
+                cameraGlide = nil
+                cameraBusyUntil = CACurrentMediaTime() + 0.6
+                map.setRegion(MKCoordinateRegion(center: device, span: MKCoordinateSpan(latitudeDelta: 0.03, longitudeDelta: 0.03)),
+                              animated: true)
+            } else if !nearby.contains(MKMapPoint(device)) {
+                cameraGlide = nil
+                map.setCenter(device, animated: false)
+            } else {
+                cameraGlide = (map.centerCoordinate, CACurrentMediaTime())
+            }
+            startTicking()
+        }
+
+        private func centerCamera(on coordinate: CLLocationCoordinate2D) {
+            guard let map = mapView else { return }
+            // Skip sub-pixel moves: they cost a redraw and show nothing.
+            let point = map.convert(coordinate, toPointTo: map)
+            guard hypot(point.x - map.bounds.midX, point.y - map.bounds.midY) > 0.25 else { return }
+            map.setCenter(coordinate, animated: false)
+        }
+
+        // MARK: Frame clock
+
+        private var displayLink: CADisplayLink?
+
+        private func startTicking() {
+            guard displayLink == nil, let map = mapView else { return }
+            let link = map.displayLink(target: self, selector: #selector(tick(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+            link.add(to: .main, forMode: .common)
+            displayLink = link
+        }
+
+        private func stopTicking() {
+            displayLink?.invalidate()
+            displayLink = nil
+        }
+
+        /// One display frame: move the dot along its glide, and keep the camera
+        /// on it while following. Stops itself once nothing is moving.
+        @objc private func tick(_ link: CADisplayLink) {
+            let now = CACurrentMediaTime()
+            var busy = false
+            if let glide = deviceGlide {
+                let t = min(1, (now - glide.start) / glide.duration)
+                let coordinate = Self.lerp(glide.from, glide.to, t)
+                deviceAnnotation?.coordinate = coordinate
+                displayedDevice = coordinate
+                if let to = glide.headingTo {
+                    let heading = glide.headingFrom.map { Self.lerpAngle($0, to, t) } ?? to
+                    displayedHeading = heading
+                    if let map = mapView, let ann = deviceAnnotation, let view = map.view(for: ann) as? DeviceAnnotationView {
+                        view.update(heading: heading, mapHeading: map.camera.heading, live: ann.live)
+                    }
+                }
+                if t >= 1 { deviceGlide = nil } else { busy = true }
+            }
+            if let glide = travelledGlide {
+                let t = min(1, (now - glide.start) / glide.duration)
+                // Redrawing a long route is the costly part, so ~12 times a second.
+                if t >= 1 || now - lastTravelledDraw >= 1.0 / 12 {
+                    setTravelled(glide.from + (glide.to - glide.from) * t)
+                }
+                if t >= 1 { travelledGlide = nil } else { busy = true }
+            }
+            if following, let device = displayedDevice, now >= cameraBusyUntil {
+                if let glide = cameraGlide {
+                    let t = min(1, (now - glide.start) / 0.55)
+                    centerCamera(on: Self.lerp(glide.from, device, t * t * (3 - 2 * t)))
+                    if t >= 1 { cameraGlide = nil } else { busy = true }
+                } else {
+                    centerCamera(on: device)
+                }
+            }
+            if now < cameraBusyUntil { busy = true }
+            // Linger a moment so the next position update continues smoothly.
+            if !busy && now - lastDeviceUpdate > 1.5 { stopTicking() }
+        }
+
+        static func lerp(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D, _ t: Double) -> CLLocationCoordinate2D {
+            CLLocationCoordinate2D(latitude: a.latitude + (b.latitude - a.latitude) * t,
+                                   longitude: a.longitude + (b.longitude - a.longitude) * t)
+        }
+
+        /// Interpolate compass headings the short way round.
+        static func lerpAngle(_ a: Double, _ b: Double, _ t: Double) -> Double {
+            let delta = (b - a + 540).truncatingRemainder(dividingBy: 360) - 180
+            return Geo.normalizedBearing(a + delta * t)
+        }
+
+        // MARK: Noticing the user move the map
+
+        private var eventMonitor: Any?
+        /// Where the current mouse drag started, if on the map itself (not on
+        /// a pin, and not on a panel floating over the map).
+        private var dragStart: NSPoint?
+
+        func installEventMonitor() {
+            guard eventMonitor == nil else { return }
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .scrollWheel]) {
+                [weak self] event in
+                MainActor.assumeIsolated { self?.observe(event) }
+                return event
+            }
+        }
+
+        func tearDown() {
+            stopTicking()
+            if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+            eventMonitor = nil
+        }
+
+        private func observe(_ event: NSEvent) {
+            guard let map = mapView, let window = map.window, event.window === window else { return }
+            switch event.type {
+            case .leftMouseDown:
+                dragStart = isBareMap(at: event.locationInWindow, in: window) ? event.locationInWindow : nil
+            case .leftMouseDragged:
+                // A few points of travel: a click that wobbles isn't a pan.
+                if following, let start = dragStart,
+                   hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 4 {
+                    stopFollowingForUser()
+                }
+            case .scrollWheel:
+                // A trackpad's two-finger scroll pans the map; a mouse wheel
+                // (or ⌘-scroll) zooms, which keeps following.
+                if following, event.hasPreciseScrollingDeltas, !event.modifierFlags.contains(.command),
+                   abs(event.scrollingDeltaX) + abs(event.scrollingDeltaY) > 0.5,
+                   isBareMap(at: event.locationInWindow, in: window) {
+                    stopFollowingForUser()
+                }
+            default:
+                break
+            }
+        }
+
+        /// The map is what's under `location`, not a pin or a SwiftUI panel.
+        private func isBareMap(at location: NSPoint, in window: NSWindow) -> Bool {
+            guard let map = mapView, let hit = window.contentView?.hitTest(location),
+                  hit === map || hit.isDescendant(of: map) else { return false }
+            var view: NSView? = hit
+            while let current = view, current !== map {
+                if current is MKAnnotationView { return false }
+                view = current.superview
+            }
+            return true
+        }
+
+        private func stopFollowingForUser() {
+            following = false
+            cameraGlide = nil
+            parent.onStopFollowing()
         }
 
         // MARK: Pins
@@ -301,6 +511,8 @@ struct MapPicker: NSViewRepresentable {
                 casingOverlay = nil
                 routeOverlay = nil
                 travelledOverlay = nil
+                travelledGlide = nil
+                shownTravelled = nil
                 if route.count >= 2 {
                     let coords = route.map(\.cl)
                     // A wide pale casing under the line keeps it readable on any map style.
@@ -317,12 +529,35 @@ struct MapPicker: NSViewRepresentable {
                     }
                 }
             }
-            if let travelledOverlay, let renderer = map.renderer(for: travelledOverlay) as? MKPolylineRenderer {
-                let end = CGFloat(min(max(travelled, 0), 1))
-                if abs(renderer.strokeEnd - end) > 0.0005 {
-                    renderer.strokeEnd = end
-                    renderer.setNeedsDisplay()
-                }
+            guard let travelledOverlay, map.renderer(for: travelledOverlay) is MKPolylineRenderer else { return }
+            let end = min(max(travelled, 0), 1)
+            guard end != travelledTarget || shownTravelled == nil else { return }
+            travelledTarget = end
+            if let shown = shownTravelled, deviceGlide != nil, abs(end - shown) < 0.05 {
+                // Advance the line's tip together with the gliding dot.
+                travelledGlide = (shown, end, CACurrentMediaTime(), max(0.05, updateInterval * 1.1))
+                startTicking()
+            } else {
+                // A new route, a seek or a new lap: jump.
+                travelledGlide = nil
+                setTravelled(end)
+            }
+        }
+
+        /// The "travelled" line's tip, as a fraction of the route.
+        private var shownTravelled: Double?
+        private var travelledTarget: Double = 0
+        private var travelledGlide: (from: Double, to: Double, start: CFTimeInterval, duration: CFTimeInterval)?
+        private var lastTravelledDraw: CFTimeInterval = 0
+
+        private func setTravelled(_ fraction: Double) {
+            guard let map = mapView, let travelledOverlay,
+                  let renderer = map.renderer(for: travelledOverlay) as? MKPolylineRenderer else { return }
+            shownTravelled = fraction
+            lastTravelledDraw = CACurrentMediaTime()
+            if abs(Double(renderer.strokeEnd) - fraction) > 1e-6 {
+                renderer.strokeEnd = CGFloat(fraction)
+                renderer.setNeedsDisplay()
             }
         }
 
@@ -351,28 +586,95 @@ struct MapPicker: NSViewRepresentable {
 
         // MARK: Device
 
+        /// The dot's journey from where it's drawn to the newest position.
+        private struct Glide {
+            var from: CLLocationCoordinate2D
+            var to: CLLocationCoordinate2D
+            var start: CFTimeInterval
+            var duration: CFTimeInterval
+            var headingFrom: Double?
+            var headingTo: Double?
+        }
+
+        private var deviceGlide: Glide?
+        /// Where the dot is drawn right now (mid-glide, it trails the device).
+        private var displayedDevice: CLLocationCoordinate2D?
+        private var displayedHeading: Double?
+        /// The latest position the dot was told about.
+        private var deviceTarget: CLLocationCoordinate2D?
+        private var lastDeviceUpdate: CFTimeInterval = 0
+        /// Smoothed time between position updates: how long each glide lasts.
+        private var updateInterval: CFTimeInterval = 0.5
+
         func syncDevice(_ marker: DeviceMarker?) {
             guard let map = mapView else { return }
             guard let marker, marker.point.isValid else {
                 if let deviceAnnotation { map.removeAnnotation(deviceAnnotation) }
                 deviceAnnotation = nil
+                deviceGlide = nil
+                displayedDevice = nil
+                displayedHeading = nil
+                deviceTarget = nil
                 return
             }
-            if let ann = deviceAnnotation {
-                if !GeoPoint(ann.coordinate).isClose(to: marker.point) {
-                    ann.coordinate = marker.point.cl
-                }
-                ann.heading = marker.heading
-                ann.live = marker.live
-                if let view = map.view(for: ann) as? DeviceAnnotationView {
-                    view.update(heading: marker.heading, mapHeading: map.camera.heading, live: marker.live)
-                }
-            } else {
-                let ann = DeviceAnnotation(coordinate: marker.point.cl)
+            let target = marker.point.cl
+            let now = CACurrentMediaTime()
+
+            guard let ann = deviceAnnotation else {
+                let ann = DeviceAnnotation(coordinate: target)
                 ann.heading = marker.heading
                 ann.live = marker.live
                 deviceAnnotation = ann
+                displayedDevice = target
+                displayedHeading = marker.heading
+                deviceTarget = target
+                lastDeviceUpdate = now
                 map.addAnnotation(ann)
+                if following { recenter() }
+                return
+            }
+
+            ann.live = marker.live
+            ann.heading = marker.heading
+            if let last = deviceTarget, GeoPoint(last).isClose(to: marker.point) {
+                // Same position (another part of the window changed): just
+                // refresh the look, unless a glide is drawing the heading.
+                if deviceGlide == nil, let view = map.view(for: ann) as? DeviceAnnotationView {
+                    view.update(heading: marker.heading, mapHeading: map.camera.heading, live: marker.live)
+                }
+                return
+            }
+
+            let gap = now - lastDeviceUpdate
+            if gap < 3 { updateInterval = updateInterval * 0.7 + min(max(gap, 0.05), 1.5) * 0.3 }
+            lastDeviceUpdate = now
+            deviceTarget = target
+
+            let from = displayedDevice ?? ann.coordinate
+            let jump = Geo.distance(GeoPoint(from), marker.point)
+            if marker.moving, jump < 2_000, abs(target.longitude - from.longitude) < 180 {
+                // Slightly longer than the update interval, so the dot never
+                // stops between updates; each glide starts from where it is.
+                deviceGlide = Glide(from: from, to: target, start: now, duration: max(0.05, updateInterval * 1.1),
+                                    headingFrom: displayedHeading ?? marker.heading, headingTo: marker.heading)
+                if marker.heading == nil, displayedHeading != nil {
+                    // Stopped turning into motion: hide the heading cone now.
+                    displayedHeading = nil
+                    if let view = map.view(for: ann) as? DeviceAnnotationView {
+                        view.update(heading: nil, mapHeading: map.camera.heading, live: marker.live)
+                    }
+                }
+                startTicking()
+            } else {
+                // A teleport, or a step while paused: jump straight there.
+                deviceGlide = nil
+                ann.coordinate = target
+                displayedDevice = target
+                displayedHeading = marker.heading
+                if let view = map.view(for: ann) as? DeviceAnnotationView {
+                    view.update(heading: marker.heading, mapHeading: map.camera.heading, live: marker.live)
+                }
+                if following { recenter() }
             }
         }
 
