@@ -140,7 +140,7 @@ public enum TripOdds {
         let mph = 0.44704
         switch value {
         case "hump", "yes": return 18 * mph
-        case "cushion": return 20 * mph
+        case "cushion": return 25 * mph   // cars can straddle the gaps
         case "table": return 23 * mph
         case "bump": return 8 * mph
         default: return nil

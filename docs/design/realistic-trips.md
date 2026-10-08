@@ -122,7 +122,7 @@ to 9 m/s, drive above that.
 | slowest turn speed (m/s) | – | – | 3.0 | 3.5 |
 | traffic lights | wait at red | wait at red | wait at red | wait at red |
 | stop signs | – | – | slow to 2 m/s | full stop half the time, else roll at 1–2.5 m/s |
-| speed bumps | – | – | – | hump 18 mph, cushion 20, table 23, bump 8 |
+| speed bumps | – | – | – | hump 18 mph, table 23, cushion 25, bump 8 |
 | breaks | 5–25 s pause every 3–8 min | same as walking | – | 13–22 min every ~2 h |
 
 Lights and signs:
@@ -263,10 +263,11 @@ arithmetic on the cited inputs.
   often 25–27 mph, and about 5 mph higher (30–32 mph) at speed tables
   ([FHWA Traffic Calming ePrimer, module 4](https://highways.dot.gov/safety/speed-management/traffic-calming-eprimer/module-4-effects-traffic-calming-measures-motor)).
   Typical drivers go slower than the 85th percentile, and slowest on the device
-  itself, so we use 18 mph for a hump, 23 for a table, 20 for a cushion
-  (Cambridgeshire County Council finds drivers take cushions a bit quicker than
-  humps) and 8 mph for a short sharp bump. These are our estimates from those
-  figures.
+  itself, so we use 18 mph for a hump and 23 for a table. Cars "drive
+  considerably faster over speed cushions than speed humps or speed tables"
+  ([Cambridgeshire County Council](https://www.cambridgeshire.gov.uk/residents/travel-roads-and-parking/roads-and-pathways/improving-the-local-highway/speeding/vertical-speeding-treatments)),
+  so a cushion is 25 mph. A short sharp bump is 8 mph. These are our estimates
+  from those figures, not measured speeds.
 - **Breaks.** The UK Highway Code (rule 91) asks for at least 15 minutes every
   2 hours ([gov.uk](https://www.gov.uk/guidance/the-highway-code/rules-for-drivers-and-motorcyclists-89-to-102)).
   Car drivers at a Minnesota rest area stayed 13.9–17.9 minutes
