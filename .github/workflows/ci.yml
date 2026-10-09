@@ -275,3 +275,27 @@ jobs:
           xcodebuild -project iPhoneRemote/SpoofRemote.xcodeproj -scheme SpoofRemote \
             -destination 'generic/platform=iOS Simulator' -configuration Debug \
             CODE_SIGNING_ALLOWED=NO build
+
+      # The file testers install with Sideloadly, which signs it with their own
+      # Apple ID. Built with the newest Xcode 26, for the iOS 26 design.
+      - name: Build for iPhones (unsigned .ipa)
+        run: |
+          XCODES=(/Applications/Xcode_26*.app)
+          XCODE="$(printf '%s\n' "${XCODES[@]}" | sort -V | tail -1)"
+          export DEVELOPER_DIR="$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -project iPhoneRemote/SpoofRemote.xcodeproj -scheme SpoofRemote \
+            -destination 'generic/platform=iOS' -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/device" CODE_SIGNING_ALLOWED=NO build
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$RUNNER_TEMP/device/Build/Products/Release-iphoneos/SpoofRemote.app" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qr "$GITHUB_WORKSPACE/SpoofRemote.ipa" Payload)
+          ls -la SpoofRemote.ipa
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpoofRemote-ipa
+          path: SpoofRemote.ipa
+          if-no-files-found: error
+          retention-days: 14
