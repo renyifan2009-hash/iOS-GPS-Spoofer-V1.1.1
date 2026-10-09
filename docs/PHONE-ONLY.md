@@ -125,6 +125,9 @@ far as importing.
 
 ## Still to do
 
+How this compares with Vanish Mobile, what's documented and what's inferred,
+and the order of the remaining work: [design/iphone-standalone.md](design/iphone-standalone.md).
+
 - Test on a real iPhone (iOS 17.4 and later, iOS 26).
 - Mount Apple's developer support from the iPhone after a restart, so the Mac
   is needed only once. idevice can do it (`mobile_image_mounter` with `tss`),
