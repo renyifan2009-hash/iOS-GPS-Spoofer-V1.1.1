@@ -185,6 +185,12 @@ private final class FakeController: RemoteController, @unchecked Sendable {
         return status(spoofing: true, request)
     }
     func stop() async -> RemoteStatus { record("stop"); return status(spoofing: false) }
+    func driveRoute(_ request: RouteRequest) async throws -> RemoteStatus {
+        record("route \(request.waypoints.count)pts \(request.travelMode) \(request.loopMode)")
+        let first = request.waypoints[0]
+        return status(spoofing: true, LocationRequest(latitude: first.latitude, longitude: first.longitude,
+                                                      name: request.name))
+    }
 }
 
 final class RoutingTests: XCTestCase {
@@ -265,6 +271,31 @@ final class RoutingTests: XCTestCase {
         let stopped = await server.handle(request("POST", RemoteAPI.Path.stop, token: token))
         XCTAssertEqual(stopped.status, 200)
         XCTAssertEqual(controller.recorded, ["start 37.3349,-122.009", "location 48.8584,2.2945", "stop"])
+    }
+
+    func testDriveRoute() async throws {
+        let token = try await pairedToken()
+        let body = #"{"waypoints":[{"latitude":37.3349,"longitude":-122.009},{"latitude":37.3318,"longitude":-122.0312,"wait":120}],"followRoads":true,"travelMode":"driving","loopMode":"once","speed":16,"realistic":true,"name":"Commute"}"#
+        let response = await server.handle(request("POST", RemoteAPI.Path.route, token: token, body: body))
+        XCTAssertEqual(response.status, 200)
+        let status = try decode(RemoteStatus.self, response)
+        XCTAssertTrue(status.spoofing)
+        XCTAssertEqual(status.placeName, "Commute")
+        XCTAssertEqual(controller.recorded, ["route 2pts driving once"])
+    }
+
+    func testRouteNeedsAToken() async {
+        let body = #"{"waypoints":[{"latitude":1,"longitude":2},{"latitude":3,"longitude":4}],"speed":5}"#
+        let response = await server.handle(request("POST", RemoteAPI.Path.route, body: body))
+        XCTAssertEqual(response.status, 401)
+        XCTAssertTrue(controller.recorded.isEmpty)
+    }
+
+    func testRouteRejectsBadBody() async throws {
+        let token = try await pairedToken()
+        let response = await server.handle(request("POST", RemoteAPI.Path.route, token: token,
+                                                   body: #"{"waypoints":[{"latitude":1,"longitude":2}],"speed":5}"#))
+        XCTAssertEqual(response.status, 400)
     }
 
     func testBadInput() async throws {
