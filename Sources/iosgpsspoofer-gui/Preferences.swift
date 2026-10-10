@@ -52,6 +52,7 @@ final class Preferences {
         static let tripLimits = "tripSpeedLimits"
         static let tripBreaks = "tripBreaks"
         static let autoStop = "autoStopMinutes"
+        static let tripTraffic = "tripTimeOfDayTraffic"
     }
 
     var units: UnitSystem { didSet { store(units.rawValue, Key.units) } }
@@ -90,6 +91,8 @@ final class Preferences {
     var tripBreaks: Bool { didSet { store(tripBreaks, Key.tripBreaks) } }
     /// Stop spoofing by itself after this many minutes. 0 = never (the default).
     var autoStopMinutes: Int { didSet { store(autoStopMinutes, Key.autoStop) } }
+    /// Drive slower in rush hour and free overnight (`Congestion`). Off by default.
+    var tripTimeOfDayTraffic: Bool { didSet { store(tripTimeOfDayTraffic, Key.tripTraffic) } }
 
     private init() {
         let d = UserDefaults.standard
@@ -117,6 +120,7 @@ final class Preferences {
         tripSpeedLimits = d.object(forKey: Key.tripLimits) as? Bool ?? true
         tripBreaks = d.object(forKey: Key.tripBreaks) as? Bool ?? true
         autoStopMinutes = Killswitch.sanitize(minutes: d.integer(forKey: Key.autoStop))   // integer(forKey:) also reads "45" typed with `defaults write -string`
+        tripTimeOfDayTraffic = d.object(forKey: Key.tripTraffic) as? Bool ?? false
     }
 
     private func store(_ value: Any, _ key: String) {
@@ -132,7 +136,7 @@ final class Preferences {
         for key in [Key.units, Key.engine, Key.transport, Key.toolPath, Key.menuBar, Key.mapStyle, Key.follow,
                     Key.instant, Key.interval, Key.variation, Key.jitter, Key.refresh, Key.joystickSpeed,
                     Key.routeSpeed, Key.debugLog, Key.recents, Key.trips, Key.tripLights, Key.tripSigns,
-                    Key.tripTurns, Key.tripLimits, Key.tripBreaks, Key.autoStop] {
+                    Key.tripTurns, Key.tripLimits, Key.tripBreaks, Key.autoStop, Key.tripTraffic] {
             UserDefaults.standard.removeObject(forKey: key)
         }
         units = Locale.current.measurementSystem == .us ? .imperial : .metric
@@ -158,6 +162,7 @@ final class Preferences {
         tripSpeedLimits = true
         tripBreaks = true
         autoStopMinutes = 0
+        tripTimeOfDayTraffic = false
     }
 }
 

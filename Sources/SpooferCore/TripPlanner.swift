@@ -16,8 +16,9 @@ public struct LapPlan: Sendable, Equatable {
     /// top speed, whichever is lower.
     public func cruise(at s: Double, settings: TripSettings) -> Double {
         let top = settings.topSpeed * settings.paceFactor
-        guard let index = zoneIndex(at: s) else { return max(0.1, top) }
-        return max(0.1, min(top, zones[index].speed * driverFactor * settings.paceFactor))
+        let traffic = settings.trafficFactor
+        guard let index = zoneIndex(at: s) else { return max(0.1, top * traffic) }
+        return max(0.1, min(top, zones[index].speed * driverFactor * settings.paceFactor) * traffic)
     }
 
     public func zoneIndex(at s: Double) -> Int? {
