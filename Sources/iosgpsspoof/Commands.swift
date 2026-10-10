@@ -94,6 +94,10 @@ struct Route: ParsableCommand {
         """)
     var realistic: Bool = false
 
+    @Flag(name: .customLong("traffic"),
+          help: "With --realistic: drive slower in rush hour, free overnight (time-of-day traffic).")
+    var traffic: Bool = false
+
     @Flag(name: .customLong("no-clear-on-exit"),
           help: "Leave the simulated location in place when the tool exits.")
     var noClearOnExit: Bool = false
@@ -154,7 +158,8 @@ struct Route: ParsableCommand {
             var pass = Format.duration(oneWay / metresPerSecond)
             if realistic {
                 let trip = Self.realisticTrip(path: path, loopMode: loopMode, speed: metresPerSecond,
-                                              duration: duration.flatMap(parseDuration), onRoads: imported != nil)
+                                              duration: duration.flatMap(parseDuration), onRoads: imported != nil,
+                                              traffic: traffic)
                 track = try RouteBuilder.timedTrack(path: trip.planner.path, loopMode: loopMode, trip: trip)
                 let lap = trip.planner.expectedLapTime()
                 pass = "about " + Format.duration(loopMode == .pingPong ? lap / 2 : lap)
@@ -186,9 +191,13 @@ extension Route {
     /// roads, so its lights, signs and limits come from OpenStreetMap; straight
     /// legs between typed waypoints only get speeding up, braking and corners.
     static func realisticTrip(path: RoutePath, loopMode: LoopMode, speed: Double,
-                              duration: TimeInterval?, onRoads: Bool) -> TripController {
+                              duration: TimeInterval?, onRoads: Bool, traffic: Bool = false) -> TripController {
         let played = RoutePlayback(path: path, loopMode: loopMode).path
         var settings = TripSettings(topSpeed: speed)
+        if traffic, settings.profile.kind == .drive {
+            settings.trafficFactor = Congestion.factor(at: Date())
+            log("realistic: time-of-day traffic — cruising at \(Int((settings.trafficFactor * 100).rounded()))% of the limit")
+        }
         var features = RoadFeatures.none
         if onRoads {
             log("realistic: looking up traffic lights, signs and speed limits on OpenStreetMap…")

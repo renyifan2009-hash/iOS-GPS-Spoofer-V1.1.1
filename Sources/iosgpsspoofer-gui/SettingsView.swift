@@ -169,6 +169,7 @@ private struct MovementSettings: View {
                     Toggle("Slow down for turns, curves and speed bumps", isOn: $prefs.tripSlowForTurns)
                     Toggle("Keep to each road's speed limit", isOn: $prefs.tripSpeedLimits)
                     Toggle("Take breaks: every 2 hours when driving, short pauses on foot", isOn: $prefs.tripBreaks)
+                    Toggle("Drive slower in rush hour, free overnight (time of day)", isOn: $prefs.tripTimeOfDayTraffic)
                 }
                 .padding(.leading, 18)
                 .disabled(!prefs.realisticTrips)
@@ -180,7 +181,8 @@ private struct MovementSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .onChange(of: [prefs.realisticTrips, prefs.tripTrafficLights, prefs.tripStopSigns,
-                           prefs.tripSlowForTurns, prefs.tripSpeedLimits, prefs.tripBreaks]) { _, _ in
+                           prefs.tripSlowForTurns, prefs.tripSpeedLimits, prefs.tripBreaks,
+                           prefs.tripTimeOfDayTraffic]) { _, _ in
                 model.tripPreferencesChanged()
             }
             Section("Realism") {

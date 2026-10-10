@@ -109,6 +109,16 @@ size. It applies while stopped too, as a real receiver's does.
 **Joystick**: the speed eases up and down with the same acceleration values
 instead of jumping to full speed and stopping dead.
 
+**Time-of-day traffic** (driving, opt-in): cruising speed is scaled by a daily
+congestion curve (`Congestion`) — a weekday morning peak near 8am and a worse
+evening peak near 5–6pm slow a drive to about 55% of the limit, with a mild
+midday lull, free-flowing nights, and no commute peaks on weekends. It scales
+cruising speed only; the waits at lights, signs and your stops don't change, and
+it re-reads the clock each time the settings are rebuilt. There's no live-traffic
+source, so it's a believable daily pattern, not the real congestion on a road
+right now. Off by default (Settings ▸ Realistic trips, or the CLI `--traffic`
+flag with `--realistic`).
+
 ## Physics values
 
 Picked from the chosen speed: walk up to 2.2 m/s, run up to 4.5 m/s, cycle up

@@ -214,6 +214,9 @@ public struct TripSettings: Sendable, Equatable {
     public var speedVariation: Double
     /// Multiplies every cruise speed (pacing by duration fits the lap time with it).
     public var paceFactor: Double
+    /// Scales cruising speed for the time-of-day traffic (`Congestion`): 1 is
+    /// free-flowing, lower is slower than the limit. 1 unless the app opts in.
+    public var trafficFactor: Double
     /// No map data for this road route: treat its sharp turns as junctions,
     /// where a car sometimes waits as if at a red light.
     public var guessJunctions: Bool
@@ -221,7 +224,7 @@ public struct TripSettings: Sendable, Equatable {
     public init(topSpeed: Double, profile: MotionProfile? = nil, trafficLights: Bool = true,
                 stopSigns: Bool = true, slowForTurns: Bool = true, speedLimits: Bool = true,
                 breaks: Bool = true, speedVariation: Double = 0, paceFactor: Double = 1,
-                guessJunctions: Bool = false) {
+                trafficFactor: Double = 1, guessJunctions: Bool = false) {
         self.topSpeed = topSpeed
         self.profile = profile ?? .forSpeed(topSpeed)
         self.trafficLights = trafficLights
@@ -231,6 +234,7 @@ public struct TripSettings: Sendable, Equatable {
         self.breaks = breaks
         self.speedVariation = speedVariation
         self.paceFactor = paceFactor
+        self.trafficFactor = trafficFactor
         self.guessJunctions = guessJunctions
     }
 

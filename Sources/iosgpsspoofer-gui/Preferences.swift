@@ -51,6 +51,7 @@ final class Preferences {
         static let tripTurns = "tripSlowForTurns"
         static let tripLimits = "tripSpeedLimits"
         static let tripBreaks = "tripBreaks"
+        static let tripTraffic = "tripTimeOfDayTraffic"
     }
 
     var units: UnitSystem { didSet { store(units.rawValue, Key.units) } }
@@ -87,6 +88,8 @@ final class Preferences {
     var tripSlowForTurns: Bool { didSet { store(tripSlowForTurns, Key.tripTurns) } }
     var tripSpeedLimits: Bool { didSet { store(tripSpeedLimits, Key.tripLimits) } }
     var tripBreaks: Bool { didSet { store(tripBreaks, Key.tripBreaks) } }
+    /// Drive slower in rush hour and free overnight (`Congestion`). Off by default.
+    var tripTimeOfDayTraffic: Bool { didSet { store(tripTimeOfDayTraffic, Key.tripTraffic) } }
 
     private init() {
         let d = UserDefaults.standard
@@ -113,6 +116,7 @@ final class Preferences {
         tripSlowForTurns = d.object(forKey: Key.tripTurns) as? Bool ?? true
         tripSpeedLimits = d.object(forKey: Key.tripLimits) as? Bool ?? true
         tripBreaks = d.object(forKey: Key.tripBreaks) as? Bool ?? true
+        tripTimeOfDayTraffic = d.object(forKey: Key.tripTraffic) as? Bool ?? false
     }
 
     private func store(_ value: Any, _ key: String) {
@@ -128,7 +132,7 @@ final class Preferences {
         for key in [Key.units, Key.engine, Key.transport, Key.toolPath, Key.menuBar, Key.mapStyle, Key.follow,
                     Key.instant, Key.interval, Key.variation, Key.jitter, Key.refresh, Key.joystickSpeed,
                     Key.routeSpeed, Key.debugLog, Key.recents, Key.trips, Key.tripLights, Key.tripSigns,
-                    Key.tripTurns, Key.tripLimits, Key.tripBreaks] {
+                    Key.tripTurns, Key.tripLimits, Key.tripBreaks, Key.tripTraffic] {
             UserDefaults.standard.removeObject(forKey: key)
         }
         units = Locale.current.measurementSystem == .us ? .imperial : .metric
@@ -153,6 +157,7 @@ final class Preferences {
         tripSlowForTurns = true
         tripSpeedLimits = true
         tripBreaks = true
+        tripTimeOfDayTraffic = false
     }
 }
 

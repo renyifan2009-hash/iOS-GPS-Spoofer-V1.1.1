@@ -39,10 +39,15 @@ extension AppModel {
     /// The settings for the route being played or edited.
     func tripSettings(paceFactor: Double = 1) -> TripSettings {
         let top = max(0.1, effectiveRouteSpeed)
-        return TripSettings(topSpeed: top, profile: .forSpeed(top),
+        let profile = MotionProfile.forSpeed(top)
+        // Time-of-day traffic slows driving only (not walking or running), and
+        // is re-read from the clock each time settings are rebuilt.
+        let traffic = (prefs.tripTimeOfDayTraffic && profile.kind == .drive) ? Congestion.factor(at: Date()) : 1
+        return TripSettings(topSpeed: top, profile: profile,
                             trafficLights: prefs.tripTrafficLights, stopSigns: prefs.tripStopSigns,
                             slowForTurns: prefs.tripSlowForTurns, speedLimits: prefs.tripSpeedLimits,
                             breaks: prefs.tripBreaks, speedVariation: prefs.speedVariation, paceFactor: paceFactor,
+                            trafficFactor: traffic,
                             // A road route without its map data: sharp turns stand in for junctions.
                             guessJunctions: followRoads && !roadDataReady)
     }
