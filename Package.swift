@@ -45,7 +45,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SpooferRemoteTests",
-            dependencies: ["SpooferRemote", "RemoteAPI"]
+            dependencies: ["SpooferRemote", "RemoteAPI", "SpooferCore"]
         ),
     ]
 )
