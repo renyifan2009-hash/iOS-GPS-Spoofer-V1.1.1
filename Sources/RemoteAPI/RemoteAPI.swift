@@ -13,6 +13,7 @@ import Foundation
 ///     GET  /status     → RemoteStatus
 ///     POST /location   LocationRequest → RemoteStatus     (moves now if spoofing)
 ///     POST /start      LocationRequest? → RemoteStatus    (body optional)
+///     POST /route      RouteRequest → RemoteStatus        (drives a route)
 ///     POST /stop       → RemoteStatus                     (restores the real GPS)
 ///     POST /unpair     → RemoteStatus                     (revokes this token)
 ///
@@ -31,6 +32,7 @@ public enum RemoteAPI {
         public static let status = "/status"
         public static let location = "/location"
         public static let start = "/start"
+        public static let route = "/route"
         public static let stop = "/stop"
     }
 
@@ -108,6 +110,89 @@ public struct LocationRequest: Codable, Sendable, Equatable {
     public var isValid: Bool {
         latitude.isFinite && longitude.isFinite
             && (-90...90).contains(latitude) && (-180...180).contains(longitude)
+    }
+}
+
+/// A route for the Mac to drive, sent by the iPhone. The Mac plans it (with the
+/// realistic-trips engine when `realistic`) and moves the location along it; a
+/// `POST /stop` ends it and restores the real GPS. Travel and loop modes are
+/// strings so this library stays free of SpooferCore; they match the raw values
+/// of SpooferCore's `TravelMode` and `LoopMode`.
+public struct RouteRequest: Codable, Sendable, Equatable {
+    /// A point on the route, with an optional wait there.
+    public struct Waypoint: Codable, Sendable, Equatable {
+        public var latitude: Double
+        public var longitude: Double
+        /// Seconds to wait at this point (nil or 0: don't wait).
+        public var wait: Double?
+
+        public init(latitude: Double, longitude: Double, wait: Double? = nil) {
+            self.latitude = latitude
+            self.longitude = longitude
+            self.wait = wait
+        }
+
+        public var isValid: Bool {
+            latitude.isFinite && longitude.isFinite
+                && (-90...90).contains(latitude) && (-180...180).contains(longitude)
+                && (wait.map { $0.isFinite && $0 >= 0 } ?? true)
+        }
+    }
+
+    /// The route's points, in order (two or more).
+    public var waypoints: [Waypoint]
+    /// Follow real roads and paths between waypoints, instead of straight lines.
+    public var followRoads: Bool
+    /// "walking" or "driving".
+    public var travelMode: String
+    /// "once", "loop" or "pingPong".
+    public var loopMode: String
+    /// Top speed, metres per second.
+    public var speed: Double
+    /// Move like a real person (the realistic-trips engine).
+    public var realistic: Bool
+    /// With `realistic` and driving: slow down in rush hour (time-of-day traffic).
+    public var timeOfDayTraffic: Bool
+    /// Shown back in `RemoteStatus.placeName` and on the Mac.
+    public var name: String?
+
+    public static let travelModes = ["walking", "driving"]
+    public static let loopModes = ["once", "loop", "pingPong"]
+
+    public init(waypoints: [Waypoint], followRoads: Bool = false, travelMode: String = "walking",
+                loopMode: String = "once", speed: Double = 1.4, realistic: Bool = true,
+                timeOfDayTraffic: Bool = false, name: String? = nil) {
+        self.waypoints = waypoints
+        self.followRoads = followRoads
+        self.travelMode = travelMode
+        self.loopMode = loopMode
+        self.speed = speed
+        self.realistic = realistic
+        self.timeOfDayTraffic = timeOfDayTraffic
+        self.name = name
+    }
+
+    public var isValid: Bool {
+        waypoints.count >= 2 && waypoints.allSatisfy(\.isValid)
+            && speed.isFinite && speed > 0 && speed < 400
+            && Self.travelModes.contains(travelMode) && Self.loopModes.contains(loopMode)
+    }
+
+    // Lenient decoding so a newer or older iPhone build still loads.
+    enum CodingKeys: String, CodingKey {
+        case waypoints, followRoads, travelMode, loopMode, speed, realistic, timeOfDayTraffic, name
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        waypoints = (try? c.decode([Waypoint].self, forKey: .waypoints)) ?? []
+        followRoads = (try? c.decode(Bool.self, forKey: .followRoads)) ?? false
+        travelMode = (try? c.decode(String.self, forKey: .travelMode)) ?? "walking"
+        loopMode = (try? c.decode(String.self, forKey: .loopMode)) ?? "once"
+        speed = (try? c.decode(Double.self, forKey: .speed)) ?? 1.4
+        realistic = (try? c.decode(Bool.self, forKey: .realistic)) ?? true
+        timeOfDayTraffic = (try? c.decode(Bool.self, forKey: .timeOfDayTraffic)) ?? false
+        name = try? c.decodeIfPresent(String.self, forKey: .name)
     }
 }
 
