@@ -14,6 +14,16 @@ public protocol RemoteController: AnyObject, Sendable {
     func start(_ request: LocationRequest?) async throws -> RemoteStatus
     /// Stop and restore the iPhone's real location.
     func stop() async -> RemoteStatus
+    /// Plan `request` and move the location along it until stopped.
+    func driveRoute(_ request: RouteRequest) async throws -> RemoteStatus
+}
+
+public extension RemoteController {
+    /// Controllers that don't drive routes answer 501; the headless
+    /// `SessionRemoteController` overrides this.
+    func driveRoute(_ request: RouteRequest) async throws -> RemoteStatus {
+        throw RemoteControlError("Driving a route isn't supported here yet.", status: 501)
+    }
 }
 
 /// A failure the iPhone shows as a message, with the HTTP status to send.
@@ -136,7 +146,7 @@ public final class MacRemoteServer: @unchecked Sendable {
 
     private static let knownPaths: Set<String> = [
         RemoteAPI.Path.info, RemoteAPI.Path.pair, RemoteAPI.Path.unpair, RemoteAPI.Path.status,
-        RemoteAPI.Path.location, RemoteAPI.Path.start, RemoteAPI.Path.stop,
+        RemoteAPI.Path.location, RemoteAPI.Path.start, RemoteAPI.Path.route, RemoteAPI.Path.stop,
     ]
 
     func handle(_ request: HTTPRequest) async -> HTTPResponse {
@@ -172,6 +182,11 @@ public final class MacRemoteServer: @unchecked Sendable {
                 let location = try Self.location(from: request.body, required: false)
                 let status = try await controller.start(location)
                 command("started at \(location.map { Self.describe($0) } ?? "the last location")", client)
+                return .json(status)
+            case ("POST", RemoteAPI.Path.route):
+                let route = try Self.route(from: request.body)
+                let status = try await controller.driveRoute(route)
+                command("started a \(route.waypoints.count)-point route", client)
                 return .json(status)
             case ("POST", RemoteAPI.Path.stop):
                 let status = await controller.stop()
@@ -225,6 +240,17 @@ public final class MacRemoteServer: @unchecked Sendable {
             throw RemoteControlError("Latitude must be between −90 and 90 and longitude between −180 and 180.", status: 400)
         }
         return location
+    }
+
+    static func route(from body: Data) throws -> RouteRequest {
+        guard let route = try? RemoteAPI.makeDecoder().decode(RouteRequest.self, from: body) else {
+            throw RemoteControlError("Expected a route with waypoints.", status: 400)
+        }
+        guard route.isValid else {
+            throw RemoteControlError("A route needs two or more valid points, a known mode, and a positive speed.",
+                                     status: 400)
+        }
+        return route
     }
 
     static func describe(_ location: LocationRequest) -> String {

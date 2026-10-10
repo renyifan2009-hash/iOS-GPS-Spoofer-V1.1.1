@@ -50,6 +50,9 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
     private var device: Device?
     private var deviceConnected = false
     private var target: LocationRequest?
+    private var route: RouteRunner?
+    private var routeStartedAt: Date?
+    private var routeTimer: DispatchSourceTimer?
     private var position: GeoPoint?
     private var wantsLocation = false
     private var retryScheduled = false
@@ -76,6 +79,7 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
     public func shutdown() {
         let running = queue.sync { () -> SpoofSession? in
             wantsLocation = false
+            cancelRoute()
             monitor?.cancel()
             monitor = nil
             endKeepAwake()
@@ -93,6 +97,7 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
     public func setLocation(_ request: LocationRequest) async throws -> RemoteStatus {
         try await onQueueThrowing {
             guard request.isValid else { throw RemoteControlError("That isn't a valid coordinate.", status: 400) }
+            self.cancelRoute()   // a manual teleport ends any running route
             self.target = request
             if self.wantsLocation, let session = self.session {
                 self.log(.info, "moving to \(Self.describe(request))")
@@ -104,6 +109,7 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
 
     public func start(_ request: LocationRequest?) async throws -> RemoteStatus {
         try await onQueueThrowing {
+            self.cancelRoute()   // starting a plain hold ends any running route
             if let request {
                 guard request.isValid else { throw RemoteControlError("That isn't a valid coordinate.", status: 400) }
                 self.target = request
@@ -133,9 +139,45 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
         }
     }
 
+    public func driveRoute(_ request: RouteRequest) async throws -> RemoteStatus {
+        try await onQueueThrowing {
+            let runner: RouteRunner
+            do {
+                runner = try RouteRunner.build(from: request)
+            } catch {
+                throw RemoteControlError((error as? LocalizedError)?.errorDescription ?? "That route isn't valid.",
+                                         status: 400)
+            }
+            if self.state == .stopping {
+                throw RemoteControlError("Still restoring the real location. Try again in a moment.")
+            }
+            self.route = runner
+            self.routeStartedAt = Date()
+            let first = runner.start
+            self.target = LocationRequest(latitude: first.latitude, longitude: first.longitude, name: runner.name)
+            self.wantsLocation = true
+            self.beginKeepAwake()
+            let note = "driving a \(request.waypoints.count)-point route"
+            if self.session == nil {
+                let device = try self.chooseDevice()
+                let session = self.makeSession(device: device)
+                self.session = session
+                self.state = .connecting("Preparing \(device.deviceName)…")
+                self.log(.info, "\(note) on \(device.deviceName)")
+                session.start(at: first)
+            } else {
+                self.log(.info, note)
+                if case .active = self.state, let session = self.session { session.move(to: first) }
+            }
+            self.startRouteTimer()
+            return self.makeStatus()
+        }
+    }
+
     public func stop() async -> RemoteStatus {
         await onQueue {
             self.wantsLocation = false
+            self.cancelRoute()
             self.endKeepAwake()
             if let session = self.session, self.state != .stopping {
                 self.log(.info, "stopping, restoring the real location…")
@@ -155,6 +197,38 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
         } else {
             session.move(to: point)
         }
+    }
+
+    // MARK: - Route
+
+    private func startRouteTimer() {
+        routeTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in self?.tickRoute() }
+        routeTimer = timer
+        timer.resume()
+    }
+
+    /// Each second, move to where the route should be now. The point is kept as
+    /// `target` too, so a dropped session reconnects to the right place.
+    private func tickRoute() {
+        guard let route, let startedAt = routeStartedAt, wantsLocation else { return }
+        let (point, finished) = route.position(at: Date().timeIntervalSince(startedAt))
+        target = LocationRequest(latitude: point.latitude, longitude: point.longitude, name: route.name)
+        if case .active = state, let session { session.move(to: point) }
+        if finished, !route.wraps {
+            routeTimer?.cancel()
+            routeTimer = nil
+            log(.success, "route finished; holding the destination")
+        }
+    }
+
+    private func cancelRoute() {
+        routeTimer?.cancel()
+        routeTimer = nil
+        route = nil
+        routeStartedAt = nil
     }
 
     private func chooseDevice() throws -> Device {
