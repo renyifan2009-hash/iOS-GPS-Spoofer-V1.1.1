@@ -30,21 +30,80 @@ final class OnDeviceSimulator {
     private var server: OpaquePointer?
     private var simulation: OpaquePointer?
 
+    /// remotepairingd's port. Unlike lockdown (62078), it still answers over
+    /// the network on iOS 26.7 and later (StikDebug uses the same one).
+    static let remotePairingPort: UInt16 = 49152
+
     /// Connect, all the way to the location simulation channel.
     /// - Parameter pairingFile: the iPhone's pairing record, exported by the Mac app.
     init(pairingFile: Data, address: String = OnDeviceSimulator.defaultAddress) throws {
+        // Remote Pairing when the file has that identity (any iOS 17+),
+        // otherwise lockdown + CoreDeviceProxy (iOS 17.4 to 26.6 only).
+        if PairingFile.hasRemotePairingIdentity(pairingFile) {
+            try openRemotePairingTunnel(pairingFile, address: address)
+        } else {
+            try openLockdownTunnel(pairingFile, address: address)
+        }
+
+        // Both tunnels end in the same adapter + RSD handshake.
+        do {
+            try Self.check("Opening Instruments (is the developer disk image mounted?)",
+                           remote_server_connect_rsd(adapter, handshake, &server))
+            try Self.check("Opening location simulation", location_simulation_new(server, &simulation))
+        } catch {
+            close()
+            throw error
+        }
+    }
+
+    /// pair-verify with remotepairingd, then its TLS-PSK tunnel and RSD.
+    private func openRemotePairingTunnel(_ pairingFile: Data, address: String) throws {
+        var pairing: OpaquePointer?
+        try Self.check("Reading the pairing file", pairingFile.withUnsafeBytes { buffer in
+            rp_pairing_file_from_bytes(buffer.bindMemory(to: UInt8.self).baseAddress, UInt(buffer.count), &pairing)
+        })
+        defer { rp_pairing_file_free(pairing) }
+
+        var socketAddress = try Self.socketAddress(address, port: Self.remotePairingPort)
+        var newAdapter: OpaquePointer?
+        var newHandshake: OpaquePointer?
+        let error = withUnsafePointer(to: &socketAddress) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address in
+                tunnel_create_rppairing(address, socklen_t(MemoryLayout<sockaddr_in>.size), "SpoofRemote",
+                                        pairing, nil, nil, &newAdapter, &newHandshake)
+            }
+        }
+        try Self.check("Opening the developer tunnel (is LocalDevVPN on?)", error)
+        adapter = newAdapter
+        handshake = newHandshake
+    }
+
+    private static func socketAddress(_ address: String, port: UInt16) throws -> sockaddr_in {
+        var socketAddress = sockaddr_in()
+        socketAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        socketAddress.sin_family = sa_family_t(AF_INET)
+        socketAddress.sin_port = in_port_t(port.bigEndian)
+        guard inet_pton(AF_INET, address, &socketAddress.sin_addr) == 1 else {
+            throw Failure(step: "Reaching the iPhone", code: -1, message: "\(address) isn't an IPv4 address")
+        }
+        return socketAddress
+    }
+
+    /// The original path: lockdown with the pairing record, then CoreDeviceProxy.
+    /// iOS 26.7 and later don't answer lockdown over the network, so this
+    /// fails there with a connection error.
+    private func openLockdownTunnel(_ pairingFile: Data, address: String) throws {
         var pairing: OpaquePointer?
         try Self.check("Reading the pairing file", pairingFile.withUnsafeBytes { buffer in
             idevice_pairing_file_from_bytes(buffer.bindMemory(to: UInt8.self).baseAddress, UInt(buffer.count), &pairing)
         })
 
-        var socketAddress = sockaddr_in()
-        socketAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        socketAddress.sin_family = sa_family_t(AF_INET)
-        socketAddress.sin_port = in_port_t(UInt16(LOCKDOWN_PORT).bigEndian)
-        guard inet_pton(AF_INET, address, &socketAddress.sin_addr) == 1 else {
+        var socketAddress: sockaddr_in
+        do {
+            socketAddress = try Self.socketAddress(address, port: UInt16(LOCKDOWN_PORT))
+        } catch {
             idevice_pairing_file_free(pairing)
-            throw Failure(step: "Reaching the iPhone", code: -1, message: "\(address) isn't an IPv4 address")
+            throw error
         }
 
         // The provider takes the pairing file over on success.
@@ -74,9 +133,6 @@ final class OnDeviceSimulator {
         do {
             try Self.check("Connecting to the developer services", adapter_connect(adapter, rsdPort, &stream))
             try Self.check("Greeting the developer services", rsd_handshake_new(stream, &handshake))
-            try Self.check("Opening Instruments (is the developer disk image mounted?)",
-                           remote_server_connect_rsd(adapter, handshake, &server))
-            try Self.check("Opening location simulation", location_simulation_new(server, &simulation))
         } catch {
             close()
             throw error

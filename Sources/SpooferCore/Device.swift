@@ -146,16 +146,84 @@ extension Pymobiledevice3 {
     ///
     /// The file lets whoever holds it act as this Mac towards the iPhone:
     /// give it only to that iPhone.
-    public func exportPairingFile(udid: String, to url: URL) throws {
+    ///
+    /// The file holds two identities. The lockdown record works up to iOS
+    /// 26.6. iOS 26.7 and later stop answering lockdown over the network, so
+    /// the iPhone app can't reach it through LocalDevVPN any more; for those,
+    /// the file also gets a RemotePairing identity (`public_key`,
+    /// `private_key`, `identifier`), made over USB, which the app uses to open
+    /// the tunnel through remotepairingd instead. Returns false when that part
+    /// couldn't be made (an old pymobiledevice3, say); the file then works on
+    /// iOS 26.6 and earlier only.
+    @discardableResult
+    public func exportPairingFile(udid: String, to url: URL) throws -> Bool {
         _ = try? run(["lockdown", "wifi-connections", "on", "--udid", udid], timeout: 30)
         try? FileManager.default.removeItem(at: url)
         _ = try run(["lockdown", "save-pair-record", url.path, "--udid", udid], timeout: 30)
         // save-pair-record only logs "no pairing record was found" and exits 0.
         guard let data = try? Data(contentsOf: url), !data.isEmpty,
-              (try? PropertyListSerialization.propertyList(from: data, format: nil)) is [String: Any] else {
+              var record = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] else {
             throw SpoofError("this Mac has no pairing record for the iPhone. Unplug it, plug it back in, tap Trust, then try again.")
         }
+
+        guard let keys = try? remotePairingKeys(udid: udid) else { return false }
+        record.merge(keys) { _, new in new }
+        let merged = try PropertyListSerialization.data(fromPropertyList: record, format: .xml, options: 0)
+        try merged.write(to: url, options: .atomic)
+        return true
     }
+
+    /// Pairs this Mac with the iPhone's remotepairingd over USB lockdown (no
+    /// Trust prompt, since USB is already trusted) and returns the identity in
+    /// the keys idevice's RPPairing file reads. Re-uses the record if this Mac
+    /// already paired.
+    func remotePairingKeys(udid: String) throws -> [String: Any] {
+        guard let python = pythonInterpreter else { throw SpoofError("can't find pymobiledevice3's Python") }
+        let result = try ProcessRunner.run(python, arguments: ["-c", Self.remotePairingScript, udid],
+                                           timeout: 60, environment: Self.childEnvironment)
+        guard result.status == 0,
+              let bytes = Data(base64Encoded: result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let keys = (try? PropertyListSerialization.propertyList(from: bytes, format: nil)) as? [String: Any] else {
+            throw SpoofError("RemotePairing over USB failed (\(result.status))\n\(result.errorSummary)")
+        }
+        return keys
+    }
+
+    private static let remotePairingScript = #"""
+import asyncio, base64, plistlib, sys
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from pymobiledevice3.exceptions import RemotePairingCompletedError
+from pymobiledevice3.lockdown import create_using_usbmux
+from pymobiledevice3.remote.tunnel_service import RemotePairingLockdownService
+
+async def main(udid):
+    lockdown = create_using_usbmux(serial=udid)
+    if asyncio.iscoroutine(lockdown):
+        lockdown = await lockdown
+    service = await RemotePairingLockdownService.create(lockdown)
+    try:
+        try:
+            await service.connect(autopair=True)
+        except RemotePairingCompletedError:
+            pass  # the iPhone closes the channel once pair-setup is done; the record is saved
+        record = service.pair_record
+        if not record:
+            sys.exit("no RemotePairing record was saved")
+        private_key = record["private_key"]
+        public_key = record.get("public_key") or Ed25519PrivateKey.from_private_bytes(private_key).public_key().public_bytes_raw()
+        out = {
+            "public_key": public_key,
+            "private_key": private_key,
+            "identifier": record.get("host_identifier") or service.identifier,
+        }
+        if record.get("peer_alt_irk"):
+            out["alt_irk"] = record["peer_alt_irk"]
+        print(base64.b64encode(plistlib.dumps(out)).decode())
+    finally:
+        await service.close()
+
+asyncio.run(main(sys.argv[1]))
+"""#
 
     /// Is a device with this UDID currently reachable?
     public func isPresent(udid: String, connection: ConnectionFilter = .any) -> Bool {

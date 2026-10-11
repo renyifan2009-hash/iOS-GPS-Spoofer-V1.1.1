@@ -23,12 +23,26 @@ struct PairingFile: Equatable, Sendable {
     }
 
     /// Keys every lockdown pairing record has.
-    private static let requiredKeys = ["DeviceCertificate", "HostCertificate", "HostPrivateKey",
+    private static let lockdownKeys = ["DeviceCertificate", "HostCertificate", "HostPrivateKey",
                                        "RootCertificate", "HostID", "SystemBUID"]
+
+    /// Keys of a RemotePairing (RPPairing) identity, which iOS 26.7 and later
+    /// need. The Mac app adds them to the same file.
+    private static let remotePairingKeys = ["public_key", "private_key", "identifier"]
+
+    /// Does this file carry a RemotePairing identity?
+    static func hasRemotePairingIdentity(_ data: Data) -> Bool {
+        guard let record = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else { return false }
+        return remotePairingKeys.allSatisfy { record[$0] != nil }
+    }
+
+    var hasRemotePairingIdentity: Bool { Self.hasRemotePairingIdentity(data) }
 
     init(data: Data) throws {
         guard let record = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              Self.requiredKeys.allSatisfy({ record[$0] != nil }) else {
+              Self.lockdownKeys.allSatisfy({ record[$0] != nil })
+                || Self.remotePairingKeys.allSatisfy({ record[$0] != nil }) else {
             throw Problem.notAPairingFile
         }
         self.data = data
