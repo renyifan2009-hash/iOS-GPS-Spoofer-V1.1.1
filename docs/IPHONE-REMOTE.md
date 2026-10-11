@@ -56,9 +56,10 @@ No jailbreak, private entitlement, or system modification is used or needed.
 ## Folder structure
 
 ```
-Package.swift                         # adds RemoteAPI, SpooferRemote, tests
+Package.swift                         # adds RemoteAPI, SpooferRemote, PhoneOnlyCore, tests
 Sources/
   RemoteAPI/RemoteAPI.swift           # wire types, shared by Mac and iPhone
+  PhoneOnlyCore/                      # iPhone-only mode: pairing file format, tunnel rules (shared too)
   SpooferRemote/
     MacRemoteServer.swift             # NWListener HTTP server, routing, local-only filter
     PairingManager.swift              # codes, tokens (hashed), lockout
@@ -216,8 +217,8 @@ Select the **SpoofRemote** target ▸ *Signing & Capabilities* ▸ choose your
 3. Drag everything in `iPhoneRemote/SpoofRemote/` into the project navigator
    (*Copy items if needed* off, *Create groups*, target **SpoofRemote** ticked).
 4. **File ▸ Add Package Dependencies… ▸ Add Local…**, choose the repository
-   folder (the one with `Package.swift`), and add the **RemoteAPI** library to
-   the SpoofRemote target.
+   folder (the one with `Package.swift`), and add the **RemoteAPI** and
+   **PhoneOnlyCore** libraries to the SpoofRemote target.
 5. Run `iPhoneRemote/scripts/fetch-idevice.sh`, then drag
    `iPhoneRemote/Vendor/IDevice.xcframework` into the project and add it to
    the target under *Frameworks, Libraries, and Embedded Content* with
@@ -239,7 +240,7 @@ if you skip step 6:
 | Key | Value | Why |
 |---|---|---|
 | `NSLocalNetworkUsageDescription` | "SpoofRemote finds your Mac on this network…" | iOS asks before an app talks to the local network |
-| `NSBonjourServices` | `_iosgpsspoof._tcp` | required to browse for the Mac |
+| `NSBonjourServices` | `_iosgpsspoof._tcp`, `_remotepairing._tcp` | required to browse for the Mac, and (iPhone-only mode) to look up the port of this iPhone's own pairing service |
 | `NSAppTransportSecurity` ▸ `NSAllowsLocalNetworking` | YES | plain HTTP to local addresses |
 | `NSLocationWhenInUseUsageDescription` | "Shows where iOS reports this iPhone to be…" | the optional blue dot that confirms the simulated location, and the iPhone-only mode's background session |
 | `UIBackgroundModes` | `location` | the iPhone-only mode stays awake while it holds a location |

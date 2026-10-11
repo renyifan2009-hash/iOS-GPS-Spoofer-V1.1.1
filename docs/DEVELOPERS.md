@@ -194,9 +194,12 @@ activity log.
 - **Unplugged.** If the iPhone disappears mid-session, the status says
   "Unplugged" and the session waits for it, without clearing anything.
 - **iPhone-only mode.** File ▸ Save iPhone Pairing File… saves the selected
-  iPhone's pairing record (after turning on lockdown's network connections)
-  and opens AirDrop with it. SpoofRemote on that iPhone then sets its own
-  location with no Mac. See [PHONE-ONLY.md](PHONE-ONLY.md).
+  iPhone's pairing file and opens AirDrop with it. The file holds the lockdown
+  pairing record (saved after turning on lockdown's network connections) and
+  a Remote Pairing identity made over USB, which newer iOS versions need. If
+  the identity can't be made, the file is still saved and a warning says why.
+  SpoofRemote on that iPhone then sets its own location with no Mac. See
+  [PHONE-ONLY.md](PHONE-ONLY.md).
 - **Automation.** `SPOOF_UDID=<udid>` and `SPOOF_START="lat,lon"` preselect a
   device and teleport on launch.
 
@@ -296,7 +299,8 @@ iosgpsspoof clear                       # if a previous run was killed hard
 iosgpsspoof serve
 iosgpsspoof serve --install-agent       # …and start it at every login
 
-# The iPhone's pairing file, for SpoofRemote's iPhone-only mode (docs/PHONE-ONLY.md)
+# The iPhone's pairing file, for SpoofRemote's iPhone-only mode (docs/PHONE-ONLY.md).
+# Plug the iPhone in: the part newer iOS versions need is made over USB.
 iosgpsspoof export-pairing              # writes "<iPhone name>.mobiledevicepairing" here
 ```
 
@@ -360,13 +364,21 @@ runs on.
 ## Tests and CI
 
 ```bash
-swift test                                              # SpooferCore and SpooferRemote unit tests
-python3 Tests/LiveHelperTests/test_live_helper.py       # the live helper (needs pymobiledevice3)
+swift test                                                      # SpooferCore, SpooferRemote and PhoneOnlyCore unit tests
+python3 Tests/LiveHelperTests/test_live_helper.py               # the live helper (needs pymobiledevice3)
+python3 Tests/PairingScriptTests/test_remote_pairing_script.py  # the pairing file's Remote Pairing identity
 ```
 
 The helper tests pull the script straight out of `LiveHelperScript.swift`, so
 they run without Swift. The end-to-end ones drive pymobiledevice3's real CLI
 with a mocked device, to catch upstream changes.
+
+The pairing script tests do the same with `RemotePairingScript.swift`. Most
+run against a stand-in for pymobiledevice3's library
+(`Tests/Fixtures/fake-site`); with pymobiledevice3 installed, they also check
+it still has what the script calls and drive its real pairing flow with the
+iPhone's side replaced. `swift test` uses the same stand-in to test the whole
+export (`PairingExportTests`), so it needs `python3`.
 
 ### Running the app without an iPhone
 
@@ -389,6 +401,7 @@ SPOOFER_SNAPSHOT=1 SPOOFER_DEMO=route \
 | `SPOOFER_WINDOW_SIZE` | The main window's size, like `1040x692` for a 13-inch laptop. The window otherwise remembers its last size. |
 | `SPOOFER_APPEARANCE` | `dark` or `light`. |
 | `FAKE_PMD_DEVMODE=false`, `FAKE_PMD_NO_DEVICE=1`, `FAKE_PMD_FAIL_SET=1`, `FAKE_PMD_IOS=17.5` | Pretend Developer Mode is off, no iPhone is plugged in, setting the location fails, or a different iOS version (the default, 16.7.10, makes the app send every move itself). |
+| `PYTHONPATH="$PWD/Tests/Fixtures/fake-site"`, `FAKE_PMD_RP=fresh` | For File ▸ Save iPhone Pairing File…: a stand-in for pymobiledevice3's library, so the file gets its Remote Pairing identity, and what the pretend iPhone does when asked for one (`paired`, `fresh`, `never`, `locked`, `bare`, `missing`). |
 
 MapKit doesn't draw map tiles in a window that other windows cover, so local
 captures can show a blank map. CI runners have nothing on screen, so the
@@ -398,7 +411,7 @@ screenshots CI uploads include the map.
 
 | Job | Checks |
 |---|---|
-| Live helper | the helper against pymobiledevice3 11.0.0 and the latest release (Linux) |
+| Python helpers | the live helper and the pairing script against pymobiledevice3 11.0.0 and the latest release (Linux) |
 | Build & test · macOS | Xcode 16: build, unit tests, the app playing a route and a joystick session on the pretend iPhone, screenshots of five scenes (artifact `app-screenshots`), the helper as compiled into the binary, a CLI smoke test, and a DMG artifact |
 | Build · Xcode 26 | the Liquid Glass code path, build and tests |
 | Build · swift.org toolchain + macOS 15 SDK | a new Swift with an old SDK, as on a tester's Mac where the build once broke |
@@ -411,6 +424,7 @@ screenshots CI uploads include the map.
 |---|---|
 | `Sources/SpooferCore` | engines, sessions, pymobiledevice3 discovery and process running, geodesy, routes, GPX/KML, coordinate parsing, the library |
 | `Sources/SpooferRemote`, `Sources/RemoteAPI` | the iPhone remote's HTTP server and its wire format |
+| `Sources/PhoneOnlyCore` | the iPhone-only mode's rules that need no iPhone: the pairing file's format, which connection to try, what an error means. The Mac app and SpoofRemote both link it |
 | `Sources/iosgpsspoof` | the CLI |
 | `Sources/iosgpsspoofer-gui` | the Mac app |
 | `iPhoneRemote/` | the SpoofRemote iPhone app ([guide](IPHONE-REMOTE.md)) |

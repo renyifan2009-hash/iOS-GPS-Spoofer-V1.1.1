@@ -5,6 +5,14 @@ change its own location with no Mac, after a one-time setup, the way Vanish
 Mobile says it does? It checks the brief against this repository and against
 public sources. Anything a source doesn't state is marked **(inferred)**.
 
+**Update, 2026-10-10.** This report describes one way to open the tunnel:
+lockdown, then CoreDeviceProxy. Newer iOS versions don't answer lockdown
+through a loopback VPN (StikDebug and SideStore moved off it for iOS 26.4), so
+SpoofRemote now opens the tunnel through Remote Pairing first and keeps
+lockdown as a second chance on older iOS. The pairing file carries an identity
+for each. [PHONE-ONLY.md](../PHONE-ONLY.md#how-it-works) has the current
+design; the rest of this report is as it was written.
+
 ## The short answer
 
 - **Yes, and this repository already does it, as a beta.** SpoofRemote has two
