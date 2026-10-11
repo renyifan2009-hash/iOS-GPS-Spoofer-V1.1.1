@@ -416,7 +416,11 @@ screenshots CI uploads include the map.
 | Build · Xcode 26 | the Liquid Glass code path, build and tests |
 | Build · swift.org toolchain + macOS 15 SDK | a new Swift with an old SDK, as on a tester's Mac where the build once broke |
 | Installer · clean Mac | `./setup.sh`, the installed app finding its helper from `/`, running it again to update, the piped `install.sh`, and `--uninstall` |
-| Build · SpoofRemote | the iPhone app for the simulator, with idevice (fetched, checked against its SHA-256, and cached) |
+| Build · SpoofRemote | the iPhone app for the simulator, with idevice (fetched, checked against its SHA-256, and cached), and for iPhones as the unsigned `SpoofRemote.ipa` testers install |
+
+The DMG and the `.ipa` are uploaded as artifacts. A build says which run made
+it (`2.3.0-ci.45`). For a release, run the workflow by hand on `main` with
+**release_build** ticked: that DMG carries the plain version.
 
 ## Project layout
 

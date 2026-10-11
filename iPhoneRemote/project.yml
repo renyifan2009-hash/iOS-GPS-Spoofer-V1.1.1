@@ -30,8 +30,8 @@ targets:
       base:
         PRODUCT_NAME: SpoofRemote
         PRODUCT_BUNDLE_IDENTIFIER: com.iosgpsspoof.remote
-        MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.1"
+        CURRENT_PROJECT_VERSION: "2"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES

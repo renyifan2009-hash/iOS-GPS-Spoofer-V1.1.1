@@ -15,9 +15,13 @@ developer, working or not, with the small print under any error.
 - An iPhone with **iOS 17.4 or later**, with **Developer Mode** on.
 - A Mac with **iOS GPS Spoofer**, for the one-time setup. Use the current
   version: older ones save a pairing file that newer iOS versions can't use.
-- The **SpoofRemote** app on the iPhone. For now you build it with Xcode
-  ([how](IPHONE-REMOTE.md#build-the-iphone-app)). A free Apple ID works, but
-  the app then stops opening after 7 days until you install it again.
+- The **SpoofRemote** app on the iPhone. Each
+  [release](https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/releases)
+  has a `SpoofRemote.ipa` to install with [Sideloadly](https://sideloadly.io),
+  which signs it with your Apple ID, and step-by-step instructions. You can
+  also build it with Xcode ([how](IPHONE-REMOTE.md#build-the-iphone-app)).
+  Either way a free Apple ID works, but the app then stops opening after 7
+  days until you install it again.
 - **LocalDevVPN**, a free app on the
   [App Store](https://apps.apple.com/app/localdevvpn/id6755608044)
   ([source](https://github.com/seomin0610/LocalDevVPN)). StikDebug and
