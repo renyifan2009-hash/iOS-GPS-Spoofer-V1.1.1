@@ -3,13 +3,14 @@ import PackageDescription
 
 let package = Package(
     name: "iosgpsspoof",
-    // iOS is only for the RemoteAPI library, which the SpoofRemote iPhone app
-    // (iPhoneRemote/) links; everything else is macOS-only.
+    // iOS is only for the RemoteAPI and PhoneOnlyCore libraries, which the
+    // SpoofRemote iPhone app (iPhoneRemote/) links; everything else is macOS-only.
     platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .executable(name: "iosgpsspoof", targets: ["iosgpsspoof"]),
         .executable(name: "iosgpsspoofer-gui", targets: ["iosgpsspooferGUI"]),
         .library(name: "RemoteAPI", targets: ["RemoteAPI"]),
+        .library(name: "PhoneOnlyCore", targets: ["PhoneOnlyCore"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
@@ -20,6 +21,12 @@ let package = Package(
         ),
         .target(
             name: "RemoteAPI"
+        ),
+        // The iPhone-only mode's rules that need no iPhone: the pairing file's
+        // format, which tunnel to try, what an error means. The Mac writes the
+        // file and SpoofRemote reads it, so both link this.
+        .target(
+            name: "PhoneOnlyCore"
         ),
         .target(
             name: "SpooferRemote",
@@ -42,6 +49,10 @@ let package = Package(
         .testTarget(
             name: "SpooferCoreTests",
             dependencies: ["SpooferCore"]
+        ),
+        .testTarget(
+            name: "PhoneOnlyCoreTests",
+            dependencies: ["PhoneOnlyCore"]
         ),
         .testTarget(
             name: "SpooferRemoteTests",
