@@ -31,18 +31,29 @@ struct PhoneOnlySetupView: View {
                         step(done: nil, symbol: "arrow.clockwise", title: "After a restart",
                              detail: "When this iPhone restarts, connect it to your Mac once and open iOS GPS Spoofer. It loads Apple's developer support again.")
                         if let error = phone.lastError {
-                            Label(error, systemImage: "exclamationmark.triangle.fill")
-                                .font(.subheadline)
-                                .padding(14)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .glassSurface(cornerRadius: 18, tint: Brand.warning)
-                                .transition(.rise)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Label(error, systemImage: "exclamationmark.triangle.fill")
+                                    .font(.subheadline)
+                                if let detail = phone.lastErrorDetail {
+                                    // For a bug report: which step failed, and how.
+                                    Text(detail)
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .glassSurface(cornerRadius: 18, tint: Brand.warning)
+                            .transition(.rise)
                         }
                         footnote
                     }
                     .padding(20)
                     .animation(Brand.spring, value: phone.isSetUp)
                     .animation(Brand.spring, value: phone.loopbackReachable)
+                    .animation(Brand.spring, value: phone.pairingFileIsTooOld)
                     .animation(Brand.spring, value: phone.lastError)
                 }
             }
@@ -101,21 +112,46 @@ struct PhoneOnlySetupView: View {
     }
 
     private var pairingStep: some View {
-        step(done: phone.isSetUp, symbol: "key.fill", title: phone.isSetUp ? "Pairing file added" : "Add the pairing file",
-             detail: phone.isSetUp
-                ? "It's in this iPhone's Keychain. It lets this app talk to the iPhone like your Mac does."
-                : "Plug this iPhone into your Mac and open iOS GPS Spoofer. Choose File ▸ Save iPhone Pairing File…, then AirDrop it here and open it with SpoofRemote.") {
-            if phone.isSetUp {
-                Button("Remove", role: .destructive) { confirmRemove = true }
-                    .glassButton()
-            } else {
-                Button {
-                    importing = true
-                } label: {
-                    Label("Choose File", systemImage: "folder")
-                }
-                .glassButton()
+        // Added, but this iPhone's iOS only takes the newer kind of file.
+        let tooOld = phone.pairingFileIsTooOld
+        return step(done: phone.isSetUp && !tooOld, symbol: "key.fill", title: pairingTitle(tooOld: tooOld),
+                    detail: pairingDetail(tooOld: tooOld)) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { pairingButtons(tooOld: tooOld) }
+                VStack(alignment: .leading, spacing: 8) { pairingButtons(tooOld: tooOld) }
             }
+        }
+    }
+
+    private func pairingTitle(tooOld: Bool) -> String {
+        if !phone.isSetUp { return "Add the pairing file" }
+        return tooOld ? "This pairing file is too old" : "Pairing file added"
+    }
+
+    private func pairingDetail(tooOld: Bool) -> String {
+        if !phone.isSetUp {
+            return "Plug this iPhone into your Mac and open iOS GPS Spoofer. Choose File ▸ Save iPhone Pairing File…, then AirDrop it here and open it with SpoofRemote."
+        }
+        if tooOld {
+            return "This iPhone's iOS needs a newer kind of pairing file. On your Mac, update iOS GPS Spoofer, plug this iPhone in and choose File ▸ Save iPhone Pairing File… again. Then AirDrop it here."
+        }
+        return "It's in this iPhone's Keychain. It lets this app talk to the iPhone like your Mac does."
+    }
+
+    @ViewBuilder
+    private func pairingButtons(tooOld: Bool) -> some View {
+        if !phone.isSetUp || tooOld {
+            Button {
+                importing = true
+            } label: {
+                Label("Choose File", systemImage: "folder")
+                    .fixedSize()
+            }
+            .glassButton()
+        }
+        if phone.isSetUp {
+            Button("Remove", role: .destructive) { confirmRemove = true }
+                .glassButton()
         }
     }
 

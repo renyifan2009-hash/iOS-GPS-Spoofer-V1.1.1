@@ -1,12 +1,15 @@
 import Foundation
+import PhoneOnlyCore
 @preconcurrency import Security
 
-/// This iPhone's lockdown pairing record, saved by the Mac app (File ▸ Save
-/// iPhone Pairing File…) or `iosgpsspoof export-pairing`. It proves to the
-/// iPhone that this app is a computer it trusts, so it lives in the Keychain,
-/// on this device only, and isn't backed up.
+/// This iPhone's pairing file, saved by the Mac app (File ▸ Save iPhone
+/// Pairing File…) or `iosgpsspoof export-pairing`. It proves to the iPhone
+/// that this app is a computer it trusts, so it lives in the Keychain, on this
+/// device only, and isn't backed up. `PairingRecord` has the format.
 struct PairingFile: Equatable, Sendable {
-    let data: Data
+    let record: PairingRecord
+
+    var data: Data { record.data }
 
     enum Problem: LocalizedError {
         case unreadable
@@ -22,30 +25,13 @@ struct PairingFile: Equatable, Sendable {
         }
     }
 
-    /// Keys every lockdown pairing record has.
-    private static let lockdownKeys = ["DeviceCertificate", "HostCertificate", "HostPrivateKey",
-                                       "RootCertificate", "HostID", "SystemBUID"]
-
-    /// Keys of a RemotePairing (RPPairing) identity, which iOS 26.7 and later
-    /// need. The Mac app adds them to the same file.
-    private static let remotePairingKeys = ["public_key", "private_key", "identifier"]
-
-    /// Does this file carry a RemotePairing identity?
-    static func hasRemotePairingIdentity(_ data: Data) -> Bool {
-        guard let record = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
-        else { return false }
-        return remotePairingKeys.allSatisfy { record[$0] != nil }
+    init(record: PairingRecord) {
+        self.record = record
     }
 
-    var hasRemotePairingIdentity: Bool { Self.hasRemotePairingIdentity(data) }
-
     init(data: Data) throws {
-        guard let record = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              Self.lockdownKeys.allSatisfy({ record[$0] != nil })
-                || Self.remotePairingKeys.allSatisfy({ record[$0] != nil }) else {
-            throw Problem.notAPairingFile
-        }
-        self.data = data
+        guard let record = try? PairingRecord(data: data) else { throw Problem.notAPairingFile }
+        self.record = record
     }
 
     /// A file from the Files app, AirDrop or "Open in".

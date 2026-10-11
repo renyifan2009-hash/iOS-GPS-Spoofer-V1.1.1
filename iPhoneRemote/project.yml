@@ -20,6 +20,9 @@ targets:
     dependencies:
       - package: iOSGPSSpoofer
         product: RemoteAPI
+      # The pairing file's format and the tunnel rules, shared with the Mac app.
+      - package: iOSGPSSpoofer
+        product: PhoneOnlyCore
       # idevice, for the iPhone-only mode. Static, so nothing to embed.
       - framework: Vendor/IDevice.xcframework
         embed: false

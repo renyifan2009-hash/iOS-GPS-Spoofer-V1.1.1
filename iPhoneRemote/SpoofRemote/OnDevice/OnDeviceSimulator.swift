@@ -1,27 +1,31 @@
 import Darwin
 import Foundation
 import IDevice
+import PhoneOnlyCore
 
 /// Changes this iPhone's location from the iPhone itself (iOS 17.4 and
-/// later), the way a Mac does over USB: lockdown with the pairing file, the
-/// CoreDevice tunnel, RSD, then DVT's location simulation channel. The
-/// LocalDevVPN app routes the iPhone's own address back to it, which is how
-/// an app can reach its own lockdown. See docs/PHONE-ONLY.md.
+/// later), the way a Mac does over USB: a developer tunnel, RSD, then DVT's
+/// location simulation channel. The LocalDevVPN app routes the iPhone's own
+/// address back to it, which is how an app can reach its own developer
+/// services. See docs/PHONE-ONLY.md.
+///
+/// There are two ways to open the tunnel (`TunnelRoute`), and the pairing
+/// file decides which are possible:
+/// - **Remote Pairing**: pair-verify with remotepairingd, then its own
+///   tunnel. Works on every iOS version this mode supports.
+/// - **Lockdown**: lockdown with the pairing record, then CoreDeviceProxy.
+///   Newer iOS versions don't answer lockdown through LocalDevVPN.
 ///
 /// Every call blocks (idevice runs its own async runtime inside), so use one
 /// instance from one background queue.
 final class OnDeviceSimulator {
-    struct Failure: LocalizedError {
-        let step: String
-        let code: Int32
-        let message: String
-
-        var errorDescription: String? { "\(step) failed: \(message)" }
-    }
-
     /// The address LocalDevVPN gives this iPhone (StikDebug and SideStore use
     /// the same one).
     static let defaultAddress = "10.7.0.1"
+
+    /// The name this app gives the iPhone when it has to pair again. The
+    /// iPhone shows it in its Trust prompt.
+    private static let hostName = "SpoofRemote"
 
     // Teardown order is the reverse of this list: the simulation client uses
     // the remote server, which borrows the handshake and the tunnel adapter.
@@ -30,79 +34,135 @@ final class OnDeviceSimulator {
     private var server: OpaquePointer?
     private var simulation: OpaquePointer?
 
-    /// remotepairingd's port. Unlike lockdown (62078), it still answers over
-    /// the network on iOS 26.7 and later (StikDebug uses the same one).
-    static let remotePairingPort: UInt16 = 49152
+    /// The route that opened the tunnel.
+    private(set) var route: TunnelRoute?
 
     /// Connect, all the way to the location simulation channel.
-    /// - Parameter pairingFile: the iPhone's pairing record, exported by the Mac app.
-    init(pairingFile: Data, address: String = OnDeviceSimulator.defaultAddress) throws {
-        // Remote Pairing when the file has that identity (any iOS 17+),
-        // otherwise lockdown + CoreDeviceProxy (iOS 17.4 to 26.6 only).
-        if PairingFile.hasRemotePairingIdentity(pairingFile) {
-            try openRemotePairingTunnel(pairingFile, address: address)
-        } else {
-            try openLockdownTunnel(pairingFile, address: address)
+    /// - Parameters:
+    ///   - pairing: the iPhone's pairing file, saved by the Mac app.
+    ///   - routes: the ways to try, in order (`TunnelPlan` picks them). The
+    ///     first that opens a tunnel is used. If none does, the error is the
+    ///     most telling of their failures.
+    ///   - onRenewedPairing: called with the pairing file holding a new
+    ///     Remote Pairing identity, when the iPhone no longer knew the old
+    ///     one and idevice paired again while connecting (the iPhone asked to
+    ///     trust SpoofRemote). Keep that file: with the old one, every
+    ///     connection would pair again. It can be called even when the
+    ///     connection then fails.
+    init(pairing: PairingRecord, routes: [TunnelRoute], address: String = OnDeviceSimulator.defaultAddress,
+         onRenewedPairing: (PairingRecord) -> Void = { _ in }) throws {
+        // The file as it stands: a route that pairs again changes it for the routes after it.
+        var pairing = pairing
+        var failures: [TunnelFailure] = []
+        for candidate in routes {
+            do {
+                switch candidate {
+                case .remotePairing(let port):
+                    try openRemotePairingTunnel(pairing, address: address, port: port) { renewed in
+                        pairing = renewed
+                        onRenewedPairing(renewed)
+                    }
+                case .lockdown:
+                    try openLockdownTunnel(pairing, address: address)
+                }
+                route = candidate
+                break
+            } catch {
+                failures.append(error as? TunnelFailure
+                    ?? TunnelFailure(step: .tunnel, route: candidate, message: error.localizedDescription))
+                close()
+            }
+        }
+        guard let route else {
+            throw TunnelFailure.mostTelling(failures) ?? TunnelFailure.noRoute
         }
 
-        // Both tunnels end in the same adapter + RSD handshake.
+        // Every tunnel ends in the same adapter and RSD handshake. From here
+        // on another route wouldn't help: the tunnel is open.
         do {
-            try Self.check("Opening Instruments (is the developer disk image mounted?)",
-                           remote_server_connect_rsd(adapter, handshake, &server))
-            try Self.check("Opening location simulation", location_simulation_new(server, &simulation))
+            try Self.check(.instruments, route, remote_server_connect_rsd(adapter, handshake, &server))
+            try Self.check(.simulation, route, location_simulation_new(server, &simulation))
         } catch {
             close()
             throw error
         }
     }
 
-    /// pair-verify with remotepairingd, then its TLS-PSK tunnel and RSD.
-    private func openRemotePairingTunnel(_ pairingFile: Data, address: String) throws {
-        var pairing: OpaquePointer?
-        try Self.check("Reading the pairing file", pairingFile.withUnsafeBytes { buffer in
-            rp_pairing_file_from_bytes(buffer.bindMemory(to: UInt8.self).baseAddress, UInt(buffer.count), &pairing)
+    /// Pair-verify with remotepairingd, then its TLS-PSK tunnel and RSD: one
+    /// call in idevice.
+    private func openRemotePairingTunnel(_ pairing: PairingRecord, address: String, port: UInt16,
+                                         onRenewedPairing: (PairingRecord) -> Void) throws {
+        let route = TunnelRoute.remotePairing(port: port)
+        // idevice reads the identity's keys and skips the rest of the file.
+        var file: OpaquePointer?
+        try Self.check(.pairingFile, route, pairing.data.withUnsafeBytes { buffer in
+            rp_pairing_file_from_bytes(buffer.bindMemory(to: UInt8.self).baseAddress, UInt(buffer.count), &file)
         })
-        defer { rp_pairing_file_free(pairing) }
+        // Borrowed by the tunnel call, not taken over.
+        defer { rp_pairing_file_free(file) }
 
-        var socketAddress = try Self.socketAddress(address, port: Self.remotePairingPort)
+        var socketAddress = try Self.socketAddress(address, port: port, route: route)
         var newAdapter: OpaquePointer?
         var newHandshake: OpaquePointer?
         let error = withUnsafePointer(to: &socketAddress) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address in
-                tunnel_create_rppairing(address, socklen_t(MemoryLayout<sockaddr_in>.size), "SpoofRemote",
-                                        pairing, nil, nil, &newAdapter, &newHandshake)
+                tunnel_create_rppairing(address, socklen_t(MemoryLayout<sockaddr_in>.size), Self.hostName,
+                                        file, nil, nil, &newAdapter, &newHandshake)
             }
         }
-        try Self.check("Opening the developer tunnel (is LocalDevVPN on?)", error)
+        // When pair-verify fails, idevice pairs from scratch on the same
+        // connection and puts the new keys in `file`. Read them back before
+        // looking at the error: the pairing can go through and the tunnel
+        // still fail, and the iPhone then knows only the new keys.
+        let identity = Self.identity(in: file)
+        if let renewed = identity.flatMap({ pairing.adoptingRemotePairing(from: $0, tunnelOpened: error == nil) }) {
+            onRenewedPairing(renewed)
+        }
+        try Self.check(.tunnel, route, error)
         adapter = newAdapter
         handshake = newHandshake
     }
 
-    private static func socketAddress(_ address: String, port: UInt16) throws -> sockaddr_in {
+    /// The identity idevice now holds, as its property list.
+    private static func identity(in file: OpaquePointer?) -> Data? {
+        var bytes: UnsafeMutablePointer<UInt8>?
+        var count: UInt = 0
+        if let error = rp_pairing_file_to_bytes(file, &bytes, &count) {
+            idevice_error_free(error)
+            return nil
+        }
+        guard let bytes else { return nil }
+        defer { idevice_data_free(bytes, count) }
+        return Data(bytes: bytes, count: Int(count))
+    }
+
+    private static func socketAddress(_ address: String, port: UInt16, route: TunnelRoute) throws -> sockaddr_in {
         var socketAddress = sockaddr_in()
         socketAddress.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
         socketAddress.sin_family = sa_family_t(AF_INET)
         socketAddress.sin_port = in_port_t(port.bigEndian)
         guard inet_pton(AF_INET, address, &socketAddress.sin_addr) == 1 else {
-            throw Failure(step: "Reaching the iPhone", code: -1, message: "\(address) isn't an IPv4 address")
+            throw TunnelFailure(step: .reach, route: route, message: "\(address) isn't an IPv4 address")
         }
         return socketAddress
     }
 
-    /// The original path: lockdown with the pairing record, then CoreDeviceProxy.
-    /// iOS 26.7 and later don't answer lockdown over the network, so this
-    /// fails there with a connection error.
-    private func openLockdownTunnel(_ pairingFile: Data, address: String) throws {
-        var pairing: OpaquePointer?
-        try Self.check("Reading the pairing file", pairingFile.withUnsafeBytes { buffer in
-            idevice_pairing_file_from_bytes(buffer.bindMemory(to: UInt8.self).baseAddress, UInt(buffer.count), &pairing)
+    /// Lockdown with the pairing record, then CoreDeviceProxy. Newer iOS
+    /// versions don't answer lockdown through LocalDevVPN, so this fails
+    /// there with a connection error.
+    private func openLockdownTunnel(_ pairing: PairingRecord, address: String) throws {
+        let route = TunnelRoute.lockdown
+        // idevice reads the lockdown record's keys and skips the rest of the file.
+        var file: OpaquePointer?
+        try Self.check(.pairingFile, route, pairing.data.withUnsafeBytes { buffer in
+            idevice_pairing_file_from_bytes(buffer.bindMemory(to: UInt8.self).baseAddress, UInt(buffer.count), &file)
         })
 
         var socketAddress: sockaddr_in
         do {
-            socketAddress = try Self.socketAddress(address, port: UInt16(LOCKDOWN_PORT))
+            socketAddress = try Self.socketAddress(address, port: TunnelPlan.lockdownPort, route: route)
         } catch {
-            idevice_pairing_file_free(pairing)
+            idevice_pairing_file_free(file)
             throw error
         }
 
@@ -110,29 +170,29 @@ final class OnDeviceSimulator {
         var provider: OpaquePointer?
         let providerError = withUnsafePointer(to: &socketAddress) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { address in
-                idevice_tcp_provider_new(address, pairing, "SpoofRemote", &provider)
+                idevice_tcp_provider_new(address, file, Self.hostName, &provider)
             }
         }
-        if providerError != nil { idevice_pairing_file_free(pairing) }
-        try Self.check("Reaching the iPhone's lockdown (is LocalDevVPN on?)", providerError)
+        if providerError != nil { idevice_pairing_file_free(file) }
+        try Self.check(.reach, route, providerError)
         defer { idevice_provider_free(provider) }
 
         // The proxy is consumed by the tunnel adapter, even when that fails.
         var proxy: OpaquePointer?
-        try Self.check("Opening the developer tunnel", core_device_proxy_connect(provider, &proxy))
+        try Self.check(.tunnel, route, core_device_proxy_connect(provider, &proxy))
         var rsdPort: UInt16 = 0
         if let error = core_device_proxy_get_server_rsd_port(proxy, &rsdPort) {
             core_device_proxy_free(proxy)
-            try Self.check("Finding the developer services", error)
+            try Self.check(.services, route, error)
         }
-        try Self.check("Starting the tunnel's network stack", core_device_proxy_create_tcp_adapter(proxy, &adapter))
+        try Self.check(.services, route, core_device_proxy_create_tcp_adapter(proxy, &adapter))
 
         // The handshake consumes the stream; the server borrows the adapter
         // and the handshake, so both live until close().
         var stream: OpaquePointer?
         do {
-            try Self.check("Connecting to the developer services", adapter_connect(adapter, rsdPort, &stream))
-            try Self.check("Greeting the developer services", rsd_handshake_new(stream, &handshake))
+            try Self.check(.services, route, adapter_connect(adapter, rsdPort, &stream))
+            try Self.check(.services, route, rsd_handshake_new(stream, &handshake))
         } catch {
             close()
             throw error
@@ -144,12 +204,12 @@ final class OnDeviceSimulator {
     }
 
     func set(latitude: Double, longitude: Double) throws {
-        try Self.check("Setting the location", location_simulation_set(simulation, latitude, longitude))
+        try Self.check(.setLocation, route, location_simulation_set(simulation, latitude, longitude))
     }
 
     /// Back to the real location.
     func clear() throws {
-        try Self.check("Restoring the real location", location_simulation_clear(simulation))
+        try Self.check(.clearLocation, route, location_simulation_clear(simulation))
     }
 
     /// Close the channel. On iOS 17 and later that also ends the simulation.
@@ -164,10 +224,12 @@ final class OnDeviceSimulator {
         adapter = nil
     }
 
-    private static func check(_ step: String, _ error: UnsafeMutablePointer<IdeviceFfiError>?) throws {
+    private static func check(_ step: TunnelFailure.Step, _ route: TunnelRoute?,
+                              _ error: UnsafeMutablePointer<IdeviceFfiError>?) throws {
         guard let error else { return }
-        let failure = Failure(step: step, code: error.pointee.code,
-                              message: error.pointee.message.map { String(cString: $0) } ?? "unknown error")
+        let failure = TunnelFailure(step: step, route: route, code: error.pointee.code,
+                                    subCode: error.pointee.sub_code,
+                                    message: error.pointee.message.map { String(cString: $0) } ?? "unknown error")
         idevice_error_free(error)
         throw failure
     }

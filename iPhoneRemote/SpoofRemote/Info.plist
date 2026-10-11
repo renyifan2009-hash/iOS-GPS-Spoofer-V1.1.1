@@ -5,9 +5,12 @@
 	<!-- Merged with the keys Xcode generates (GENERATE_INFOPLIST_FILE = YES). -->
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>SpoofRemote finds your Mac on this network, and in the iPhone-only mode reaches this iPhone's own developer services.</string>
+	<!-- The Mac helper, and (the iPhone-only mode) this iPhone's own remotepairingd,
+	     to look up its port when it isn't the usual one. -->
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_iosgpsspoof._tcp</string>
+		<string>_remotepairing._tcp</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
