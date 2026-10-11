@@ -13,6 +13,9 @@ Environment knobs:
   FAKE_PMD_DEVMODE=false   Developer Mode is off
   FAKE_PMD_FAIL_SET=1      setting a location fails, as when the link drops
   FAKE_PMD_IOS=17.5        the iOS version to report (default 16.7.10)
+  FAKE_PMD_NO_PAIR_RECORD=1  this Mac has no pairing record for the iPhone
+The pairing file export also imports pymobiledevice3 as a library: see
+fake-site/pymobiledevice3/__init__.py for the stand-in.
 """
 import json
 import os
@@ -42,6 +45,9 @@ elif args[:2] == ["amfi", "developer-mode-status"]:
 elif "simulate-location" in args and "set" in args and os.environ.get("FAKE_PMD_FAIL_SET") == "1":
     print("ERROR ConnectionTerminatedError: Connection closed", file=sys.stderr)
     sys.exit(1)
+elif args[:2] == ["lockdown", "save-pair-record"] and len(args) > 2 and os.environ.get("FAKE_PMD_NO_PAIR_RECORD") == "1":
+    # Like the real one: it logs this and exits 0, writing nothing.
+    print("ERROR no pairing record was found", file=sys.stderr)
 elif args[:2] == ["lockdown", "save-pair-record"] and len(args) > 2:
     # A pairing record with the keys a real one has (the values are not real).
     import plistlib

@@ -17,7 +17,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "SpooferCore"
+            name: "SpooferCore",
+            dependencies: ["PhoneOnlyCore"]
         ),
         .target(
             name: "RemoteAPI"
@@ -48,7 +49,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SpooferCoreTests",
-            dependencies: ["SpooferCore"]
+            dependencies: ["SpooferCore", "PhoneOnlyCore"]
         ),
         .testTarget(
             name: "PhoneOnlyCoreTests",

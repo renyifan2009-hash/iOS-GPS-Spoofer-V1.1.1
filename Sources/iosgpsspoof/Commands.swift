@@ -296,7 +296,8 @@ struct ExportPairing: ParsableCommand {
         abstract: "Save the iPhone's pairing file, for an app on the iPhone to reach its own developer services.",
         discussion: """
             The file lets whoever holds it act as this Mac towards the iPhone. \
-            Give it only to that iPhone (AirDrop works). See docs/PHONE-ONLY.md.
+            Give it only to that iPhone (AirDrop works). Plug the iPhone in with a cable: \
+            the part newer iOS versions need is made over USB. See docs/PHONE-ONLY.md.
             """
     )
 
@@ -309,8 +310,14 @@ struct ExportPairing: ParsableCommand {
         let ctx = try common.makeContext()
         let name = output ?? "\(ctx.device.deviceName.replacingOccurrences(of: "/", with: "-")).mobiledevicepairing"
         let url = URL(fileURLWithPath: (name as NSString).expandingTildeInPath)
-        try ctx.pmd.exportPairingFile(udid: ctx.device.udid, to: url)
+        let export = try ctx.pmd.exportPairingFile(udid: ctx.device.udid, to: url)
         log("saved the pairing file for \(ctx.device.deviceName) to \(url.path)")
+        if let problem = export.remotePairingProblem {
+            log("warning: it has no Remote Pairing identity, which newer iOS versions need: \(problem)")
+            log("it works only where the iPhone still answers lockdown through LocalDevVPN (older iOS).")
+        } else {
+            log("it has both identities, so it works on every iOS version the iPhone-only mode supports.")
+        }
         log("it grants developer access to that iPhone: send it only to that iPhone.")
     }
 }

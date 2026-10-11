@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   live-helper:
-    name: Live helper · pymobiledevice3 ${{ matrix.pymobiledevice3 }}
+    name: Python helpers · pymobiledevice3 ${{ matrix.pymobiledevice3 }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -35,6 +35,9 @@ jobs:
           pip show pymobiledevice3 | head -2
       - name: Helper tests (extracted from LiveHelperScript.swift)
         run: python Tests/LiveHelperTests/test_live_helper.py
+      # The iPhone-only mode's pairing file: the part made with pymobiledevice3's library.
+      - name: Pairing script tests (extracted from RemotePairingScript.swift)
+        run: python Tests/PairingScriptTests/test_remote_pairing_script.py
 
   macos:
     name: Build & test · macOS

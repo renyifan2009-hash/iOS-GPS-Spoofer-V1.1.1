@@ -12,7 +12,9 @@ extension AppModel {
         return device.supportsUserspaceTunnel
     }
 
-    /// Save the selected iPhone's pairing file, then offer to AirDrop it.
+    /// Save the selected iPhone's pairing file, then offer to AirDrop it. The
+    /// file should hold two identities; if the one newer iOS versions need
+    /// couldn't be made, say so instead of handing over a file that won't work.
     func savePairingFile() {
         guard let pmd, let device = selectedDevice else { return }
         guard device.supportsUserspaceTunnel else {
@@ -35,23 +37,34 @@ extension AppModel {
         let name = device.deviceName
         appendLog("Saving the pairing file for \(name)…", level: .info)
         Task.detached(priority: .userInitiated) {
-            let error: String? = {
-                do {
-                    try pmd.exportPairingFile(udid: udid, to: url)
-                    return nil
-                } catch {
-                    return SpoofSession.firstLine(of: error)
-                }
-            }()
+            // Sendable results only: what failed, or what the file is missing.
+            let failure: String?
+            let remotePairingProblem: String?
+            do {
+                remotePairingProblem = try pmd.exportPairingFile(udid: udid, to: url).remotePairingProblem
+                failure = nil
+            } catch {
+                failure = SpoofSession.firstLine(of: error)
+                remotePairingProblem = nil
+            }
             await MainActor.run {
                 let model = AppModel.shared
-                if let error {
-                    model.appendLog("Couldn't save the pairing file: \(error)", level: .error)
+                if let failure {
+                    model.appendLog("Couldn't save the pairing file: \(failure)", level: .error)
                     model.showToast(Toast(symbol: "exclamationmark.triangle.fill", title: "Couldn't save the pairing file",
                                           subtitle: "Unlock the iPhone, tap Trust if asked, and try again.", style: .warning))
                     return
                 }
-                model.appendLog("Saved \(url.lastPathComponent). Open it on \(name) with SpoofRemote.", level: .success)
+                if let remotePairingProblem {
+                    // Still worth sending: it works where the iPhone answers lockdown through LocalDevVPN.
+                    model.appendLog("Saved \(url.lastPathComponent) without the part newer iOS versions need, "
+                        + "so it only works on older iOS. Reason: \(remotePairingProblem)", level: .warning)
+                    model.showToast(Toast(symbol: "exclamationmark.triangle.fill", title: "Saved, for older iOS only",
+                                          subtitle: "The part newer iOS needs couldn't be added. Activity says why.",
+                                          style: .warning), duration: 7)
+                } else {
+                    model.appendLog("Saved \(url.lastPathComponent). Open it on \(name) with SpoofRemote.", level: .success)
+                }
                 // AirDrop is the easy way across; Finder if it isn't available.
                 if let airDrop = NSSharingService(named: .sendViaAirDrop), airDrop.canPerform(withItems: [url]) {
                     airDrop.perform(withItems: [url])
