@@ -232,6 +232,13 @@ final class AppModel {
     @ObservationIgnored var developerModeCheckedAt = Date.distantPast
     /// iPhones we've asked to show the Developer Mode switch this launch.
     @ObservationIgnored var developerModeRevealed: Set<String> = []
+    /// Set when a connected iPhone runs an older SpoofRemote than this code
+    /// expects. A banner then offers the releases page. Nil when it's current,
+    /// not installed, or the check couldn't run (see docs/PHONE-ONLY.md).
+    var oldSpoofRemote: OldSpoofRemote?
+    /// The iPhone whose SpoofRemote we've already checked, so we check once per
+    /// device rather than on every refresh.
+    @ObservationIgnored var spoofRemoteCheckedUDID: String?
     /// Toast to show once the device confirms the next position.
     @ObservationIgnored var pendingToast: Toast?
 
@@ -411,10 +418,16 @@ final class AppModel {
                     // Gone (maybe restarting after turning Developer Mode on):
                     // check again when it's back.
                     developerModeCheckedUDID = nil
-                } else if developerModeCheckedUDID != udid
-                            || (developerModeEnabled != true && session == nil
-                                && Date().timeIntervalSince(developerModeCheckedAt) > 10) {
-                    checkDeveloperMode()
+                    spoofRemoteCheckedUDID = nil
+                    oldSpoofRemote = nil
+                } else {
+                    if developerModeCheckedUDID != udid
+                        || (developerModeEnabled != true && session == nil
+                            && Date().timeIntervalSince(developerModeCheckedAt) > 10) {
+                        checkDeveloperMode()
+                    }
+                    // Once per connected iPhone: is its SpoofRemote out of date?
+                    if spoofRemoteCheckedUDID != udid { checkSpoofRemoteVersion() }
                 }
             }
             if !list.isEmpty { connectCardDismissed = false }

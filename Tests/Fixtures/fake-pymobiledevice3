@@ -14,6 +14,9 @@ Environment knobs:
   FAKE_PMD_FAIL_SET=1      setting a location fails, as when the link drops
   FAKE_PMD_IOS=17.5        the iOS version to report (default 16.7.10)
   FAKE_PMD_NO_PAIR_RECORD=1  this Mac has no pairing record for the iPhone
+  FAKE_PMD_SPOOFREMOTE=current|old|none|fail  which SpoofRemote `apps list`
+                             reports: the current build, an old one, none
+                             installed, or a failed read (default none)
 The pairing file export also imports pymobiledevice3 as a library: see
 fake-site/pymobiledevice3/__init__.py for the stand-in.
 """
@@ -56,6 +59,24 @@ elif args[:2] == ["lockdown", "save-pair-record"] and len(args) > 2:
     record.update(HostID="FAKE-HOST-ID", SystemBUID="FAKE-SYSTEM-BUID", WiFiMACAddress="00:00:00:00:00:00")
     with open(args[2], "wb") as out:
         plistlib.dump(record, out)
+elif args[:2] == ["apps", "list"]:
+    # `apps list` prints a JSON object keyed by bundle id. SpoofRemote's build
+    # number is what the Mac checks against the version in its own code.
+    which = os.environ.get("FAKE_PMD_SPOOFREMOTE", "none")
+    if which == "fail":
+        print("ERROR lockdown error: the iPhone is locked", file=sys.stderr)
+        sys.exit(1)
+    apps = {
+        "com.apple.Maps": {"CFBundleShortVersionString": "1.0", "CFBundleVersion": "1",
+                           "CFBundleDisplayName": "Maps", "CFBundleIdentifier": "com.apple.Maps"},
+    }
+    builds = {"current": "3", "old": "2"}
+    if which in builds:
+        apps["com.iosgpsspoof.remote"] = {
+            "CFBundleShortVersionString": "1.1", "CFBundleVersion": builds[which],
+            "CFBundleDisplayName": "SpoofRemote", "CFBundleIdentifier": "com.iosgpsspoof.remote",
+        }
+    print(json.dumps(apps))
 elif args[:3] == ["developer", "dvt", "simulate-location"] and args[3:4] != ["clear"]:
     # iOS 17+ `set` / `play`: hold the location until interrupted.
     for sig in (signal.SIGINT, signal.SIGTERM):

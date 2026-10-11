@@ -191,6 +191,14 @@ activity log.
   newer, a banner offers **Update**. That runs the one-line installer in the
   background, which quits the app, replaces it and opens the new one. Output
   goes to `~/Library/Logs/iOS GPS Spoofer/update.log`.
+- **An old SpoofRemote.** SpoofRemote doesn't update itself, so when an iPhone
+  is plugged in, and after File ▸ Save iPhone Pairing File…, the Mac reads
+  which SpoofRemote (`com.iosgpsspoof.remote`) is on it with `apps list` (over
+  lockdown, no tunnel) and, if it's older than this code expects, shows a
+  banner with a button to the releases page. Not installed, or a failed read,
+  shows nothing, and it never blocks saving the file. The version it expects is
+  `SpoofRemote.expected` in `PhoneOnlyCore`, checked against
+  `iPhoneRemote/project.yml`. See [PHONE-ONLY.md](PHONE-ONLY.md#keeping-the-two-apps-in-step).
 - **Unplugged.** If the iPhone disappears mid-session, the status says
   "Unplugged" and the session waits for it, without clearing anything.
 - **iPhone-only mode.** File ▸ Save iPhone Pairing File… saves the selected
@@ -402,6 +410,7 @@ SPOOFER_SNAPSHOT=1 SPOOFER_DEMO=route \
 | `SPOOFER_APPEARANCE` | `dark` or `light`. |
 | `FAKE_PMD_DEVMODE=false`, `FAKE_PMD_NO_DEVICE=1`, `FAKE_PMD_FAIL_SET=1`, `FAKE_PMD_IOS=17.5` | Pretend Developer Mode is off, no iPhone is plugged in, setting the location fails, or a different iOS version (the default, 16.7.10, makes the app send every move itself). |
 | `PYTHONPATH="$PWD/Tests/Fixtures/fake-site"`, `FAKE_PMD_RP=fresh` | For File ▸ Save iPhone Pairing File…: a stand-in for pymobiledevice3's library, so the file gets its Remote Pairing identity, and what the pretend iPhone does when asked for one (`paired`, `fresh`, `never`, `locked`, `bare`, `missing`). |
+| `FAKE_PMD_SPOOFREMOTE=current\|old\|none\|fail` | What `apps list` reports for SpoofRemote on the pretend iPhone: the current build, an old one, none installed, or a failed read. Drives the old-SpoofRemote warning. |
 
 MapKit doesn't draw map tiles in a window that other windows cover, so local
 captures can show a blank map. CI runners have nothing on screen, so the

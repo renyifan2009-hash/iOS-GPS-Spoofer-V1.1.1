@@ -535,6 +535,14 @@ struct Banners: View {
                     ProgressView().controlSize(.small)
                 }
             }
+            if let old = model.oldSpoofRemote {
+                banner(icon: "iphone.and.arrow.forward", colors: TileColors.orange,
+                       text: "\(old.deviceName) has an old SpoofRemote. Update it, or the iPhone-only mode can fail.") {
+                    Button("Open Releases") { model.openSpoofRemoteReleases() }
+                        .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
+                        .help("Open the releases page to reinstall the newest SpoofRemote on the iPhone")
+                }
+            }
             switch Updater.shared.state {
             case .available:
                 banner(icon: "arrow.down.circle.fill", colors: TileColors.brand, text: "A new version is available.") {

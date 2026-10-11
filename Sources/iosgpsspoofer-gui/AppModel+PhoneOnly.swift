@@ -1,6 +1,14 @@
 import AppKit
+import PhoneOnlyCore
 import SpooferCore
 import UniformTypeIdentifiers
+
+/// A connected iPhone with an older SpoofRemote than this code expects.
+struct OldSpoofRemote: Equatable {
+    let deviceName: String
+    /// The version on the iPhone, for the log (e.g. "1.1 (2)").
+    let installed: String
+}
 
 /// Setting up the iPhone-only mode: the SpoofRemote app on the iPhone changes
 /// its own location, without a Mac, once it has the iPhone's pairing file.
@@ -71,7 +79,58 @@ extension AppModel {
                 } else {
                     NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
+                // The iPhone is plugged in now: a good moment to check its
+                // SpoofRemote, so an old one is caught before it's AirDropped a
+                // file it can't use.
+                model.checkSpoofRemoteVersion()
             }
         }
+    }
+
+    /// Read which SpoofRemote is on the selected iPhone and, if it's older than
+    /// this code expects, raise a banner that links to the releases page. Runs
+    /// in the background and never blocks normal use: a SpoofRemote that isn't
+    /// installed says nothing, and a failed read is logged and ignored. See
+    /// docs/PHONE-ONLY.md.
+    func checkSpoofRemoteVersion() {
+        guard let pmd, let device = selectedDevice else { return }
+        let udid = device.udid
+        let name = device.deviceName
+        spoofRemoteCheckedUDID = udid
+        Task.detached(priority: .utility) {
+            // Reduce to Sendable values before hopping to the main actor.
+            let version: SpoofRemoteVersion?
+            let failure: String?
+            do {
+                version = try pmd.installedSpoofRemoteVersion(udid: udid)
+                failure = nil
+            } catch {
+                version = nil
+                failure = SpoofSession.firstLine(of: error)
+            }
+            await MainActor.run {
+                let model = AppModel.shared
+                guard model.selectedUDID == udid else { return }
+                if let failure {
+                    // Stay quiet on screen; just note it for a bug report.
+                    model.appendLog("Couldn't check the SpoofRemote version on \(name): \(failure)", level: .debug)
+                    return
+                }
+                if let version, version < SpoofRemote.expected {
+                    model.oldSpoofRemote = OldSpoofRemote(deviceName: name, installed: version.displayString)
+                    model.appendLog("\(name) has an older SpoofRemote (\(version.displayString)). The newest is on the "
+                        + "releases page. The iPhone-only mode can fail until it's updated.", level: .warning)
+                } else {
+                    // Current, or not installed: nothing to warn about.
+                    model.oldSpoofRemote = nil
+                }
+            }
+        }
+    }
+
+    /// Open the releases page, to update SpoofRemote on the iPhone.
+    func openSpoofRemoteReleases() {
+        guard let url = URL(string: SpoofRemote.releasesLatestURL) else { return }
+        NSWorkspace.shared.open(url)
     }
 }

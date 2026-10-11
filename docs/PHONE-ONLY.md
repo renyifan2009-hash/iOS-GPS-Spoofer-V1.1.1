@@ -60,6 +60,29 @@ background, because the location only lasts while the app runs.
 **After the iPhone restarts,** connect it to the Mac once and do step 2 again.
 Apple's developer support has to be loaded again after every restart.
 
+## Keeping the two apps in step
+
+The Mac app updates itself. SpoofRemote does not: it only changes when you
+reinstall the `.ipa` from the
+[releases page](https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/releases/latest).
+So you can end up with a new Mac app and an old SpoofRemote, and the
+iPhone-only mode then fails with a confusing error. Two notices catch this:
+
+- **On the Mac.** When an iPhone is plugged in, and again when you save a
+  pairing file, the Mac reads which SpoofRemote is on it. If it's older than
+  the Mac app expects, a banner says so, with a button that opens the releases
+  page. If SpoofRemote isn't installed, or the check can't run, the Mac says
+  nothing. The check never blocks or slows down saving the file or normal use.
+  The command line does the same after `iosgpsspoof export-pairing`.
+- **On the iPhone.** SpoofRemote carries the version it was built from. At most
+  once a day it asks GitHub for the newest release and, if that's newer, shows
+  a small notice on the main screen and the setup screen, with a button to the
+  releases page. You can dismiss it; it comes back only for a newer release.
+  When "This iPhone" mode fails to connect and a newer release is out, the
+  error says so too, because updating is the likely fix. This is the only thing
+  SpoofRemote sends to the internet, it sends nothing about you or the iPhone,
+  and no network or an odd answer simply shows nothing.
+
 ## If something goes wrong
 
 | What you see | What to do |
@@ -158,6 +181,9 @@ The code:
 | Mac: making the Remote Pairing identity (Python, run by pymobiledevice3's interpreter) | `Sources/SpooferCore/RemotePairingScript.swift` |
 | Mac: File ▸ Save iPhone Pairing File… | `Sources/iosgpsspoofer-gui/AppModel+PhoneOnly.swift` |
 | Command line: `iosgpsspoof export-pairing` | `Sources/iosgpsspoof/Commands.swift` |
+| SpoofRemote's version and the release check (shared, with tests) | `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift`, `ReleaseVersion.swift` |
+| Mac: reading the iPhone's installed SpoofRemote | `Sources/SpooferCore/Device.swift` (`installedSpoofRemoteVersion`) |
+| SpoofRemote: the newer-release notice | `iPhoneRemote/SpoofRemote/UpdateChecker.swift`, `UpdateNoticeView.swift` |
 
 ### Trying it in the iOS Simulator
 
@@ -168,6 +194,9 @@ launch arguments:
 ```bash
 xcrun simctl launch booted com.iosgpsspoof.remote -SpoofRemoteShow phoneSetup   # the setup screen
 xcrun simctl launch booted com.iosgpsspoof.remote -SpoofRemoteShow phoneStart   # start at Apple Park
+# Pretend a newer release is out, so the "A newer version is out" notice shows
+# without the network (both screens):
+xcrun simctl launch booted com.iosgpsspoof.remote -hasSeenIntro YES -SpoofRemotePretendUpdate 9.9.9
 ```
 
 To import a pairing file, build with signing (the Keychain needs it, even in

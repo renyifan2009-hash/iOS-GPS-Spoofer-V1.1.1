@@ -42,6 +42,11 @@ No jailbreak, private entitlement, or system modification is used or needed.
   live status (Mac reachable, iPhone linked, what's being simulated), and an
   animated first-run introduction. Liquid Glass design on iOS 26 and later;
   it still runs on iOS 17.
+- **A newer-release notice**: SpoofRemote doesn't update itself, so at most
+  once a day it asks GitHub whether a newer release is out and, if so, shows a
+  small notice with a button to the releases page. It sends nothing about you
+  or the iPhone, and no answer simply shows nothing. See
+  [PHONE-ONLY.md](PHONE-ONLY.md#keeping-the-two-apps-in-step).
 - **Discovery** over Bonjour (`_iosgpsspoof._tcp`), with a type-an-address
   fallback.
 - **Pairing** with a one-time 6-digit code. The token lives in the iPhone's
@@ -69,7 +74,7 @@ Sources/
   iosgpsspoofer-gui/RemoteHost.swift  # Mac app: Settings ▸ iPhone Remote
 Tests/SpooferRemoteTests/             # parser, pairing, routing, IP filter tests
 iPhoneRemote/
-  project.yml                         # XcodeGen spec
+  project.yml                         # XcodeGen spec; stamps the repo VERSION into BuildVersion.swift at build time
   SpoofRemote/
     SpoofRemoteApp.swift              # @main
     ContentView.swift                 # map + status + controls
@@ -80,6 +85,9 @@ iPhoneRemote/
     IntroView.swift                   # animated introduction
     Glass.swift                       # Liquid Glass helpers + fallbacks
     KeychainStore.swift               # token storage
+    UpdateChecker.swift               # once-a-day check with GitHub for a newer release
+    UpdateNoticeView.swift            # the "a newer version is out" notice
+    BuildVersion.swift                # the repo VERSION, stamped in at build time
     OnDevice/                         # the iPhone-only mode (see PHONE-ONLY.md)
     Info.plist                        # Local Network / Bonjour / ATS / background / file keys
     Assets.xcassets                   # app icon, accent colour

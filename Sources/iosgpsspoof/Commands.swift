@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import PhoneOnlyCore
 import SpooferCore
 #if canImport(CoreLocation)
 import CoreLocation
@@ -319,6 +320,14 @@ struct ExportPairing: ParsableCommand {
             log("it has both identities, so it works on every iOS version the iPhone-only mode supports.")
         }
         log("it grants developer access to that iPhone: send it only to that iPhone.")
+
+        // The iPhone is plugged in, so check its SpoofRemote too. Best effort:
+        // not installed, or a failed read, says nothing.
+        if let installed = try? ctx.pmd.installedSpoofRemoteVersion(udid: ctx.device.udid),
+           installed < SpoofRemote.expected {
+            log("warning: \(ctx.device.deviceName) has an older SpoofRemote (\(installed.displayString)).")
+            log("reinstall the newest one from \(SpoofRemote.releasesLatestURL), or the iPhone-only mode may fail.")
+        }
     }
 }
 

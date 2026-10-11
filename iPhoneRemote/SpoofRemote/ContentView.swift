@@ -16,7 +16,9 @@ struct ContentView: View {
     @Environment(ConnectionManager.self) private var connection
     @Environment(LocationController.self) private var locations
     @Environment(OnDeviceController.self) private var phone
+    @Environment(UpdateChecker.self) private var updates
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @AppStorage("hasSeenIntro") private var hasSeenIntro = false
     @AppStorage("locationSource") private var source: LocationSource = .mac
     @State private var showIntro = false
@@ -80,6 +82,7 @@ struct ContentView: View {
             if !hasSeenIntro { showIntro = true }
             connection.startBrowsing()
             connection.startPolling()
+            updates.checkIfDue()
             #if DEBUG
             // For screenshots in the Simulator: `-SpoofRemoteShow phoneSetup`
             // opens the setup sheet; `phoneStart` starts at Apple Park.
@@ -105,6 +108,7 @@ struct ContentView: View {
             case .active:
                 connection.startBrowsing()
                 connection.startPolling()
+                updates.checkIfDue()
                 if source == .thisPhone, phone.isSetUp, !phone.isSpoofing {
                     Task { await phone.checkLoopback() }
                 }
@@ -207,6 +211,7 @@ struct ContentView: View {
     private var bottomCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             sourcePicker
+            UpdateNoticeView()
             if source == .thisPhone {
                 phoneCard
             } else {
@@ -223,6 +228,7 @@ struct ContentView: View {
         .animation(Brand.spring, value: connection.lastError)
         .animation(Brand.spring, value: phone.lastError)
         .animation(Brand.spring, value: connection.status?.connected)
+        .animation(Brand.spring, value: updates.updateAvailable)
     }
 
     private var sourcePicker: some View {
@@ -307,6 +313,17 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
+                    }
+                    if updates.updateAvailable {
+                        // Updating is a likely fix when connecting fails.
+                        Button {
+                            openURL(updates.releaseURL)
+                        } label: {
+                            Label("A newer version may fix this. Get it.", systemImage: "arrow.down.circle.fill")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Brand.sky)
                     }
                 }
                 .transition(.rise)

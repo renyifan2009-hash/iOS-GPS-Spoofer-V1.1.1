@@ -17,6 +17,34 @@ targets:
     platform: iOS
     sources:
       - path: SpoofRemote
+    # Copy the repo root VERSION into BuildVersion.swift before compiling, so
+    # SpoofRemote knows the version it was built from and can tell when a newer
+    # release is out. Writes only when VERSION changed, so the tree stays clean.
+    preBuildScripts:
+      - name: Stamp the repo VERSION into the app
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          VERSION_FILE="${SRCROOT}/../VERSION"
+          OUT="${SRCROOT}/SpoofRemote/BuildVersion.swift"
+          [ -f "$VERSION_FILE" ] || { echo "no VERSION file; keeping $OUT"; exit 0; }
+          V="$(tr -d '[:space:]' < "$VERSION_FILE")"
+          TMP="$(mktemp)"
+          cat > "$TMP" <<EOF
+          // Generated at build time from the repo root VERSION, by the
+          // "Stamp the repo VERSION into the app" phase in iPhoneRemote/project.yml.
+          // The checked-in value is a fallback and should match VERSION.
+          enum BuildVersion {
+              /// The project VERSION this build of SpoofRemote was made from.
+              static let version = "$V"
+          }
+          EOF
+          if ! cmp -s "$TMP" "$OUT"; then
+            mv "$TMP" "$OUT"
+            echo "BuildVersion.swift set to $V"
+          else
+            rm -f "$TMP"
+          fi
     dependencies:
       - package: iOSGPSSpoofer
         product: RemoteAPI
@@ -31,7 +59,7 @@ targets:
         PRODUCT_NAME: SpoofRemote
         PRODUCT_BUNDLE_IDENTIFIER: com.iosgpsspoof.remote
         MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "2"
+        CURRENT_PROJECT_VERSION: "3"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
