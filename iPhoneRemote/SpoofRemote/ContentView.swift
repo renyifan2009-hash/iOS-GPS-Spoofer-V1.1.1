@@ -10,6 +10,9 @@ enum LocationSource: String {
     case thisPhone
 }
 
+/// What the Mac card is doing: a single teleport, or building a route.
+enum MacMode: Hashable { case teleport, route }
+
 /// The map, a floating status pill and controls, and a glass card to start,
 /// move or stop the simulated location.
 struct ContentView: View {
@@ -24,6 +27,8 @@ struct ContentView: View {
     @State private var showPairing = false
     @State private var showPhoneSetup = false
     @State private var pairAfterIntro = false
+    @State private var route = RouteDraft()
+    @State private var macMode: MacMode = .teleport
 
     /// Either source holds a location right now.
     private var isSpoofing: Bool { connection.isSpoofing || phone.isSpoofing }
@@ -140,6 +145,9 @@ struct ContentView: View {
         source == .thisPhone ? (phone.isSpoofing ? .active : .starting) : (connection.status?.phase ?? .idle)
     }
 
+    /// Building a route on the map (Mac source, Route tab).
+    private var routeMode: Bool { source == .mac && macMode == .route }
+
     private var map: some View {
         @Bindable var locations = locations
         return MapReader { proxy in
@@ -150,11 +158,24 @@ struct ContentView: View {
                     }
                     .annotationTitles(.hidden)
                 }
-                if let selection = locations.selection {
+                if let selection = locations.selection, !routeMode {
                     Annotation(selection.name, coordinate: selection.coordinate, anchor: .bottom) {
                         SelectionPin().id(selection.id)
                     }
                     .annotationTitles(.hidden)
+                }
+                if routeMode {
+                    ForEach(Array(route.stops.enumerated()), id: \.element.id) { index, stop in
+                        Annotation("Stop \(index + 1)", coordinate: stop.coordinate, anchor: .center) {
+                            RouteStopPin(number: index + 1)
+                        }
+                        .annotationTitles(.hidden)
+                    }
+                    if route.stops.count >= 2 {
+                        MapPolyline(coordinates: route.stops.map(\.coordinate))
+                            .stroke(Brand.sky.opacity(0.85),
+                                    style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                    }
                 }
                 if locations.showsReportedLocation {
                     UserAnnotation()
@@ -166,8 +187,13 @@ struct ContentView: View {
                 MapScaleView()
             }
             .onTapGesture { point in
-                if let coordinate = proxy.convert(point, from: .local) {
-                    withAnimation(Brand.spring) { locations.drop(at: coordinate) }
+                guard let coordinate = proxy.convert(point, from: .local) else { return }
+                withAnimation(Brand.spring) {
+                    if routeMode {
+                        route.add(coordinate)
+                    } else {
+                        locations.drop(at: coordinate)
+                    }
                 }
             }
         }
@@ -217,6 +243,8 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassSurface(cornerRadius: 32)
         .animation(Brand.spring, value: source)
+        .animation(Brand.spring, value: macMode)
+        .animation(Brand.spring, value: route.stops.count)
         .animation(Brand.spring, value: connection.isPaired)
         .animation(Brand.spring, value: isSpoofing)
         .animation(Brand.spring, value: locations.selection)
@@ -252,16 +280,30 @@ struct ContentView: View {
                     .foregroundStyle(Brand.warning)
                     .transition(.rise)
             }
-            if let place = locations.selection {
-                selectionRow(place)
-                    .transition(.rise)
-            } else if !connection.isSpoofing {
-                Label("Tap the map or search to pick a place.", systemImage: "hand.tap.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            if !connection.isSpoofing {
+                macModePicker
                     .transition(.rise)
             }
-            actions
+            if macMode == .route {
+                if connection.isSpoofing {
+                    stopAction
+                        .transition(.rise)
+                } else {
+                    RouteCardView(route: route, connection: connection) { driveRoute() }
+                        .transition(.rise)
+                }
+            } else {
+                if let place = locations.selection {
+                    selectionRow(place)
+                        .transition(.rise)
+                } else if !connection.isSpoofing {
+                    Label("Tap the map or search to pick a place.", systemImage: "hand.tap.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .transition(.rise)
+                }
+                actions
+            }
             if let error = connection.lastError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote)
@@ -269,6 +311,32 @@ struct ContentView: View {
                     .transition(.rise)
             }
         }
+    }
+
+    private var macModePicker: some View {
+        Picker("Mode", selection: $macMode) {
+            Text("Teleport").tag(MacMode.teleport)
+            Text("Route").tag(MacMode.route)
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private var stopAction: some View {
+        GlassGroup(spacing: 10) {
+            Button {
+                Task { await connection.stop() }
+            } label: {
+                Label("Stop", systemImage: "stop.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .prominentButton(tint: Brand.danger)
+        }
+        .disabled(connection.isWorking)
+    }
+
+    private func driveRoute() {
+        guard let request = route.request(name: "Route") else { return }
+        Task { await connection.driveRoute(request) }
     }
 
     // MARK: - This iPhone

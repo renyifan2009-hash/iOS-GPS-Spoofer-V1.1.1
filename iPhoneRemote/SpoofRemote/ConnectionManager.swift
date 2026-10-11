@@ -342,11 +342,33 @@ final class ConnectionManager {
         await command(RemoteAPI.Path.stop, nil)
     }
 
+    @discardableResult
+    func driveRoute(_ request: RouteRequest) async -> Bool {
+        let body: Data?
+        do {
+            body = try RemoteAPI.makeEncoder().encode(request)
+        } catch {
+            lastError = Self.describe(error)
+            return false
+        }
+        return await post(RemoteAPI.Path.route, body: body)
+    }
+
     private func command(_ path: String, _ location: LocationRequest?) async -> Bool {
+        let body: Data?
+        do {
+            body = try location.map { try RemoteAPI.makeEncoder().encode($0) }
+        } catch {
+            lastError = Self.describe(error)
+            return false
+        }
+        return await post(path, body: body)
+    }
+
+    private func post(_ path: String, body: Data?) async -> Bool {
         isWorking = true
         defer { isWorking = false }
         do {
-            let body = try location.map { try RemoteAPI.makeEncoder().encode($0) }
             let data = try await send("POST", path, body: body)
             status = try RemoteAPI.makeDecoder().decode(RemoteStatus.self, from: data)
             link = .online
