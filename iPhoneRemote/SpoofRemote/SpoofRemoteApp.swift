@@ -9,6 +9,7 @@ struct SpoofRemoteApp: App {
     @State private var connection = ConnectionManager()
     @State private var locations = LocationController()
     @State private var phone = OnDeviceController()
+    @State private var updates = UpdateChecker()
 
     var body: some Scene {
         WindowGroup {
@@ -16,6 +17,7 @@ struct SpoofRemoteApp: App {
                 .environment(connection)
                 .environment(locations)
                 .environment(phone)
+                .environment(updates)
                 .tint(Brand.indigo)
         }
     }

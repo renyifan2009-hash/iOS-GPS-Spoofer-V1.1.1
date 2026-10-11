@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 /// do the rest. Each step gets a tick once it's ready.
 struct PhoneOnlySetupView: View {
     @Environment(OnDeviceController.self) private var phone
+    @Environment(UpdateChecker.self) private var updates
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var importing = false
@@ -20,6 +21,7 @@ struct PhoneOnlySetupView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         header
+                        UpdateNoticeView()
                         if !OnDeviceController.isSupported {
                             step(done: false, symbol: "iphone.slash", title: "Needs iOS 17.4 or later",
                                  detail: "This iPhone has iOS \(UIDevice.current.systemVersion). Update it in Settings ▸ General ▸ Software Update, or use your Mac instead.")
@@ -55,6 +57,7 @@ struct PhoneOnlySetupView: View {
                     .animation(Brand.spring, value: phone.loopbackReachable)
                     .animation(Brand.spring, value: phone.pairingFileIsTooOld)
                     .animation(Brand.spring, value: phone.lastError)
+                    .animation(Brand.spring, value: updates.updateAvailable)
                 }
             }
             .navigationTitle("This iPhone")

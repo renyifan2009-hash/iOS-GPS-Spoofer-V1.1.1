@@ -231,4 +231,42 @@ extension Pymobiledevice3 {
         guard let devices = try? listDevices() else { return false }
         return devices.contains { $0.udid == udid && connection.matches($0) }
     }
+
+    /// The version of SpoofRemote (`com.iosgpsspoof.remote`) installed on the
+    /// iPhone, or nil when it isn't installed. The Mac compares it with
+    /// `SpoofRemote.expected` to warn when the iPhone app is out of date (see
+    /// docs/PHONE-ONLY.md).
+    ///
+    /// It reads `apps list`, whose JSON is keyed by bundle id and the same on
+    /// every pymobiledevice3 version the project supports. That goes through
+    /// the lockdown installation-proxy service, so it works whenever the
+    /// iPhone is plugged in and trusted, with no developer tunnel.
+    ///
+    /// Throws when the list can't be read, or an installed SpoofRemote reports
+    /// no version: the caller stays quiet and logs it. Not installed is nil,
+    /// not an error.
+    public func installedSpoofRemoteVersion(udid: String) throws -> SpoofRemoteVersion? {
+        let json = try run(["apps", "list", "--udid", udid], timeout: 30)
+        guard let data = json.data(using: .utf8),
+              let apps = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw SpoofError("couldn't read the installed-apps list from the iPhone")
+        }
+        guard let app = apps[SpoofRemote.bundleID] as? [String: Any] else {
+            return nil  // SpoofRemote isn't installed: nothing to say.
+        }
+        let short = Self.appInfoString(app["CFBundleShortVersionString"])
+        let build = Self.appInfoString(app["CFBundleVersion"])
+        guard !short.isEmpty || !build.isEmpty else {
+            throw SpoofError("SpoofRemote is installed but reports no version")
+        }
+        return SpoofRemoteVersion(marketing: short, build: build)
+    }
+
+    /// A value from the apps plist as a string (usually a String, sometimes a
+    /// number).
+    private static func appInfoString(_ value: Any?) -> String {
+        if let string = value as? String { return string }
+        if let number = value as? NSNumber { return number.stringValue }
+        return ""
+    }
 }
