@@ -294,11 +294,22 @@ struct ContentView: View {
             }
             phoneActions
             if let error = phone.lastError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(Brand.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .transition(.rise)
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Brand.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let detail = phone.lastErrorDetail {
+                        // For a bug report: which step failed, and how. The
+                        // setup screen shows it too.
+                        Text(detail)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                }
+                .transition(.rise)
             }
         }
     }

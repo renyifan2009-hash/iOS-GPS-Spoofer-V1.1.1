@@ -77,9 +77,9 @@ Apple's developer support has to be loaded again after every restart.
 | "Developer Mode is off" | **Settings ▸ Privacy & Security ▸ Developer Mode**. The iPhone restarts. Then do step 2. |
 | The location jumps back to the real one | iOS may have stopped SpoofRemote in the background. Open it and tap **Start Here** again. If this keeps happening, tell the developer what you were doing. |
 
-Under an error, the setup screen shows a line of small print: the step that
-failed, the kind of connection, and the library's own message. Include it when
-you report a problem. Press and hold to copy it.
+Under an error, on the main screen and on the setup screen, there's a line of
+small print: the step that failed, the kind of connection, and the library's
+own message. Include it when you report a problem. Press and hold to copy it.
 
 ## How it works
 
