@@ -52,6 +52,16 @@ enum SelfTest {
         let windows = NSApp.windows.filter { $0.isVisible }.count
         print("SELF-TEST-OK version=\(version) windows=\(windows) seconds=\(Int(seconds))")
         fflush(stdout)
-        NSApp.terminate(nil)
+        // Close what is open first: with the first-launch Welcome sheet showing, AppKit ignores
+        // terminate(_:) when it is called from a timer in an app that isn't active (it doesn't even
+        // ask the delegate). If it still hasn't gone after a moment, leave directly: the test has
+        // already said everything it has to say.
+        let model = AppModel.shared
+        model.showWelcome = false
+        model.showPairingFile = false
+        model.showConnectionHelp = false
+        PhoneInstaller.shared.isPresented = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NSApp.terminate(nil) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { exit(0) }
     }
 }

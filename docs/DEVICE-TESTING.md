@@ -18,6 +18,7 @@ for the first pass. It is the file CI builds and starts.
 | A4 | Teleport somewhere, then press **Stop**. | The iPhone's blue dot moves, then returns to the real place. | |
 | A5 | Start a route, then close the window with ⌘W. | The route keeps going (the app stays open). Click the Dock icon to bring the window back. | |
 | A6 | ⌘Q during a route. | The iPhone goes back to its real location. | |
+| A7 | On a fresh install (or after `defaults delete com.iosgpsspoofer.gui hasSeenWelcome`), press ⌘Q while the Welcome sheet is showing. | The app quits. (CI showed that `NSApp.terminate` is ignored in that state when called from a timer in an inactive app. Whether a real ⌘Q is affected is untested: please try it, and tell me if it doesn't quit.) | |
 
 ## B. The pairing file (the tester's problem)
 
