@@ -35,18 +35,35 @@ public struct OverpassLoader: Sendable {
     /// Seconds to wait for one server before trying the next.
     static let requestTimeout: TimeInterval = 25
 
+    /// Seconds one lookup may take in all, however long the route. Past that,
+    /// what has loaded is used and the rest is left for a later try (every piece
+    /// that loaded is cached, so a later try only asks for what is missing).
+    public static let defaultTimeBudget: TimeInterval = 90
+
+    /// Pieces in a row that no server could answer, before the rest are left
+    /// for a later try: a network that failed three times is not about to work.
+    static let giveUpAfter = 3
+
     let userAgent: String
     let cacheDirectory: URL?
+    let timeBudget: TimeInterval
     let transport: Transport
     /// Which servers answered lately, so later lookups start with one that works.
     private let servers: ServerOrder
 
-    public init(userAgent: String, cacheDirectory: URL?,
+    public init(userAgent: String, cacheDirectory: URL?, timeBudget: TimeInterval = defaultTimeBudget,
                 transport: @escaping Transport = { try await URLSession.shared.data(for: $0) }) {
         self.userAgent = userAgent
         self.cacheDirectory = cacheDirectory
+        self.timeBudget = timeBudget
         self.transport = transport
         servers = ServerOrder(Self.endpoints)
+    }
+
+    /// The device has no way to reach anyone, so trying more servers is pointless.
+    static func isOffline(_ error: Error) -> Bool {
+        guard let error = error as? URLError else { return false }
+        return [.notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff].contains(error.code)
     }
 
     /// The servers to try, best first: one that answered moves to the front,
@@ -83,26 +100,45 @@ public struct OverpassLoader: Sendable {
         guard !chunks.isEmpty else { return .none }
         var nodes: [Int64: OSMNode] = [:]
         var ways: [Int64: OSMWay] = [:]
-        var failures = 0
+        let deadline = ContinuousClock.now.advanced(by: .seconds(max(0, timeBudget)))
+        var loaded = 0, failures = 0, leftOut = 0
+        var failuresInARow = 0
+        var offline = false
         var lastError: Error?
         for (index, chunk) in chunks.enumerated() {
             try Task.checkCancellation()
+            // Out of time, or the servers have failed several pieces running: use what
+            // loaded. (Offline, pieces already cached still load, and cost nothing.)
+            if ContinuousClock.now >= deadline {
+                lastError = lastError ?? SpoofError("road data took too long to load")
+                leftOut = chunks.count - index
+                break
+            }
+            if failuresInARow >= Self.giveUpAfter, !offline {
+                leftOut = chunks.count - index
+                break
+            }
             do {
-                let answer = try await fetch(Self.query(for: chunk.points, padding: chunk.padding, roads: roads))
+                let answer = try await fetch(Self.query(for: chunk.points, padding: chunk.padding, roads: roads),
+                                             deadline: deadline, cacheOnly: offline)
                 for node in answer.nodes { nodes[node.id] = node }
                 for way in answer.ways { ways[way.id] = way }
+                loaded += 1
+                failuresInARow = 0
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 failures += 1
+                failuresInARow += 1
                 lastError = error
+                if Self.isOffline(error) { offline = true }
             }
             progress?(Double(index + 1) / Double(chunks.count))
         }
-        if failures == chunks.count, let lastError { throw lastError }
+        if loaded == 0, let lastError { throw lastError }
         var features = Self.features(from: OverpassAnswer(nodes: Array(nodes.values), ways: Array(ways.values)),
                                      along: path)
-        features.complete = failures == 0
+        features.complete = failures == 0 && leftOut == 0
         return features
     }
 
@@ -279,18 +315,34 @@ public struct OverpassLoader: Sendable {
 
     // MARK: Fetching
 
-    private func fetch(_ query: String) async throws -> OverpassAnswer {
+    /// Seconds from now until `deadline` (negative when it has passed).
+    private static func seconds(until deadline: ContinuousClock.Instant) -> Double {
+        let left = deadline - ContinuousClock.now
+        return Double(left.components.seconds) + Double(left.components.attoseconds) / 1e18
+    }
+
+    /// One piece of road data: from the cache, else from the first server that answers.
+    /// `cacheOnly` is for when the device is offline: only the cache is worth asking.
+    private func fetch(_ query: String, deadline: ContinuousClock.Instant, cacheOnly: Bool) async throws -> OverpassAnswer {
         let cacheFile = cacheDirectory?.appendingPathComponent(Self.cacheName(for: query))
         if let cacheFile, let attributes = try? FileManager.default.attributesOfItem(atPath: cacheFile.path),
            let modified = attributes[.modificationDate] as? Date, Date().timeIntervalSince(modified) < 30 * 86_400,
            let data = try? Data(contentsOf: cacheFile), let answer = try? Self.parse(data) {
             return answer
         }
+        if cacheOnly { throw URLError(.notConnectedToInternet) }
         var lastError: Error = SpoofError("couldn't reach OpenStreetMap")
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? query
+        /// A server that answered with an error is given a moment before the next is asked.
+        /// One that couldn't be reached at all is not worth waiting for.
+        var pause = false
         for (index, endpoint) in await servers.current.enumerated() {
-            if index > 0 { try await Task.sleep(for: .seconds(1)) }
-            var request = URLRequest(url: endpoint, timeoutInterval: Self.requestTimeout)
+            if index > 0 {
+                if Self.seconds(until: deadline) <= 0 { break }
+                if pause { try await Task.sleep(for: .seconds(1)) }
+            }
+            let patience = min(Self.requestTimeout, max(1, Self.seconds(until: deadline)))
+            var request = URLRequest(url: endpoint, timeoutInterval: patience)
             request.httpMethod = "POST"
             request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
             request.setValue("application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
@@ -311,18 +363,23 @@ public struct OverpassLoader: Sendable {
                         return answer
                     }
                     lastError = SpoofError("OpenStreetMap answered \(status)")
+                    pause = true
                     // Out of turns (429): leave this server alone for now; it asks for 30 s.
-                    // Busy (503, 504): wait a moment and ask it once more.
+                    // Busy (503, 504): wait a moment and ask it once more, if there is time.
                     guard attempt == 0, [503, 504].contains(status) else { break attempts }
-                    let wait = http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? 3
-                    try await Task.sleep(for: .seconds(min(10, max(1, wait))))
+                    let wait = min(10, max(1, http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? 3))
+                    guard Self.seconds(until: deadline) > wait else { break attempts }
+                    try await Task.sleep(for: .seconds(wait))
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch let error as URLError where error.code == .cancelled {
                     throw CancellationError()
+                } catch let error as URLError where Self.isOffline(error) {
+                    throw error   // no network at all: the other servers can't be reached either
                 } catch {
                     // Unreachable, timed out, or an answer it couldn't read: the next server.
                     lastError = error
+                    pause = false
                     break attempts
                 }
             }
