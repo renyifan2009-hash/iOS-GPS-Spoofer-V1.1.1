@@ -44,9 +44,11 @@ final class PlaceSearch {
 
     /// Bias results towards what's on screen.
     func setRegion(center: GeoPoint, spanDegrees: Double) {
+        // A span or centre that isn't a real place makes MKCoordinateRegion invalid; keep what we had.
+        guard let safe = center.camera, spanDegrees.isFinite, spanDegrees > 0 else { return }
         completer.region = MKCoordinateRegion(
-            center: CLLocationCoordinate2D(latitude: center.latitude, longitude: center.longitude),
-            span: MKCoordinateSpan(latitudeDelta: spanDegrees, longitudeDelta: spanDegrees))
+            center: safe,
+            span: MKCoordinateSpan(latitudeDelta: min(spanDegrees, 170), longitudeDelta: min(spanDegrees, 170)))
     }
 
     private func queryChanged() {

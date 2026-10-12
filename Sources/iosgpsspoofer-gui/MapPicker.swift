@@ -6,6 +6,15 @@ import SwiftUI
 extension GeoPoint {
     init(_ c: CLLocationCoordinate2D) { self.init(latitude: c.latitude, longitude: c.longitude) }
     var cl: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: latitude, longitude: longitude) }
+    /// For moving the map's camera: nil when this isn't a real place, held inside the map's world otherwise
+    /// (a pole once made MapKit raise an exception that nothing catches and the app aborted).
+    var camera: CLLocationCoordinate2D? { mapSafe?.cl }
+}
+
+extension CLLocationCoordinate2D {
+    /// Same rule for a coordinate MapKit itself handed back (converting a screen point beyond the map's
+    /// north or south edge gives an invalid one, which `setCenter` refuses by raising).
+    var cameraSafe: CLLocationCoordinate2D? { GeoPoint(self).camera }
 }
 
 /// One pin on the map.
@@ -89,8 +98,8 @@ struct MapPicker: NSViewRepresentable {
         }
         context.coordinator.mapView = map
         context.coordinator.installEventMonitor()
-        if let first = pins.first?.point ?? device?.point {
-            map.setRegion(MKCoordinateRegion(center: first.cl, span: MKCoordinateSpan(latitudeDelta: 0.04, longitudeDelta: 0.04)),
+        if let first = (pins.first?.point ?? device?.point)?.camera {
+            map.setRegion(MKCoordinateRegion(center: first, span: MKCoordinateSpan(latitudeDelta: 0.04, longitudeDelta: 0.04)),
                           animated: false)
         }
         return map
@@ -269,19 +278,19 @@ struct MapPicker: NSViewRepresentable {
             cameraBusyUntil = CACurrentMediaTime() + 0.6
             switch focus.kind {
             case let .point(p, zoomIn):
-                guard p.isValid else { return }
+                guard let center = p.camera else { return }
                 let span = map.region.span.latitudeDelta
                 if zoomIn || span > 1.5 || span < 0.0005 {
-                    map.setRegion(MKCoordinateRegion(center: p.cl, span: MKCoordinateSpan(latitudeDelta: 0.03, longitudeDelta: 0.03)),
+                    map.setRegion(MKCoordinateRegion(center: center, span: MKCoordinateSpan(latitudeDelta: 0.03, longitudeDelta: 0.03)),
                                   animated: true)
                 } else {
-                    map.setCenter(p.cl, animated: true)
+                    map.setCenter(center, animated: true)
                 }
             case let .fit(points):
-                let valid = points.filter(\.isValid)
+                let valid = points.compactMap(\.camera)
                 guard !valid.isEmpty else { return }
-                let rect = valid.reduce(MKMapRect.null) { acc, p in
-                    acc.union(MKMapRect(origin: MKMapPoint(p.cl), size: MKMapSize(width: 1, height: 1)))
+                let rect = valid.reduce(MKMapRect.null) { acc, c in
+                    acc.union(MKMapRect(origin: MKMapPoint(c), size: MKMapSize(width: 1, height: 1)))
                 }
                 let minimum = 2_000.0   // map points ≈ metres at mid latitudes; avoid zooming in absurdly
                 let padded = rect.size.width < minimum && rect.size.height < minimum
@@ -349,7 +358,7 @@ struct MapPicker: NSViewRepresentable {
         /// screen (after a teleport), or a zoom to street level when the map is
         /// far out or in.
         private func performRecenter() {
-            guard let map = mapView, let device = displayedDevice else { return }
+            guard let map = mapView, let displayed = displayedDevice, let device = displayed.cameraSafe else { return }
             let span = map.region.span.latitudeDelta
             let visible = map.visibleMapRect
             let nearby = visible.insetBy(dx: -visible.size.width, dy: -visible.size.height)
@@ -361,7 +370,9 @@ struct MapPicker: NSViewRepresentable {
             } else if !nearby.contains(MKMapPoint(device)) {
                 cameraGlide = nil
                 map.setCenter(device, animated: false)
-                map.setCenter(cameraCenter(showing: device), animated: false)
+                // The shifted centre can fall off the map's north or south edge: MapKit then hands back an
+                // invalid coordinate, and setCenter raises on it.
+                if let shifted = cameraCenter(showing: device).cameraSafe { map.setCenter(shifted, animated: false) }
             } else {
                 cameraGlide = (map.centerCoordinate, CACurrentMediaTime())
             }
@@ -383,8 +394,8 @@ struct MapPicker: NSViewRepresentable {
             return map.convert(shifted, toCoordinateFrom: map)
         }
 
-        private func centerCamera(on coordinate: CLLocationCoordinate2D) {
-            guard let map = mapView else { return }
+        private func centerCamera(on requested: CLLocationCoordinate2D) {
+            guard let map = mapView, let coordinate = requested.cameraSafe else { return }
             // Skip sub-pixel moves: they cost a redraw and show nothing.
             let point = map.convert(coordinate, toPointTo: map)
             guard hypot(point.x - map.bounds.midX, point.y - map.bounds.midY) > 0.25 else { return }

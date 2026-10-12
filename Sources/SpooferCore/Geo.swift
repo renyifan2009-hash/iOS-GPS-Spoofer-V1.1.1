@@ -20,6 +20,19 @@ public struct GeoPoint: Hashable, Sendable, Codable {
             && (-90...90).contains(latitude) && (-180...180).contains(longitude)
     }
 
+    /// The farthest north or south MapKit's flat (Mercator) world reaches, in degrees. Past it the
+    /// map has no place to put a point, and some MapKit calls (setCenter among them) raise an
+    /// Objective-C exception that nothing can catch: the app aborts. The device can legitimately be
+    /// at a pole, so only the map's camera is kept inside.
+    public static let mapMaxLatitude = 85.0
+
+    /// This point as something the map can be centred on: nil when it isn't a real place (NaN,
+    /// infinite, out of range), otherwise with the latitude held inside the map's world.
+    public var mapSafe: GeoPoint? {
+        guard isValid else { return nil }
+        return GeoPoint(latitude: min(max(latitude, -Self.mapMaxLatitude), Self.mapMaxLatitude), longitude: longitude)
+    }
+
     /// True when both components are within `tolerance` degrees of `other`'s.
     public func isClose(to other: GeoPoint, tolerance: Double = 1e-9) -> Bool {
         abs(latitude - other.latitude) <= tolerance && abs(longitude - other.longitude) <= tolerance
