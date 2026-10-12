@@ -64,6 +64,20 @@ final class DeviceListTests: XCTestCase {
         XCTAssertTrue(calls.contains("usbmux list --simple"), "\(calls)")
     }
 
+    func testAPhoneOnWifiIsNotHiddenByTheCableOnlyList() throws {
+        // Another Wi-Fi device can't be reached, so the full list fails. The cable-only
+        // list works but can't have this phone, which is on Wi-Fi. It is still there.
+        set("FAKE_PMD_LIST_FAIL", "wifionly")
+        XCTAssertEqual(try pmd.listDevices().count, 0)
+        let found = try XCTUnwrap(try pmd.find(udid: Self.udid))
+        XCTAssertEqual(found.udid, Self.udid)
+        XCTAssertTrue(try pmd.presence(udid: Self.udid))
+        // But a phone that isn't there at all is not invented, and a cable-only
+        // question is answered by the cable-only list.
+        XCTAssertFalse(try pmd.presence(udid: "SOME-OTHER-UDID"))
+        XCTAssertNil(try pmd.find(udid: Self.udid, connection: .usb))
+    }
+
     func testAListThatCannotBeReadIsNotAnUnpluggedPhone() throws {
         set("FAKE_PMD_LIST_FAIL", "all")
         XCTAssertThrowsError(try pmd.presence(udid: Self.udid)) { error in

@@ -104,12 +104,20 @@ extension Pymobiledevice3 {
     /// cable-connected devices only, which are the ones that can be spoofed
     /// reliably anyway. The first error is kept if that fails too.
     public func listDevices() throws -> [Device] {
+        try readDevices().devices
+    }
+
+    /// The devices, and whether only cable-connected ones could be read (the
+    /// full list failed). A phone that is on Wi-Fi only can be missing then.
+    private func readDevices() throws -> (devices: [Device], cableOnly: Bool) {
         let raw: [Device]
+        var cableOnly = false
         do {
             raw = try Self.decodeDevices(run(["usbmux", "list"], timeout: 20))
         } catch {
             guard let usbOnly = try? Self.decodeDevices(run(["usbmux", "list", "--usb"], timeout: 15)) else { throw error }
             raw = usbOnly
+            cableOnly = true
         }
 
         var byUDID: [String: Device] = [:]
@@ -122,10 +130,11 @@ extension Pymobiledevice3 {
         }
         // Preserve first-seen order.
         var seen = Set<String>()
-        return raw.compactMap { d in
+        let devices = raw.compactMap { d -> Device? in
             guard seen.insert(d.udid).inserted else { return nil }
             return byUDID[d.udid]
         }
+        return (devices, cableOnly)
     }
 
     private static func decodeDevices(_ json: String) throws -> [Device] {
@@ -290,21 +299,37 @@ extension Pymobiledevice3 {
     /// (its iOS version, for one). Nil when it isn't listed. When only the bare
     /// list of UDIDs can be read, the device is returned with no details.
     public func find(udid: String, connection: ConnectionFilter = .any) throws -> Device? {
+        let read: (devices: [Device], cableOnly: Bool)
         do {
-            return try listDevices().first { $0.udid == udid && connection.matches($0) }
-        } catch {
-            var flags: [String] = []
-            switch connection {
-            case .any: break
-            case .usb: flags = ["--usb"]
-            case .network: flags = ["--network"]
-            }
-            guard let output = try? run(["usbmux", "list", "--simple"] + flags, timeout: 15),
-                  let udids = Self.simpleUDIDs(output) else { throw error }
-            guard udids.contains(udid) else { return nil }
-            return Device(deviceName: "iOS device", identifier: udid, connectionType: connection == .network ? "Network" : "USB",
-                          productType: "unknown", productVersion: "0")
+            read = try readDevices()
+        } catch let original {
+            do { return try listedByUDIDOnly(udid, connection: connection) } catch { throw original }
         }
+        if let match = read.devices.first(where: { $0.udid == udid && connection.matches($0) }) { return match }
+        // The full list failed and the cable-only one doesn't have it. A phone that
+        // is only on Wi-Fi would be missing from that, so look at the bare list too.
+        if read.cableOnly, connection != .usb, let bare = try? listedByUDIDOnly(udid, connection: connection) {
+            return bare
+        }
+        return nil
+    }
+
+    /// Looks for `udid` in `usbmux list --simple`, which never connects to a
+    /// device. Nothing but the UDID is known about what it finds.
+    private func listedByUDIDOnly(_ udid: String, connection: ConnectionFilter) throws -> Device? {
+        var flags: [String] = []
+        switch connection {
+        case .any: break
+        case .usb: flags = ["--usb"]
+        case .network: flags = ["--network"]
+        }
+        let output = try run(["usbmux", "list", "--simple"] + flags, timeout: 15)
+        guard let udids = Self.simpleUDIDs(output) else {
+            throw SpoofError("couldn't read the list of devices")
+        }
+        guard udids.contains(udid) else { return nil }
+        return Device(deviceName: "iOS device", identifier: udid, connectionType: connection == .network ? "Network" : "USB",
+                      productType: "unknown", productVersion: "0")
     }
 
     /// The UDIDs in `usbmux list --simple`: a JSON array of strings (or of
