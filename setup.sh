@@ -276,11 +276,75 @@ migrate_legacy_data() {
   [ "$moved" -eq 0 ] || ok "Copied your saved places and routes from the old folder"
 }
 
+# Start the freshly built app in its self-test mode (no window shown, no focus taken) and check
+# that it gets as far as running. An app built by Swift tools that don't match this Mac's SDK
+# can compile fine and then crash the moment it starts; this catches that before the new copy
+# replaces a working one.
+self_test_app() {
+  local app="$1" exe out pid status waited=0
+  exe="$app/Contents/MacOS/$APP_NAME"
+  if [ "${SPOOFER_SKIP_SELF_TEST:-0}" = 1 ]; then
+    warn "Skipping the start-up test (SPOOFER_SKIP_SELF_TEST=1)."
+    return 0
+  fi
+  out="$(mktemp "${TMPDIR:-/tmp}/anywhere-selftest.XXXXXX")"
+  ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=5 "$exe" >"$out" 2>&1 </dev/null &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge 120 ]; then
+      kill -KILL "$pid" 2>/dev/null || true
+      break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  status=0
+  wait "$pid" 2>/dev/null || status=$?
+  { echo "--- start-up test (status $status, ${waited}s) ---"; cat "$out"; } >>"$LOG"
+  if [ "$status" = 0 ] && grep -q '^SELF-TEST-OK' "$out"; then
+    rm -f "$out"
+    ok "The new app starts"
+    return 0
+  fi
+  rm -f "$out"
+  local repo="${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3}" headline
+  if [ "$waited" -ge 120 ]; then
+    headline="The app was built, but it didn't finish starting within 2 minutes. It was NOT installed."
+  else
+    headline="The app was built, but it crashes as soon as it starts. It was NOT installed."
+  fi
+  fail "$headline" \
+       "Your current copy, if you have one, is untouched." \
+       "This Mac builds with Swift ${SWIFT_VERSION:-?} and the macOS ${SDK_VERSION:-?} SDK, and that combination makes a broken app." \
+       "Download the ready-made app instead (it is built and tested on GitHub):" \
+       "  https://github.com/$repo/releases/latest" \
+       "To install this build anyway, run the command again with SPOOFER_SKIP_SELF_TEST=1 in front of it."
+}
+
+# The login item that `iosgpsspoof serve --install-agent` makes holds the app's path. After the
+# rename that path has the old name in it, so point it at the new one.
+repair_login_item() {
+  local label="com.iosgpsspoof.remote" plist="$HOME/Library/LaunchAgents/com.iosgpsspoof.remote.plist"
+  [ -f "$plist" ] || return 0
+  grep -qF "/$LEGACY_APP_NAME.app/" "$plist" 2>/dev/null || return 0
+  if sed -i '' "s#/$LEGACY_APP_NAME\\.app/#/$APP_NAME.app/#g" "$plist" 2>>"$LOG"; then
+    launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1 || true
+    if launchctl bootstrap "gui/$(id -u)" "$plist" >>"$LOG" 2>&1; then
+      ok "Updated the iPhone Remote login item for the new name"
+    else
+      warn "Updated the login item's path, but couldn't restart it. It starts at your next login."
+    fi
+  fi
+}
+
 install_app() {
   local built app_dir other
   mkdir -p "$ROOT/build"
   built="$(scripts/make-app.sh "$BIN_DIR" "$ROOT/build" 2>>"$LOG" | tail -1)" \
     || fail "Couldn't put the app together."
+
+  note "Checking that the new app starts…"
+  self_test_app "$built"
 
   app_dir="${SPOOFER_APP_DIR:-}"
   if [ -z "$app_dir" ]; then
@@ -289,35 +353,67 @@ install_app() {
   mkdir -p "$app_dir"
   DEST="$app_dir/$APP_NAME.app"
 
+  # Copy beside the old app first, then swap, so a failed copy never leaves the Mac without one.
+  local staging="$app_dir/.$APP_NAME.new.$$" backup="$app_dir/.$APP_NAME.old.$$"
+  rm -rf "$staging" "$backup"
+  if ! ditto "$built" "$staging"; then
+    rm -rf "$staging"
+    fail "Couldn't copy the app into $app_dir." "If that folder belongs to another user, ask an administrator, or set SPOOFER_APP_DIR to a folder you own."
+  fi
+  if ! codesign --verify --deep --strict "$staging" >>"$LOG" 2>&1; then
+    rm -rf "$staging"
+    fail "The copied app failed its signature check, so it was not installed."
+  fi
   quit_running_app
-  rm -rf "$DEST"
-  ditto "$built" "$DEST" || fail "Couldn't copy the app into $app_dir."
+  if [ -e "$DEST" ] && ! mv "$DEST" "$backup" 2>>"$LOG"; then
+    rm -rf "$staging"
+    fail "Couldn't replace the existing app at $DEST." "Close it, or ask an administrator if the folder isn't yours."
+  fi
+  if ! mv "$staging" "$DEST" 2>>"$LOG"; then
+    [ -e "$backup" ] && mv "$backup" "$DEST" 2>/dev/null
+    rm -rf "$staging"
+    fail "Couldn't put the new app in place. The previous copy was put back."
+  fi
+  rm -rf "$backup"
   # One copy only: remove one left in the other standard place by an older install, and
   # any copy that still has the old name (it shares this app's bundle ID, so keeping it
   # makes macOS pick between the two when something opens "the app").
   if [ -z "${SPOOFER_APP_DIR:-}" ]; then
     for other in "/Applications/$APP_NAME.app" "$HOME/Applications/$APP_NAME.app"; do
-      if [ "$other" != "$DEST" ] && [ -d "$other" ]; then rm -rf "$other"; fi
+      if [ "$other" != "$DEST" ] && [ -d "$other" ]; then
+        rm -rf "$other" 2>>"$LOG" || warn "Couldn't remove the other copy at $other (it belongs to another user?)."
+      fi
     done
   fi
-  for other in "/Applications/$LEGACY_APP_NAME.app" "$HOME/Applications/$LEGACY_APP_NAME.app" \
-               "$app_dir/$LEGACY_APP_NAME.app"; do
+  # With SPOOFER_APP_DIR set (CI, tests), only that folder is touched; otherwise the two
+  # standard places are.
+  local legacy_places=("$app_dir/$LEGACY_APP_NAME.app")
+  if [ -z "${SPOOFER_APP_DIR:-}" ]; then
+    legacy_places+=("/Applications/$LEGACY_APP_NAME.app" "$HOME/Applications/$LEGACY_APP_NAME.app")
+  fi
+  for other in "${legacy_places[@]}"; do
     if [ -d "$other" ]; then
-      rm -rf "$other"
-      ok "Removed the old \"$LEGACY_APP_NAME\" app (this one replaces it)"
+      if rm -rf "$other" 2>>"$LOG"; then
+        ok "Removed the old \"$LEGACY_APP_NAME\" app (this one replaces it)"
+      else
+        warn "Couldn't remove the old \"$LEGACY_APP_NAME\" app at $other. Move it to the Trash yourself."
+      fi
     fi
   done
   # Let Spotlight and Launchpad find it straight away.
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
     -f "$DEST" >/dev/null 2>&1 || true
   ok "Installed $DEST"
+  repair_login_item
 }
 
 uninstall() {
   local dir removed=0
   quit_running_app
   local name
-  for dir in /Applications "$HOME/Applications" "${SPOOFER_APP_DIR:-/Applications}"; do
+  local dirs=("${SPOOFER_APP_DIR:-}")
+  [ -n "${SPOOFER_APP_DIR:-}" ] || dirs=(/Applications "$HOME/Applications")
+  for dir in "${dirs[@]}"; do
     for name in "$APP_NAME" "$LEGACY_APP_NAME"; do
       if [ -d "$dir/$name.app" ]; then
         rm -rf "$dir/$name.app"
@@ -327,6 +423,12 @@ uninstall() {
     done
   done
   [ "$removed" = 1 ] || note "The app wasn't in Applications."
+  local agent="$HOME/Library/LaunchAgents/com.iosgpsspoof.remote.plist"
+  if [ -f "$agent" ]; then
+    launchctl bootout "gui/$(id -u)/com.iosgpsspoof.remote" >/dev/null 2>&1 || true
+    rm -f "$agent"
+    ok "Removed the iPhone Remote login item"
+  fi
   rm -rf "$HELPER_DIR" "$SUPPORT_DIR/helpers" "$LEGACY_SUPPORT_DIR/venv" "$LEGACY_SUPPORT_DIR/helpers"
   ok "Removed the iPhone helper (pymobiledevice3)"
   note "Your favorites and saved routes are still in:"

@@ -40,12 +40,12 @@ main() {
   # the developer tools) asks GitHub without the web API's rate limit.
   case "$ref" in
     '' | *[!0-9a-f]*)
-      sha="$(git ls-remote "https://github.com/$repo.git" "$ref" 2>/dev/null | head -1 | cut -f1 || true)" ;;
+      sha="$(GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/usr/bin/true git ls-remote "https://github.com/$repo.git" "$ref" 2>/dev/null | head -1 | cut -f1 || true)" ;;
     *) sha="$ref" ;;   # already a commit
   esac
   case "$sha" in '' | *[!0-9a-f]*) sha="" ;; esac
 
-  if ! curl -fsSL --retry 3 "https://codeload.github.com/$repo/tar.gz/${sha:-$ref}" \
+  if ! curl -fsSL --retry 3 --connect-timeout 15 --max-time 900 "https://codeload.github.com/$repo/tar.gz/${sha:-$ref}" \
        | tar -xzf - -C "$SPOOFER_WORK" --strip-components 1; then
     echo "Couldn't download the app's source code. Check your internet connection and try again." >&2
     exit 1

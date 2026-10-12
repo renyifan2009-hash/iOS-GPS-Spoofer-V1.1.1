@@ -142,16 +142,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.applicationIconImage = AppIconRenderer.image(size: 512)
         }
         MainActor.assumeIsolated {
+            // The screenshot harness and the launch self-test run without a Dock icon and
+            // without ever taking focus.
             #if DEBUG
-            let snapshot = DebugSnapshot.isOn
+            let quiet = DebugSnapshot.isOn || SelfTest.isOn
             DebugSnapshot.start()
             #else
-            let snapshot = false
+            let quiet = SelfTest.isOn
             #endif
-            if !snapshot {
+            if !quiet {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate()
             }
+            SelfTest.begin()
             AppModel.shared.bootstrap()
             RemoteHost.shared.bootstrap()
         }
@@ -164,7 +167,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Closing the window ends the app, as it always did, unless a location is being held: then
+    /// the app keeps running (the Dock icon and the menu bar item bring the window back) rather
+    /// than silently putting the iPhone back to its real location and losing a route's progress.
+    /// ⌘Q still stops and restores, because that is an explicit "quit".
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        MainActor.assumeIsolated { AppModel.shared.session == nil }
+    }
 
     // AppKit calls these on the main thread.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

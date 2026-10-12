@@ -114,26 +114,36 @@ final class Updater {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         let installer = "https://raw.githubusercontent.com/\(repository)/main/install.sh"
-        process.arguments = ["-c", "curl -fsSL '\(installer)' | SPOOFER_REPO='\(repository)' bash"]
+        // pipefail: without it a failed download still ends in "bash read an empty script, status 0",
+        // and the app would say "Updating…" for ever.
+        process.arguments = ["-c", "set -o pipefail; curl -fsSL --connect-timeout 15 --max-time 120 '\(installer)' | SPOOFER_REPO='\(repository)' bash"]
         process.standardInput = FileHandle.nullDevice
         if let log = try? FileHandle(forWritingTo: logURL) {
             process.standardOutput = log
             process.standardError = log
         }
-        process.terminationHandler = { finished in
-            let status = finished.terminationStatus
+        process.terminationHandler = { _ in
+            // On success the installer quits this app, so if this app is still here, the update
+            // did not finish, whatever the exit status says. The log says why.
+            let reason = InstallLog.failureHeadline(inFileAt: logURL)
             Task { @MainActor in
-                // Still running after the installer finished: it failed
-                // before it got to replacing the app.
-                guard status != 0 else { return }
-                Updater.shared.state = .failed("The update stopped with an error. Details: ~/Library/Logs/AnyWhere/update.log")
-                AppModel.shared.appendLog("The update failed. See ~/Library/Logs/AnyWhere/update.log", level: .error)
+                guard Updater.shared.state == .updating else { return }
+                let detail = reason.map { "\($0) " } ?? ""
+                Updater.shared.state = .failed("The update didn't finish. \(detail)Details: ~/Library/Logs/AnyWhere/update.log")
+                AppModel.shared.appendLog("The update didn't finish. \(detail)See ~/Library/Logs/AnyWhere/update.log", level: .error)
             }
         }
         do {
             try process.run()
             state = .updating
             AppModel.shared.appendLog("Updating: downloading and building the newest version…", level: .info)
+            // A build that has not finished after 25 minutes is stuck.
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(25 * 60))
+                guard Updater.shared.state == .updating else { return }
+                if process.isRunning { process.terminate() }
+                Updater.shared.state = .failed("The update took too long and was stopped. Details: ~/Library/Logs/AnyWhere/update.log")
+            }
         } catch {
             state = .failed("Couldn't start the installer: \(error.localizedDescription)")
         }

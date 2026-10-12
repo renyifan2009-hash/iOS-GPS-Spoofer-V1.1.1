@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+    # A tag like v2.4.0 builds everything and then publishes a GitHub Release (see `release`).
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -11,8 +13,13 @@ on:
         type: boolean
         default: false
 
+# Least privilege by default; only the release job may write.
+permissions:
+  contents: read
+
+# A push to main must not cancel a release build started by hand on the same ref.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -149,11 +156,30 @@ jobs:
       - name: Package the app
         run: |
           VERSION="$(tr -d '[:space:]' < VERSION)"
-          if [ "${{ inputs.release_build }}" != "true" ]; then
+          if [ "${{ inputs.release_build }}" != "true" ] && [ "$GITHUB_REF_TYPE" != "tag" ]; then
             VERSION="$VERSION-ci.${GITHUB_RUN_NUMBER}"
           fi
           VERSION="$VERSION" ./package-dmg.sh
           ls -la dist
+
+      # The app that was just packaged must start. Nothing else in CI launches the release app,
+      # so a crash that only the release build has would pass every other step.
+      - name: The packaged app starts (launch self-test)
+        run: |
+          ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=6 "build/AnyWhere.app/Contents/MacOS/AnyWhere" \
+            | tee "$RUNNER_TEMP/selftest-app.txt"
+          grep -q '^SELF-TEST-OK' "$RUNNER_TEMP/selftest-app.txt"
+
+      - name: The app inside the DMG starts too
+        run: |
+          MOUNT="$(mktemp -d)"
+          hdiutil attach dist/*.dmg -mountpoint "$MOUNT" -nobrowse -readonly -quiet
+          ditto "$MOUNT/AnyWhere.app" "$RUNNER_TEMP/AnyWhere.app"
+          hdiutil detach "$MOUNT" -quiet
+          codesign --verify --deep --strict "$RUNNER_TEMP/AnyWhere.app"
+          ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=6 "$RUNNER_TEMP/AnyWhere.app/Contents/MacOS/AnyWhere" \
+            | tee "$RUNNER_TEMP/selftest-dmg.txt"
+          grep -q '^SELF-TEST-OK' "$RUNNER_TEMP/selftest-dmg.txt"
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
@@ -229,6 +255,12 @@ jobs:
       - name: Unit tests
         run: swift test
 
+      - name: The release app starts (launch self-test)
+        run: |
+          BIN="$(swift build -c release --show-bin-path)/iosgpsspoofer-gui"
+          ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=6 "$BIN" | tee "$RUNNER_TEMP/selftest.txt"
+          grep -q '^SELF-TEST-OK' "$RUNNER_TEMP/selftest.txt"
+
   # A tester's setup that once broke the build: a newer Swift from swift.org
   # (installed with swiftly) paired with the older macOS 15 SDK of Command Line
   # Tools / Xcode 16. The compiler is new enough for Liquid Glass but the SDK
@@ -257,6 +289,15 @@ jobs:
         run: |
           . "$HOME/.swiftly/env.sh"
           swift build -c release
+
+      # This is the combination that crashed on a tester's Mac, so compiling is not enough:
+      # the app built this way has to start.
+      - name: The app built this way starts (launch self-test)
+        run: |
+          . "$HOME/.swiftly/env.sh"
+          BIN="$(swift build -c release --show-bin-path)/iosgpsspoofer-gui"
+          ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=6 "$BIN" | tee "$RUNNER_TEMP/selftest.txt"
+          grep -q '^SELF-TEST-OK' "$RUNNER_TEMP/selftest.txt"
 
   iphone-remote:
     name: Build · AnyWhere iPhone app
@@ -313,3 +354,31 @@ jobs:
           path: AnyWhere.ipa
           if-no-files-found: error
           retention-days: 14
+
+  # A pushed tag like v2.4.0 publishes the DMG and the iPhone app as a GitHub Release, with a
+  # checksum file, once every job above has passed. The app's own "Open Releases" links and the
+  # README's download route point here.
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [live-helper, macos, installer, macos-xcode26, macos-swiftorg-old-sdk, iphone-remote]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the DMG and the iPhone app
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd artifacts
+          ls -R
+          sha256sum ./*/*.dmg ./*/*.ipa | sed 's#  [^ ]*/#  #' > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "AnyWhere ${GITHUB_REF_NAME#v}" --generate-notes \
+            ./*/*.dmg ./*/*.ipa SHA256SUMS.txt

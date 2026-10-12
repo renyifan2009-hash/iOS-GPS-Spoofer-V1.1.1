@@ -7,9 +7,10 @@ extension AppModel {
     private static let declinedOldAppCleanupKey = "declinedOldAppCleanup"
 
     /// Offer, once, to move an old-named copy to the Trash. A "Keep It" answer is remembered.
-    /// Never runs in development builds or in the screenshot/demo modes.
+    /// Never runs in development builds, the screenshot/demo modes or the launch self-test.
     func offerToRemoveOldApp() {
         guard Bundle.main.bundleIdentifier != nil,
+              !SelfTest.isOn,   // a self-test must never put a window or an alert in anyone's way
               ProcessInfo.processInfo.environment["SPOOFER_SNAPSHOT"] == nil,
               !UserDefaults.standard.bool(forKey: Self.declinedOldAppCleanupKey) else { return }
         let leftovers = LegacyApp.leftovers(excluding: Bundle.main.bundleURL)

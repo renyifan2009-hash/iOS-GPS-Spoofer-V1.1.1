@@ -32,9 +32,30 @@ after each working chunk, log assumptions here, never stop on one blocked item.
 | A3 | Old data folders migrate to the new name on first launch (copy, never delete). | Favorites and saved routes must survive the rename. |
 | A4 | The GitHub repo is not renamed from here. | Renaming a repo is outward-facing; it needs the owner (`renyifan2009-hash`). |
 
+## Incident (mine, 03:00 PDT): a test removed the real old app from /Applications
+
+While testing the new installer in a sandbox (temporary HOME and `SPOOFER_APP_DIR`, `launchctl` stubbed),
+`setup.sh`'s cleanup of old-named apps also looked in the hard-coded `/Applications` and removed the real
+`/Applications/iOS GPS Spoofer.app` on this Mac. It was not running. Nothing else was touched: saved
+places (`~/Library/Application Support/iOS GPS Spoofer/`), the helper environment and the library are
+intact, and `launchctl` was a stub, so no login item was changed.
+
+- **Root cause (fixed):** with `SPOOFER_APP_DIR` set, `setup.sh` must touch only that folder, for both the
+  install-time cleanup and `--uninstall`. It now does.
+- **Restored:** rebuilt and reinstalled the previous version (v2.3.0, commit 1dece0f, from `main`) with the
+  old installer into `/Applications`, so this Mac is back to the state it was in. See the progress log.
+- **Lesson applied:** every later installer test sets `SPOOFER_APP_DIR` and a temporary `HOME`.
+
 ## Progress log
 
-(appended as chunks land)
+| Time | Commit | What |
+|---|---|---|
+| 02:36 | e74dbe6 | AnyWhere rename in scripts/CI, icon pipeline (`brand/make-icons.py`), data migration, tests |
+| 02:41 | 01166cb | iPhone product name, ™ on main surfaces, offer to trash the old-named app |
+| 02:47 | 0e7da80 | Pairing-file assistant (File ▸ Pairing File for the iPhone App…, ⇧⌘K), Desktop default, readiness messages |
+| 02:50 | 07dd249 | Docs: names table, download-the-app install route, pairing steps |
+| 02:55 | 55eb6dc | Palette follows the logo; offscreen renderer for UI checks |
+| 03:00 | (next) | Launch self-test (`ANYWHERE_SELF_TEST=1`), installer gate + atomic swap + login-item repair, updater reports failures, CI runs the app |
 
 ## Blocked / needs a real device or the owner
 
