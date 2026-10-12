@@ -420,14 +420,17 @@ private final class RouteXMLDelegate: NSObject, XMLParserDelegate {
 
     /// KML `<coordinates>`: whitespace-separated `lon,lat[,alt]` tuples. Some
     /// tools write `lon, lat, alt` with spaces after the commas, so a comma
-    /// joins the pieces on either side of it into one tuple.
+    /// joins the pieces on either side of it into one tuple, as long as that
+    /// still makes a tuple (two commas at most). Otherwise `1,2,0, 3,4,0`, a
+    /// tuple with a stray comma after it, would swallow the next one.
     private func kmlCoordinates(_ text: String) -> [GeoPoint] {
+        func commas(_ s: some StringProtocol) -> Int { s.reduce(0) { $1 == "," ? $0 + 1 : $0 } }
         var tuples: [String] = []
         var pending = ""
         for token in text.split(whereSeparator: { $0.isWhitespace }) {
             if pending.isEmpty {
                 pending = String(token)
-            } else if pending.hasSuffix(",") || token.hasPrefix(",") {
+            } else if (pending.hasSuffix(",") || token.hasPrefix(",")), commas(pending) + commas(token) <= 2 {
                 pending += token
             } else {
                 tuples.append(pending)

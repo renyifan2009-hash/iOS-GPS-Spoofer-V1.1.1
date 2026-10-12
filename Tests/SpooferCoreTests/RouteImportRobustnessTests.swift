@@ -225,6 +225,11 @@ final class RouteImportRobustnessTests: XCTestCase {
         let route = try RouteImporter.parse(Data(kml.utf8))
         XCTAssertEqual(route.points, [GeoPoint(48.8584, 2.2945), GeoPoint(48.86, 2.3), GeoPoint(48.865, 2.31)])
         XCTAssertEqual(route.skippedPoints, 0)
+
+        // A stray comma after a whole tuple doesn't join it to the next one.
+        let stray = #"<kml><Placemark><LineString><coordinates>2.29,48.85,0, 2.30,48.86,0, 2.31,48.87,0,</coordinates></LineString></Placemark></kml>"#
+        XCTAssertEqual(try RouteImporter.parse(Data(stray.utf8)).points,
+                       [GeoPoint(48.85, 2.29), GeoPoint(48.86, 2.3), GeoPoint(48.87, 2.31)])
     }
 
     // MARK: Times
