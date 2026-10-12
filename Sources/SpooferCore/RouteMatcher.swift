@@ -106,7 +106,12 @@ public struct RouteMatcher: Sendable {
                 from = found
             } else {
                 let previous = result.last ?? 0
-                let pass = passes(near: waypoint, radius: 200).first { $0.distance >= previous - 1 }
+                let ahead = passes(near: waypoint, radius: 200).filter { $0.distance >= previous - 1 }
+                // Where the route really goes by the waypoint (within 30 m) the first time
+                // after the last one, else where it comes closest. Taking simply the first
+                // pass within 200 m picked the road a block earlier whenever the stretch
+                // beside the waypoint was one long straight segment.
+                let pass = ahead.first { $0.offset <= 30 } ?? ahead.min { $0.offset < $1.offset }
                 result.append(pass?.distance ?? previous)
             }
         }
