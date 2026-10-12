@@ -38,10 +38,18 @@ struct SpooferGUIApp: App {
         .menuBarExtraStyle(.window)
     }
 
+    /// SwiftUI writes this binding back while it updates the scene (macOS 15 does, and on a Mac whose
+    /// menu bar item can't be shown it does so every time). An @Observable setter invalidates its
+    /// observers even for an unchanged value, so each write made the scene update itself again, for
+    /// ever: the main thread ran at 100% CPU and the app was frozen. Only a real change is stored.
     private var menuBarInserted: Binding<Bool> {
         Binding(
             get: { Preferences.shared.showMenuBarExtra },
-            set: { Preferences.shared.showMenuBarExtra = $0 }
+            set: { newValue in
+                if Preferences.shared.showMenuBarExtra != newValue {
+                    Preferences.shared.showMenuBarExtra = newValue
+                }
+            }
         )
     }
 }
