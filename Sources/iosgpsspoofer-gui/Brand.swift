@@ -14,6 +14,19 @@ enum Brand {
     static let danger = Color(red: 0.94, green: 0.27, blue: 0.27)    // #EF4444
     static let night = Color(red: 0.015, green: 0.09, blue: 0.25)    // #04173F  hero backgrounds
 
+    // For small text (the tones and why are in Logic/TextTones.swift, with a test of their contrast).
+    static let warningText = adaptive(TextTones.warning)
+    static let liveText = adaptive(TextTones.live)
+    static let dangerText = adaptive(TextTones.danger)
+
+    private static func adaptive(_ tone: TextTones.Tone) -> Color {
+        let light = tone.light, dark = tone.dark
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            let c = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+            return NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: 1)
+        })
+    }
+
     static var gradient: LinearGradient {
         LinearGradient(colors: [indigo, sky], startPoint: .topLeading, endPoint: .bottomTrailing)
     }
@@ -240,6 +253,9 @@ struct ChoiceChip: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: selected)
+        // The look says which one is chosen. VoiceOver needs to be told.
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -342,6 +358,33 @@ struct ScrubBar: View {
         }
         .frame(height: 16)
         .animation(.easeOut(duration: 0.2), value: fraction)
+        // A drag-only bar is invisible to VoiceOver and the keyboard: give it a value, and
+        // Up and Down (VoiceOver's adjust) to move it in 5% steps.
+        .accessibilityElement()
+        .accessibilityLabel("Route progress")
+        .accessibilityValue("\(Int((min(max(fraction, 0), 1) * 100).rounded())) percent")
+        .accessibilityAdjustable(if: interactive) { direction in
+            switch direction {
+            case .increment: onSeek(min(1, fraction + 0.05))
+            case .decrement: onSeek(max(0, fraction - 0.05))
+            @unknown default: break
+            }
+        }
+    }
+}
+
+extension View {
+    /// `accessibilityAdjustableAction`, only when the control can really be adjusted.
+    @ViewBuilder
+    func accessibilityAdjustable(if condition: Bool,
+                                 _ action: @escaping (AccessibilityAdjustmentDirection) -> Void) -> some View {
+        if condition { accessibilityAdjustableAction(action) } else { self }
+    }
+
+    /// A named VoiceOver action, only when it applies (no "Move up" on the first stop).
+    @ViewBuilder
+    func accessibilityAction(named name: Text, if condition: Bool, _ handler: @escaping () -> Void) -> some View {
+        if condition { accessibilityAction(named: name, handler) } else { self }
     }
 }
 

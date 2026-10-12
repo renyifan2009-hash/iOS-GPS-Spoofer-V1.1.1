@@ -12,6 +12,10 @@ struct StatusDisplay: Equatable {
     var busy: Bool
     /// The device is following us right now (pulse the indicator).
     var live: Bool
+    /// The colour for small text in this state (see Brand.warningText): the bright tint is too
+    /// faint on a light window. Nil: the tint itself.
+    var textTint: Color? = nil
+    var labelTint: Color { textTint ?? tint }
 }
 
 extension AppModel {
@@ -23,21 +27,23 @@ extension AppModel {
         case .connecting(let message):
             // "Mounting the developer disk image…" means nothing to most people.
             return StatusDisplay(title: "Connecting", detail: SessionWording.friendly(connecting: message), tint: Brand.warning,
-                                 symbol: "antenna.radiowaves.left.and.right", busy: true, live: false)
+                                 symbol: "antenna.radiowaves.left.and.right", busy: true, live: false,
+                                 textTint: Brand.warningText)
         case .reconnecting(let message):
             if let session, session.isWaitingForDevice {
                 return StatusDisplay(title: "Unplugged",
                                      detail: "Plug \(session.device.deviceName) back in to keep going, or click Stop.",
-                                     tint: Brand.warning, symbol: "cable.connector.slash", busy: false, live: false)
+                                     tint: Brand.warning, symbol: "cable.connector.slash", busy: false, live: false,
+                                     textTint: Brand.warningText)
             }
             return StatusDisplay(title: "Reconnecting", detail: message, tint: Brand.warning,
-                                 symbol: "cable.connector", busy: true, live: false)
+                                 symbol: "cable.connector", busy: true, live: false, textTint: Brand.warningText)
         case .stopping:
             return StatusDisplay(title: "Restoring", detail: "Restoring the real location…", tint: Brand.warning,
-                                 symbol: "location.slash", busy: true, live: false)
+                                 symbol: "location.slash", busy: true, live: false, textTint: Brand.warningText)
         case .failed(let message):
             return StatusDisplay(title: "Error", detail: message, tint: Brand.danger,
-                                 symbol: "exclamationmark.triangle.fill", busy: false, live: false)
+                                 symbol: "exclamationmark.triangle.fill", busy: false, live: false, textTint: Brand.dangerText)
         case .active, .replaying:
             switch activity {
             case .routing:
@@ -47,16 +53,16 @@ extension AppModel {
                 }
                 if isPaused {
                     return StatusDisplay(title: "Paused", detail: "Route paused.", tint: Brand.warning,
-                                         symbol: "pause.fill", busy: false, live: true)
+                                         symbol: "pause.fill", busy: false, live: true, textTint: Brand.warningText)
                 }
                 return StatusDisplay(title: "Moving", detail: "Following the route.", tint: Brand.live,
-                                     symbol: "point.topleft.down.to.point.bottomright.curvepath", busy: false, live: true)
+                                     symbol: "point.topleft.down.to.point.bottomright.curvepath", busy: false, live: true, textTint: Brand.liveText)
             case .joystick:
                 return StatusDisplay(title: "Joystick", detail: "Steer with the pad, arrow keys or WASD.", tint: Brand.live,
-                                     symbol: "gamecontroller.fill", busy: false, live: true)
+                                     symbol: "gamecontroller.fill", busy: false, live: true, textTint: Brand.liveText)
             case .holding, .none:
                 return StatusDisplay(title: "Live", detail: "Holding the simulated location.", tint: Brand.live,
-                                     symbol: "location.fill", busy: false, live: true)
+                                     symbol: "location.fill", busy: false, live: true, textTint: Brand.liveText)
             }
         }
     }
@@ -80,7 +86,7 @@ struct StatusPill: View {
         .padding(.vertical, 4)
         .background(status.tint.opacity(0.14), in: Capsule())
         .overlay(Capsule().strokeBorder(status.tint.opacity(0.25), lineWidth: 0.5))
-        .foregroundStyle(status.tint == .secondary ? Color.secondary : status.tint)
+        .foregroundStyle(status.tint == .secondary ? Color.secondary : status.labelTint)
         .fixedSize()
         .animation(.easeOut(duration: 0.2), value: status)
     }
@@ -229,6 +235,9 @@ struct SpeedChips: View {
                 }
                 .buttonStyle(.plain)
                 .help(preset.name)
+                // Icon-only: without a name VoiceOver reads the symbol's file name.
+                .accessibilityLabel(preset.name)
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
     }
@@ -362,24 +371,25 @@ struct EngineBadge: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
         .background(d.color.opacity(0.14), in: Capsule())
-        .foregroundStyle(d.color)
+        .foregroundStyle(d.ink)
         .fixedSize()
         .help(d.help)
     }
 
-    private var describe: (text: String, symbol: String, color: Color, help: String) {
+    /// `ink` is the colour of the letters: darker than `color` on a light window (Brand.warningText).
+    private var describe: (text: String, symbol: String, color: Color, ink: Color, help: String) {
         if let engine {
             return engine == .live
-                ? ("INSTANT", "bolt.fill", Brand.live, "Live engine: one open channel, instant moves.")
-                : ("CLASSIC", "tortoise.fill", Brand.warning, "Classic engine: a new tunnel per move; routes replay as GPX.")
+                ? ("INSTANT", "bolt.fill", Brand.live, Brand.liveText, "Live engine: one open channel, instant moves.")
+                : ("CLASSIC", "tortoise.fill", Brand.warning, Brand.warningText, "Classic engine: a new tunnel per move; routes replay as GPX.")
         }
         switch status {
         case .checking:
-            return ("CHECKING", "hourglass", .secondary, "Checking whether the live engine works with your pymobiledevice3…")
+            return ("CHECKING", "hourglass", .secondary, .secondary, "Checking whether the live engine works with your pymobiledevice3…")
         case .live:
-            return ("INSTANT", "bolt.fill", Brand.live, "The live engine is ready: instant moves, smooth routes, joystick.")
+            return ("INSTANT", "bolt.fill", Brand.live, Brand.liveText, "The live engine is ready: instant moves, smooth routes, joystick.")
         case .classicOnly(let reason):
-            return ("CLASSIC", "tortoise.fill", Brand.warning, "Live engine unavailable: \(reason)")
+            return ("CLASSIC", "tortoise.fill", Brand.warning, Brand.warningText, "Live engine unavailable: \(reason)")
         }
     }
 }
@@ -405,6 +415,9 @@ struct SetupCheckRow: View {
                     IconTile(symbol: "clock", colors: TileColors.gray, size: 22)
                 }
             }
+            // The icon is the only thing that says how the step is going.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Self.stateWord(check.state))
             VStack(alignment: .leading, spacing: 2) {
                 Text(check.title).font(.system(size: 13, weight: .semibold))
                 Text(check.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -424,6 +437,16 @@ struct SetupCheckRow: View {
         .animation(.easeOut(duration: 0.25), value: check.state)
     }
 
+    static func stateWord(_ state: SetupCheck.State) -> String {
+        switch state {
+        case .ok: return "Done"
+        case .pending: return "In progress"
+        case .warning: return "Needs attention"
+        case .failed: return "Not done"
+        case .later: return "Not yet"
+        }
+    }
+
     /// What the helper installer is doing or why it stopped, in the row, where the person is looking.
     /// (A failure used to show only in the Activity log, so Install seemed to do nothing.)
     @ViewBuilder
@@ -436,13 +459,13 @@ struct SetupCheckRow: View {
         case .needsDeveloperTools:
             VStack(alignment: .leading, spacing: 4) {
                 Text("The helper needs Python, which comes with Apple's developer tools. Install those first, then click Install again.")
-                    .font(.caption).foregroundStyle(Brand.warning).fixedSize(horizontal: false, vertical: true)
+                    .font(.caption).foregroundStyle(Brand.warningText).fixedSize(horizontal: false, vertical: true)
                 Button("Install Developer Tools") { installer.installDeveloperTools() }
                     .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
             }
         case .failed(let message):
             Text("The install stopped: \(message)")
-                .font(.caption).foregroundStyle(Brand.warning).fixedSize(horizontal: false, vertical: true)
+                .font(.caption).foregroundStyle(Brand.warningText).fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         case .idle, .finished:
             EmptyView()

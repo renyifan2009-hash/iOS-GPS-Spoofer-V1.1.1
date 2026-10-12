@@ -12,6 +12,10 @@ extension AppModel {
     func showToast(_ toast: Toast, duration: TimeInterval = 2.8) {
         toastTask?.cancel()
         self.toast = toast
+        // A note that fades by itself is gone before VoiceOver would reach it: say it out loud.
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: [toast.title, toast.subtitle].compactMap { $0 }.joined(separator: ". "),
+                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
         let id = toast.id
         toastTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(duration * 1000)))

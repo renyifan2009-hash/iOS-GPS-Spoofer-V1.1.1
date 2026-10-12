@@ -286,6 +286,9 @@ struct ModeSwitcher: View {
                 }
                 .buttonStyle(.plain)
                 .help(help(for: item))
+                .accessibilityLabel(item.label)
+                .accessibilityHint(help(for: item))
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
         .padding(3)
@@ -357,6 +360,7 @@ struct SearchBar: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel("Clear search")
                 } else {
                     Text("⌘F")
                         .font(.system(size: 10.5, weight: .semibold, design: .rounded))
@@ -376,6 +380,10 @@ struct SearchBar: View {
                         suggestionRow(suggestion, highlighted: index == search.highlighted)
                             .onTapGesture { choose(index) }
                             .onHover { inside in if inside { search.highlighted = index } }
+                            // A tap gesture is not a button to VoiceOver: say so, and what it does.
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { choose(index) }
                     }
                 }
                 .padding(6)
@@ -474,6 +482,8 @@ struct MapControls: View {
             .menuIndicator(.hidden)
             .frame(width: 32, height: 32)
             .help("Map style")
+            .accessibilityLabel("Map style")
+            .accessibilityValue(prefs.mapStyle.label)
 
             Button {
                 model.fitMap()
@@ -482,6 +492,7 @@ struct MapControls: View {
             }
             .buttonStyle(CircleIconButtonStyle())
             .help("Fit the map to what matters (⌘0)")
+            .accessibilityLabel("Fit the map")
 
             Button {
                 if model.isFollowingDevice { model.stopFollowingDevice() } else { model.recenterOnDevice() }
@@ -493,6 +504,7 @@ struct MapControls: View {
             .disabled(model.session == nil || model.devicePosition == nil)
             .help(following ? "Following your iPhone. Click to stop (⌘L)"
                             : "Re-center on your iPhone and follow it (⌘L)")
+            .accessibilityLabel(following ? "Stop following your iPhone" : "Follow your iPhone")
         }
         .padding(5)
         .glassPanel(cornerRadius: 22)
@@ -738,12 +750,12 @@ struct SetupCard: View {
         case .needsDeveloperTools:
             Label("This Mac needs Apple's Command Line Tools first. They're free and include Python. Click Install Developer Tools, follow Apple's installer, then click Install again.",
                   systemImage: "info.circle.fill")
-                .font(.callout).foregroundStyle(Brand.warning)
+                .font(.callout).foregroundStyle(Brand.warningText)
                 .fixedSize(horizontal: false, vertical: true)
         case .failed(let message):
             VStack(alignment: .leading, spacing: 6) {
                 Label("That didn't work.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout.weight(.medium)).foregroundStyle(Brand.danger)
+                    .font(.callout.weight(.medium)).foregroundStyle(Brand.dangerText)
                 Text(message).font(.caption.monospaced()).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(6)

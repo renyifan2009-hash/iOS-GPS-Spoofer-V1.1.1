@@ -39,7 +39,7 @@ struct WelcomeView: View {
                         if model.setupIsComplete {
                             Label("All set", systemImage: "checkmark.seal.fill")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(Brand.live)
+                                .foregroundStyle(Brand.liveText)
                                 .transition(.scale.combined(with: .opacity))
                         }
                     }

@@ -72,6 +72,7 @@ struct SidebarView: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Rescan for devices (also automatic every \(Int(prefs.autoRefreshInterval)) s)")
+                        .accessibilityLabel("Rescan for devices")
                     }
                 }
             }
@@ -177,6 +178,7 @@ struct SidebarFooter: View {
             }
             .buttonStyle(.borderless)
             .help("Setup checklist")
+            .accessibilityLabel("Setup checklist")
             Button {
                 model.openPairingFileAssistant()
             } label: {
@@ -184,11 +186,13 @@ struct SidebarFooter: View {
             }
             .buttonStyle(.borderless)
             .help("Pairing file for the iPhone app (⇧⌘K)")
+            .accessibilityLabel("Pairing file for the iPhone app")
             SettingsLink {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
             .help("Settings (⌘,)")
+            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -233,7 +237,7 @@ struct DeviceRow: View {
                     PulsingDot(color: status.tint, size: 6, active: status.live)
                     Text(status.title.uppercased())
                         .font(.system(size: 9, weight: .bold, design: .rounded))
-                        .foregroundStyle(status.tint)
+                        .foregroundStyle(status.labelTint)
                 }
             }
         }

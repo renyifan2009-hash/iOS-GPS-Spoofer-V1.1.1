@@ -142,6 +142,7 @@ struct HUDView: View {
                 }
                 .buttonStyle(CircleIconButtonStyle(size: 30))
                 .help(model.isPaused ? "Resume (⇧⌘P)" : "Pause (⇧⌘P)")
+                .accessibilityLabel(model.isPaused ? "Resume the route" : "Pause the route")
             }
             if model.activity == .routing {
                 Button {
@@ -151,6 +152,7 @@ struct HUDView: View {
                 }
                 .buttonStyle(CircleIconButtonStyle(size: 30))
                 .help("Back to the start of the route")
+                .accessibilityLabel("Back to the start of the route")
             }
         }
         .fixedSize()
@@ -451,6 +453,10 @@ struct JoystickPad: View {
         )
         .opacity(active ? 1 : 0.65)
         .help(active ? "Drag to move the device" : "Start the joystick first")
+        // A drag-only pad: VoiceOver gets a name and the keys that do the same job.
+        .accessibilityElement()
+        .accessibilityLabel("Joystick pad")
+        .accessibilityHint(active ? "Steer with the W, A, S and D keys or the arrow keys." : "Start the joystick first.")
     }
 
     private var knobOffset: CGSize {
