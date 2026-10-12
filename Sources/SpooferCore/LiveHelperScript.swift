@@ -33,10 +33,16 @@ extension LiveHelper {
 #
 # EOF on stdin means the parent app died: the location is cleared and the
 # helper exits, so a crashed app never leaves a phone stuck somewhere.
+#
+# A `set` or `clear` the iPhone doesn't answer within SET_TIMEOUT seconds means
+# the channel is dead (a cable pulled, a tunnel gone). The helper then reports
+# it and exits at once, so the app opens a new channel. It does not wait for
+# the dead channel to close, because that can hang as well.
 
 import asyncio
 import importlib
 import inspect
+import os
 import queue
 import sys
 import threading
@@ -45,6 +51,7 @@ PROTOCOL = 1
 PREFIX = "@@spoof "
 INCOMPATIBLE_EXIT = 86
 EOF = object()
+SET_TIMEOUT = 15
 
 SERVICE_CLASSES = (
     ("pymobiledevice3.services.dvt.instruments.location_simulation", "LocationSimulation"),
@@ -74,6 +81,29 @@ def emit(*parts):
 def describe(error):
     text = str(error).replace("\n", " ").strip()
     return type(error).__name__ + (": " + text if text else "")
+
+
+def leave_now(status):
+    # The channel is dead and closing it can hang too: go without cleaning up.
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    os._exit(status)
+
+
+EXIT_NOW = leave_now   # tests swap this out
+
+
+async def bounded(call, what):
+    # Wait for the iPhone, but not for ever.
+    try:
+        return await asyncio.wait_for(call, timeout=SET_TIMEOUT)
+    except asyncio.TimeoutError:
+        emit("ERROR", "timed out: the iPhone did not answer %s within %s seconds" % (what, SET_TIMEOUT))
+        EXIT_NOW(1)
+        raise
 
 
 def parse_command(raw):
@@ -153,14 +183,18 @@ async def serve_async(service, original_set, stream):
             kind = command[0]
             if kind == "set":
                 try:
-                    await original_set(service, command[1], command[2])
+                    await bounded(original_set(service, command[1], command[2]), "a new location")
+                except asyncio.TimeoutError:
+                    raise   # `bounded` has said so
                 except Exception as error:
                     emit("ERROR", describe(error))
                     raise
                 emit("OK", repr(command[1]), repr(command[2]))
             elif kind == "clear":
                 try:
-                    await service.clear()
+                    await bounded(service.clear(), "the clear")
+                except asyncio.TimeoutError:
+                    raise
                 except Exception as error:
                     emit("ERROR", describe(error))
                     raise
@@ -177,6 +211,7 @@ async def serve_async(service, original_set, stream):
 
 
 # ---- sync services (pymobiledevice3 < 9) -----------------------------------
+# These can't be timed out from here. The app watches for an answer instead.
 
 def _clear_quietly_sync(service):
     try:

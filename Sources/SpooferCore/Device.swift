@@ -97,11 +97,28 @@ public enum ConnectionFilter: String, CaseIterable, Sendable {
 extension Pymobiledevice3 {
     /// All currently reachable paired devices, de-duplicated by UDID (a device
     /// paired over both USB and Wi-Fi is listed once, preferring the USB link).
+    ///
+    /// `usbmux list` opens a connection to every device usbmuxd knows, and one
+    /// that can't be reached (a Wi-Fi iPhone that is asleep, say) makes the
+    /// whole command fail. When that happens the list is read again for
+    /// cable-connected devices only, which are the ones that can be spoofed
+    /// reliably anyway. The first error is kept if that fails too.
     public func listDevices() throws -> [Device] {
-        let json = try run(["usbmux", "list"], timeout: 20)
-        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { return [] }
-        let raw = try JSONDecoder().decode([Device].self, from: data)
+        try readDevices().devices
+    }
+
+    /// The devices, and whether only cable-connected ones could be read (the
+    /// full list failed). A phone that is on Wi-Fi only can be missing then.
+    private func readDevices() throws -> (devices: [Device], cableOnly: Bool) {
+        let raw: [Device]
+        var cableOnly = false
+        do {
+            raw = try Self.decodeDevices(run(["usbmux", "list"], timeout: 20))
+        } catch {
+            guard let usbOnly = try? Self.decodeDevices(run(["usbmux", "list", "--usb"], timeout: 15)) else { throw error }
+            raw = usbOnly
+            cableOnly = true
+        }
 
         var byUDID: [String: Device] = [:]
         for device in raw {
@@ -113,10 +130,17 @@ extension Pymobiledevice3 {
         }
         // Preserve first-seen order.
         var seen = Set<String>()
-        return raw.compactMap { d in
+        let devices = raw.compactMap { d -> Device? in
             guard seen.insert(d.udid).inserted else { return nil }
             return byUDID[d.udid]
         }
+        return (devices, cableOnly)
+    }
+
+    private static func decodeDevices(_ json: String) throws -> [Device] {
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { return [] }
+        return try JSONDecoder().decode([Device].self, from: data)
     }
 
     public func listDevicesAsync() async throws -> [Device] {
@@ -174,32 +198,55 @@ extension Pymobiledevice3 {
     /// Throws when there's no lockdown record to save. When only the Remote
     /// Pairing identity can't be made, the file is still saved and the result
     /// says why, so the caller can tell the user.
+    ///
+    /// The file is made in a private folder (only this user can open it) and
+    /// moved to `url` once it is complete. It is never written where other
+    /// users of this Mac could read it, not even for a moment.
     @discardableResult
     public func exportPairingFile(udid: String, to url: URL) throws -> PairingExport {
+        let fm = FileManager.default
         _ = try? run(["lockdown", "wifi-connections", "on", "--udid", udid], timeout: 30)
-        try? FileManager.default.removeItem(at: url)
-        _ = try run(["lockdown", "save-pair-record", url.path, "--udid", udid], timeout: 30)
+
+        let staging = fm.temporaryDirectory.appendingPathComponent("anywhere-pairing-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: staging, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? fm.removeItem(at: staging) }
+        let draft = staging.appendingPathComponent("pairing.plist")
         // A key to the iPhone: no other user of this Mac should read it.
-        let protect = { _ = try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
-        protect()
-        // save-pair-record only logs "no pairing record was found" and exits 0.
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
-            try? FileManager.default.removeItem(at: url)
-            throw SpoofError("this Mac has no pairing record for the iPhone. Unplug it, plug it back in, tap Trust, then try again.")
+        let protect = { (file: URL) in _ = try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+
+        let noRecord = SpoofError("this Mac has no pairing record for the iPhone. Unplug it, plug it back in, tap Trust, then try again.")
+        do {
+            _ = try run(["lockdown", "save-pair-record", draft.path, "--udid", udid], timeout: 30)
+        } catch {
+            // Current pymobiledevice3 exits with an error and says no record was found.
+            if "\(error)".lowercased().contains("no pairing record") { throw noRecord }
+            throw error
         }
+        protect(draft)
+        // Older versions only log "no pairing record was found" and exit 0.
+        guard let data = try? Data(contentsOf: draft), !data.isEmpty else { throw noRecord }
         guard let lockdown = try? PairingRecord(data: data), lockdown.hasLockdownRecord else {
-            try? FileManager.default.removeItem(at: url)
             throw SpoofError("the pairing record pymobiledevice3 saved for the iPhone is incomplete. Unplug the iPhone, plug it back in, tap Trust, then try again.")
         }
+        var problem: String?
         do {
             let record = try lockdown.settingRemotePairing(try remotePairingIdentity(udid: udid))
-            try record.data.write(to: url, options: .atomic)
+            try record.data.write(to: draft, options: .atomic)
             // Written as a new file, with the usual permissions again.
-            protect()
-            return PairingExport(url: url, remotePairingProblem: nil)
+            protect(draft)
         } catch {
-            return PairingExport(url: url, remotePairingProblem: SpoofSession.firstLine(of: error))
+            problem = SpoofSession.firstLine(of: error)
         }
+
+        // Only now does it leave the private folder.
+        try? fm.removeItem(at: url)
+        do {
+            try fm.moveItem(at: draft, to: url)
+        } catch {
+            throw SpoofError("couldn't save the pairing file in \(url.deletingLastPathComponent().path): \(error.localizedDescription)")
+        }
+        protect(url)
+        return PairingExport(url: url, remotePairingProblem: problem)
     }
 
     /// Pairs this Mac with the iPhone's remotepairingd over USB lockdown (no
@@ -231,9 +278,72 @@ extension Pymobiledevice3 {
     }
 
     /// Is a device with this UDID currently reachable?
+    ///
+    /// False also when the list can't be read at all. Callers that want to
+    /// tell "not plugged in" from "couldn't look" use `presence`.
     public func isPresent(udid: String, connection: ConnectionFilter = .any) -> Bool {
-        guard let devices = try? listDevices() else { return false }
-        return devices.contains { $0.udid == udid && connection.matches($0) }
+        (try? presence(udid: udid, connection: connection)) ?? false
+    }
+
+    /// Whether a device with this UDID is listed. Throws when the list can't
+    /// be read, so a broken tool isn't mistaken for an unplugged iPhone.
+    ///
+    /// If the full listing fails, the bare list of UDIDs (`usbmux list --simple`,
+    /// which never connects to a device) is tried before giving up, so one
+    /// stubborn device can't hide the others.
+    public func presence(udid: String, connection: ConnectionFilter = .any) throws -> Bool {
+        try find(udid: udid, connection: connection) != nil
+    }
+
+    /// The listed device with this UDID, with what the list says about it
+    /// (its iOS version, for one). Nil when it isn't listed. When only the bare
+    /// list of UDIDs can be read, the device is returned with no details.
+    public func find(udid: String, connection: ConnectionFilter = .any) throws -> Device? {
+        let read: (devices: [Device], cableOnly: Bool)
+        do {
+            read = try readDevices()
+        } catch let original {
+            do { return try listedByUDIDOnly(udid, connection: connection) } catch { throw original }
+        }
+        if let match = read.devices.first(where: { $0.udid == udid && connection.matches($0) }) { return match }
+        // The full list failed and the cable-only one doesn't have it. A phone that
+        // is only on Wi-Fi would be missing from that, so look at the bare list too.
+        if read.cableOnly, connection != .usb, let bare = try? listedByUDIDOnly(udid, connection: connection) {
+            return bare
+        }
+        return nil
+    }
+
+    /// Looks for `udid` in `usbmux list --simple`, which never connects to a
+    /// device. Nothing but the UDID is known about what it finds.
+    private func listedByUDIDOnly(_ udid: String, connection: ConnectionFilter) throws -> Device? {
+        var flags: [String] = []
+        switch connection {
+        case .any: break
+        case .usb: flags = ["--usb"]
+        case .network: flags = ["--network"]
+        }
+        let output = try run(["usbmux", "list", "--simple"] + flags, timeout: 15)
+        guard let udids = Self.simpleUDIDs(output) else {
+            throw SpoofError("couldn't read the list of devices")
+        }
+        guard udids.contains(udid) else { return nil }
+        return Device(deviceName: "iOS device", identifier: udid, connectionType: connection == .network ? "Network" : "USB",
+                      productType: "unknown", productVersion: "0")
+    }
+
+    /// The UDIDs in `usbmux list --simple`: a JSON array of strings (or of
+    /// objects with an `Identifier` or `SerialNumber`).
+    static func simpleUDIDs(_ output: String) -> [String]? {
+        guard let data = output.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let array = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else { return nil }
+        return array.compactMap { item in
+            if let udid = item as? String { return udid }
+            if let object = item as? [String: Any] {
+                return (object["Identifier"] ?? object["SerialNumber"]) as? String
+            }
+            return nil
+        }
     }
 
     /// The version of SpoofRemote (`com.iosgpsspoof.remote`) installed on the
