@@ -334,18 +334,20 @@ final class AppModel {
             return
         }
         appendLog("The last run ended without putting your real location back. Putting it back now…", level: .warning)
-        Task.detached(priority: .utility) { [weak self] in
+        // The detached task hops back through the shared model (as the rest of the app does) rather
+        // than capturing `self`: Swift 6.1 rejects sending it into a detached closure.
+        Task.detached(priority: .utility) {
             let outcome = ChildProcessRegistry.restoreLocations(of: holds, using: pmd)
             await MainActor.run {
-                guard let self else { return }
+                let model = AppModel.shared
                 if outcome.failed.isEmpty {
-                    self.appendLog("Your real location is back.", level: .success)
+                    model.appendLog("Your real location is back.", level: .success)
                 } else {
                     for failure in outcome.failed {
-                        self.appendLog("Couldn't put the real location back: \(failure.reason)", level: .error)
+                        model.appendLog("Couldn't put the real location back: \(failure.reason)", level: .error)
                     }
-                    self.appendLog(toldToRestart, level: .warning)
-                    self.showToast(Toast(symbol: "exclamationmark.triangle.fill",
+                    model.appendLog(toldToRestart, level: .warning)
+                    model.showToast(Toast(symbol: "exclamationmark.triangle.fill",
                                          title: "Your iPhone may still be on a fake location",
                                          subtitle: "Restart it to be sure. That always clears it.", style: .warning),
                                    duration: 8)
