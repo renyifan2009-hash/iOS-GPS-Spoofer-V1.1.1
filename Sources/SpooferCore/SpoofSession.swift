@@ -88,6 +88,8 @@ public final class SpoofSession: @unchecked Sendable {
     private let ops = DispatchQueue(label: "SpoofSession.ops", qos: .userInitiated)
     private let teardown = DispatchQueue(label: "SpoofSession.teardown", qos: .userInitiated)
     private let io = DispatchQueue(label: "SpoofSession.io", qos: .userInitiated)
+    /// A stop in progress, so quitting can wait for it instead of cutting it short.
+    private let teardownGroup = DispatchGroup()
 
     private let lock = NSLock()
     private var _state: SessionState = .idle
@@ -117,6 +119,9 @@ public final class SpoofSession: @unchecked Sendable {
     /// Set when the watchdog ended a channel that stopped answering. It is the
     /// reason to remember for that exit, whatever the dying helper then prints.
     private var watchdogVerdict: String?
+    /// The second call to `stopBlocking` (the app's last-moment one) must not
+    /// wait for the first.
+    private var waitedForTeardown = false
     private var pending: GeoPoint?
     private var oneShotRunning = false
     private var stopping = false
@@ -281,8 +286,10 @@ public final class SpoofSession: @unchecked Sendable {
     /// Stop and (by default) restore the device's real location. Returns
     /// immediately; the state goes `.stopping` → `.idle`.
     public func stop(clearLocation: Bool = true) {
+        teardownGroup.enter()
         let teardownState = beginStop()
         guard teardownState.wasStarted else {
+            teardownGroup.leave()
             // Already stopped — or still restoring from an earlier stop(), which
             // will report .idle itself once the location is cleared.
             if state != .stopping { setState(.idle) }
@@ -290,17 +297,42 @@ public final class SpoofSession: @unchecked Sendable {
         }
         setState(.stopping)
         teardown.async { [self] in
-            finishStop(teardownState, clearLocation: clearLocation, helperWait: 6, clearTimeout: 90)
+            defer { teardownGroup.leave() }
+            finishStop(teardownState, clearLocation: clearLocation, helperWait: 6, clearTimeout: 90, drainTimeout: 15)
             setState(.idle)
         }
     }
 
     /// Synchronous best-effort teardown for app termination.
+    ///
+    /// If a `stop()` is already restoring the real location, this waits for it
+    /// (for up to 15 seconds) instead of returning at once. Returning at once
+    /// would let the app quit in the middle of the restore and leave the
+    /// iPhone on its fake location.
     public func stopBlocking() {
         let teardownState = beginStop()
-        guard teardownState.wasStarted else { return }
-        finishStop(teardownState, clearLocation: true, helperWait: 3, clearTimeout: 15)
+        guard teardownState.wasStarted else {
+            let firstCall = locked { () -> Bool in
+                let first = !waitedForTeardown
+                waitedForTeardown = true
+                return first
+            }
+            if firstCall { _ = teardownGroup.wait(timeout: .now() + 15) }
+            return
+        }
+        finishStop(teardownState, clearLocation: true, helperWait: 3, clearTimeout: 15, drainTimeout: 5)
         locked { _state = .idle }
+    }
+
+    /// Every session that is running, so that something which ends the whole
+    /// app (a quit signal) can put each iPhone back. Held weakly.
+    private static let running = RunningSessions()
+
+    /// Put every running session's iPhone back to its real location and wait
+    /// for it. For the signals that end the app without going through its
+    /// normal quit path.
+    public static func stopAllBlocking() {
+        for session in running.all { session.stopBlocking() }
     }
 
     // MARK: - Launching
@@ -330,6 +362,8 @@ public final class SpoofSession: @unchecked Sendable {
         oneShotRunning = false
         failures = 0
         lastError = nil
+        waitedForTeardown = false
+        Self.running.add(self)
         configure()
         return (runToken, previous)
     }
@@ -1012,7 +1046,21 @@ public final class SpoofSession: @unchecked Sendable {
         return state
     }
 
-    private func finishStop(_ s: TeardownState, clearLocation: Bool, helperWait: TimeInterval, clearTimeout: TimeInterval) {
+    /// Wait (for a while at most) for work already queued on `ops`, notably an
+    /// iOS 16 `set` that is still running, so the `clear` that follows is the
+    /// last thing the iPhone is told. `ops` runs one thing at a time, and
+    /// anything from before the stop returns right after its command ends (its
+    /// run token is out of date), so one marker is enough. It never waits for a
+    /// long time: a stuck `set` must not hold up Stop or quitting.
+    private func drainOps(timeout: TimeInterval) {
+        let done = DispatchSemaphore(value: 0)
+        ops.async { done.signal() }
+        _ = done.wait(timeout: .now() + timeout)
+    }
+
+    private func finishStop(_ s: TeardownState, clearLocation: Bool, helperWait: TimeInterval, clearTimeout: TimeInterval,
+                            drainTimeout: TimeInterval) {
+        defer { Self.running.remove(self) }
         var cleared = false
         if let process = s.process, let input = s.input, s.helperWasReady {
             // Ask the helper to clear over the open channel — no new tunnel needed.
@@ -1034,6 +1082,10 @@ public final class SpoofSession: @unchecked Sendable {
             return
         }
         emit(.info, "restoring the real location…")
+        // Anything still running from before the stop (an iOS 16 `set` that was
+        // under way, a hold that was just being opened) must finish first. If it
+        // ended after the clear, it would put the fake location back.
+        drainOps(timeout: drainTimeout)
         do {
             _ = try pmd.run(clearArguments, timeout: clearTimeout)
             locked { _restoredOnLastStop = true }
@@ -1170,5 +1222,27 @@ struct SleepProbe {
         wall = now
         awake = nowAwake
         return wallElapsed - awakeElapsed > gap
+    }
+}
+
+/// The sessions that are running, held weakly. See `SpoofSession.stopAllBlocking`.
+private final class RunningSessions: @unchecked Sendable {
+    private struct Entry { weak var session: SpoofSession? }
+    private let lock = NSLock()
+    private var entries: [ObjectIdentifier: Entry] = [:]
+
+    func add(_ session: SpoofSession) {
+        lock.lock(); defer { lock.unlock() }
+        entries[ObjectIdentifier(session)] = Entry(session: session)
+    }
+
+    func remove(_ session: SpoofSession) {
+        lock.lock(); defer { lock.unlock() }
+        entries[ObjectIdentifier(session)] = nil
+    }
+
+    var all: [SpoofSession] {
+        lock.lock(); defer { lock.unlock() }
+        return entries.values.compactMap { $0.session }
     }
 }
