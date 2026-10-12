@@ -216,14 +216,18 @@ private struct ConnectPage: View {
     var body: some View {
         VStack(spacing: compact ? 14 : 26) {
             Spacer(minLength: 0)
-            ZStack {
-                Circle().fill(Brand.gradient).frame(width: compact ? 60 : 96, height: compact ? 60 : 96)
-                    .shadow(color: Brand.indigo.opacity(0.7), radius: 30, y: 10)
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: compact ? 26 : 42, weight: .semibold))
-                    .symbolEffect(.bounce, value: shown)
+            // The lock is decoration. On an iPhone SE the room is better spent on the steps.
+            if pageHeight >= 520 {
+                ZStack {
+                    Circle().fill(Brand.gradient).frame(width: compact ? 60 : 96, height: compact ? 60 : 96)
+                        .shadow(color: Brand.indigo.opacity(0.7), radius: 30, y: 10)
+                    Image(systemName: "lock.shield.fill")
+                        .font(.system(size: compact ? 26 : 42, weight: .semibold))
+                        .symbolEffect(.bounce, value: shown)
+                }
+                .accessibilityHidden(true)
+                .reveal(shown, order: 0)
             }
-            .reveal(shown, order: 0)
             VStack(spacing: 8) {
                 Text("Connect once")
                     .font(.system(size: 32, weight: .bold, design: .rounded))
@@ -501,6 +505,8 @@ private struct FeatureRow: View {
                 Text(title).font(.headline)
                 Text(text).font(.subheadline).foregroundStyle(.white.opacity(0.7))
             }
+            // Wrap, don't cut the line short: the page scrolls if it needs the room.
+            .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(14)
