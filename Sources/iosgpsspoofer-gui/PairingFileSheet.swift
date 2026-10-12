@@ -98,7 +98,7 @@ struct PairingFileSheet: View {
         case .failed(let message):
             VStack(alignment: .leading, spacing: 10) {
                 Label(message.prefix(1).uppercased() + message.dropFirst(), systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout).foregroundStyle(Brand.warning)
+                    .font(.callout).foregroundStyle(Brand.warningText)
                     .fixedSize(horizontal: false, vertical: true)
                 Button("Try Again") { model.createPairingFile() }
                     .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
@@ -115,7 +115,7 @@ struct PairingFileSheet: View {
                     .resizable().frame(width: 34, height: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Label("Pairing file created", systemImage: "checkmark.circle.fill")
-                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(Brand.live)
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(Brand.liveText)
                     Text(result.url.lastPathComponent).font(.caption)
                         .lineLimit(2).truncationMode(.middle)
                         .textSelection(.enabled)
@@ -135,7 +135,7 @@ struct PairingFileSheet: View {
                 Label("""
                     This file works on older iOS only. The part newer iOS versions need could not be added: \(problem)
                     """, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(Brand.warning)
+                    .font(.caption).foregroundStyle(Brand.warningText)
                     .fixedSize(horizontal: false, vertical: true)
             }
 

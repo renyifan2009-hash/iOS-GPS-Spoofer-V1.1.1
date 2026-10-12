@@ -15,7 +15,7 @@ extension AppModel {
     }
 
     static let roadDataLoader = OverpassLoader(
-        userAgent: "iOS-GPS-Spoofer/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")"
+        userAgent: "AnyWhere/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")"
             + " (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3)",
         cacheDirectory: AppSupport.directory.appendingPathComponent("osm-cache", isDirectory: true))
 

@@ -162,7 +162,7 @@ struct Route: ParsableCommand {
             } else {
                 track = try RouteBuilder.timedTrack(path: path, speed: metresPerSecond, loopMode: loopMode)
             }
-            let url = try RouteBuilder.writeGPX(track, name: imported?.name ?? "iosgpsspoof route")
+            let url = try RouteBuilder.writeGPX(track, name: imported?.name ?? RouteBuilder.defaultTrackName)
             temporary = url
             gpxPath = url.path
             summary = "\(Format.distance(oneWay)) at \(realistic ? "up to " : "")\(Format.speed(metresPerSecond)) (\(pass) per pass"
@@ -193,7 +193,7 @@ extension Route {
         var features = RoadFeatures.none
         if onRoads {
             log("realistic: looking up traffic lights, signs and speed limits on OpenStreetMap…")
-            let loader = OverpassLoader(userAgent: "iosgpsspoof (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3)",
+            let loader = OverpassLoader(userAgent: "AnyWhere-cli (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3)",
                                         cacheDirectory: AppSupport.directory.appendingPathComponent("osm-cache"))
             let roads = settings.profile.kind == .drive
             let result = Blocking.run { try await loader.features(along: played, roads: roads) }

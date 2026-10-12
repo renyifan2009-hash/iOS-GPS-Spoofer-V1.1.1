@@ -210,7 +210,7 @@ extension AppModel {
                     } else {
                         track = try RouteBuilder.timedTrack(path: path, speed: speed, loopMode: loop)
                     }
-                    let url = try RouteBuilder.writeGPX(track, name: routeName ?? "AnyWhere route")
+                    let url = try RouteBuilder.writeGPX(track, name: routeName ?? RouteBuilder.defaultTrackName)
                     playback = started
                     replayTrack = prefs.realisticTrips ? track : nil
                     replaySpeed = speed

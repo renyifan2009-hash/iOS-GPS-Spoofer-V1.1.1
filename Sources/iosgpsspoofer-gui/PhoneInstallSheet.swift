@@ -69,7 +69,7 @@ struct PhoneInstallSheet: View {
                 .buttonStyle(BrandButtonStyle(kind: .primary))
                 if case .failed(let message) = installer.step {
                     Label(message, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(Brand.warning).fixedSize(horizontal: false, vertical: true)
+                        .font(.caption).foregroundStyle(Brand.warningText).fixedSize(horizontal: false, vertical: true)
                 }
             }
         case .downloading(let text):

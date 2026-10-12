@@ -155,8 +155,11 @@ extension AppModel {
                 message += ", recorded at \(Format.speed(speed, units: prefs.units))"
             }
             appendLog(message + ".", level: .success)
+            // Parts of the file that were left out (bad positions, far-apart trips) are said plainly.
+            if let warning = imported.warning { appendLog(warning, level: .warning) }
             showToast(Toast(symbol: "square.and.arrow.down.fill", title: "Route imported",
-                            subtitle: "\(name) · \(Format.distance(imported.length, units: prefs.units))", style: .success))
+                            subtitle: imported.warning ?? "\(name) · \(Format.distance(imported.length, units: prefs.units))",
+                            style: imported.warning == nil ? .success : .warning), duration: imported.warning == nil ? 2.8 : 7)
         } catch {
             appendLog("Couldn't import \(url.lastPathComponent): \(error.localizedDescription)", level: .error)
             showToast(Toast(symbol: "xmark.octagon.fill", title: "Couldn't import that file",

@@ -111,6 +111,6 @@ func log(_ message: String) {
 }
 
 func firstLine(_ error: Error) -> String {
-    let text = "\(error)"
-    return text.split(separator: "\n").first.map(String.init) ?? text
+    // The real reason, not the command line that failed (see SpoofSession.firstLine).
+    SpoofSession.firstLine(of: error)
 }

@@ -86,7 +86,7 @@ If macOS asks whether Terminal can use your Downloads folder, click **Allow**.
    Security ▸ Developer Mode** and switch it on. The iPhone restarts. When it's
    back, unlock it and tap **Turn On**.
    - Can't find Developer Mode? It stays hidden until a Mac asks for it. In the
-     app, click **Show on iPhone**, then look in Settings again.
+     app, click **Show the Switch**, then look in Settings again.
 4. **Keep the iPhone unlocked the first time.** The app loads Apple's developer
    support onto the iPhone. This needs the internet and takes about a minute.
 
@@ -179,7 +179,7 @@ press **⌘ ⇧ G**, paste that path), and `~/Library/Logs/AnyWhere/install.log`
 - Still nothing? Restart the iPhone and the Mac.
 
 **There's no Developer Mode in the iPhone's Settings.**
-Keep the iPhone plugged in and unlocked. In the app, click **Show on iPhone**
+Keep the iPhone plugged in and unlocked. In the app, click **Show the Switch**
 in the checklist (or in the orange banner), then look in Settings ▸ Privacy &
 Security again.
 

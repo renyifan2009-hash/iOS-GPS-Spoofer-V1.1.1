@@ -18,7 +18,28 @@ final class LibraryStore {
     var routes: [SavedRoute] { data.routes }
 
     private init() {
-        data = LibraryFile.load()
+        let loaded = LibraryFile.loadWithReport()
+        data = loaded.library
+        loadReport = loaded.report
+    }
+
+    /// What reading the library file found: entries that couldn't be read are skipped (and the file is
+    /// copied first), never silently thrown away. Said once the app is up (`reportLoadProblems`).
+    private let loadReport: LibraryFile.LoadReport
+
+    /// Tell the person if something in their saved places couldn't be read.
+    func reportLoadProblems() {
+        let model = AppModel.shared
+        if loadReport.droppedEntries > 0 {
+            let n = loadReport.droppedEntries
+            model.appendLog("\(n) saved place\(n == 1 ? "" : "s") or route\(n == 1 ? "" : "s") couldn't be read and "
+                + "\(n == 1 ? "was" : "were") left out. A copy of the file was kept next to it.", level: .warning)
+        }
+        if loadReport.unreadable {
+            model.appendLog("Your saved places file couldn't be read, so it was not changed. Open Settings or Finder to look at it.", level: .warning)
+        } else if loadReport.movedAside != nil {
+            model.appendLog("Your saved places file was damaged. It was set aside and a fresh one started.", level: .warning)
+        }
     }
 
     private func persist() {
