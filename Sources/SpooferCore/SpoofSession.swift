@@ -119,6 +119,9 @@ public final class SpoofSession: @unchecked Sendable {
     /// Set when the watchdog ended a channel that stopped answering. It is the
     /// reason to remember for that exit, whatever the dying helper then prints.
     private var watchdogVerdict: String?
+    /// The route being replayed has already been started once, so starting it
+    /// again means it begins from its first point.
+    private var replayHasPlayed = false
     /// The second call to `stopBlocking` (the app's last-moment one) must not
     /// wait for the first.
     private var waitedForTeardown = false
@@ -356,6 +359,7 @@ public final class SpoofSession: @unchecked Sendable {
         watchdogGeneration &+= 1
         plannedRestart = nil
         watchdogVerdict = nil
+        replayHasPlayed = false
         listFailures = 0
         lastListFailure = nil
         pending = nil
@@ -746,6 +750,17 @@ public final class SpoofSession: @unchecked Sendable {
         guard adopt(process, token: token) else { return }
         setState(.replaying)
         emit(.success, "● playing route: \(job.summary)")
+        // `simulate-location play` can't pick up where it stopped. After a drop
+        // (or the Mac waking up) the route begins again at its first point, which
+        // the person will see.
+        let again = locked { () -> Bool in
+            let played = replayHasPlayed
+            replayHasPlayed = true
+            return played
+        }
+        if again {
+            emit(.warning, "The route started again from its beginning. The classic engine can't carry on from where it was.")
+        }
     }
 
     /// iOS ≤ 16: `set` is a quick one-shot over lockdown. Keep applying the
@@ -864,8 +879,10 @@ public final class SpoofSession: @unchecked Sendable {
     /// try again after a growing pause.
     ///
     /// Connections drop now and then (a cable wobble, the phone's tunnel being
-    /// re-made). Retrying for about two minutes before giving up lets a long
-    /// route survive a hiccup and carry on from where it was.
+    /// re-made). Retrying for about two minutes before giving up lets a live
+    /// route survive a hiccup and carry on from where it was. A route played by
+    /// the classic engine can't: `simulate-location play` has no way to resume,
+    /// so it starts from its first point again (and says so).
     private func retryOrFail(failures: Int, lastError: String?, problem: String, token: Int) {
         if let lastError, let advice = Self.advice(for: lastError), advice.permanent {
             emit(.error, advice.message)
