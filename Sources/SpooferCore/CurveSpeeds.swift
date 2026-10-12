@@ -38,7 +38,12 @@ public enum CurveSpeeds {
                     if closed { return path.sample(at: (d + path.length).truncatingRemainder(dividingBy: path.length)).point }
                     return path.sample(at: min(max(d, 0), path.length)).point
                 }
-                radius = circumradius(around(s - span), points[index], around(s + span))
+                var arc = circumradius(around(s - span), points[index], around(s + span))
+                // An exact U-turn (out and straight back): the points either side land on the
+                // same spot, so no circle runs through them. The car still has to swing round,
+                // in about the room `span` gives it.
+                if !arc.isFinite { arc = span / 2 }
+                radius = arc
             } else {
                 let segments = min(Geo.distance(points[before], points[index]),
                                    Geo.distance(points[index], points[after]), longestBend)
@@ -59,9 +64,17 @@ public enum CurveSpeeds {
             return nil
         }
 
-        for i in 1..<(n - 1) {
-            guard let before = neighbour(of: i, step: -1), let after = neighbour(of: i, step: 1),
-                  let v = speed(at: i, distance: path.cumulative[i], before: before, after: after) else { continue }
+        // The points that aren't on top of the one before. A logger left running repeats
+        // one spot thousands of times, and looking past all the repeats for each repeat's
+        // neighbours is quadratic: the corners are found among these instead.
+        var distinct = [0]
+        for i in 1..<n where Geo.distance(points[i], points[distinct[distinct.count - 1]]) > 0.5 {
+            distinct.append(i)
+        }
+        for k in distinct.indices.dropFirst().dropLast() {
+            let i = distinct[k]
+            guard let v = speed(at: i, distance: path.cumulative[i], before: distinct[k - 1],
+                                after: distinct[k + 1]) else { continue }
             let s = path.cumulative[i]
             // Points of one bend: keep the slowest.
             if let last = limits.last, s - last.distance < 15 {

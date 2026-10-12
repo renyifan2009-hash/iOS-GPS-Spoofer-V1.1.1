@@ -7,7 +7,11 @@ public struct RoutePath: Sendable, Equatable {
     /// Cumulative distance (metres) at each point; `cumulative[0] == 0`.
     public let cumulative: [Double]
 
+    /// A path holds only real places. A point that is NaN, infinite or off the
+    /// map is left out: `Geo.distance` would call it half the Earth away, and
+    /// positions that cannot be put on a grid stop the app.
     public init(_ points: [GeoPoint]) {
+        let points = points.allSatisfy(\.isValid) ? points : points.filter(\.isValid)
         self.points = points
         var cumulative: [Double] = []
         cumulative.reserveCapacity(points.count)
@@ -202,8 +206,13 @@ public struct RoutePlayback: Sendable, Equatable {
 public enum RouteSimplifier {
     /// Drop points that deviate less than `tolerance` metres from the line
     /// through their neighbours. Endpoints are always kept.
+    ///
+    /// Positions that are not real places (NaN, infinite, off the map) are left
+    /// out first: one of them would turn every distance into NaN, and the whole
+    /// track would collapse to its two ends.
     public static func simplify(_ points: [GeoPoint], tolerance: Double) -> [GeoPoint] {
         guard points.count > 2, tolerance > 0 else { return points }
+        guard points.allSatisfy(\.isValid) else { return simplify(points.filter(\.isValid), tolerance: tolerance) }
         let lat0 = Geo.radians(points.map(\.latitude).reduce(0, +) / Double(points.count))
         let k = Geo.earthRadius * .pi / 180
         let xy = points.map { (x: $0.longitude * k * cos(lat0), y: $0.latitude * k) }
@@ -232,6 +241,7 @@ public enum RouteSimplifier {
 
     /// Simplify until at most `maxPoints` remain, raising the tolerance as needed.
     public static func simplify(_ points: [GeoPoint], maxPoints: Int) -> [GeoPoint] {
+        guard points.allSatisfy(\.isValid) else { return simplify(points.filter(\.isValid), maxPoints: maxPoints) }
         guard points.count > max(2, maxPoints) else { return points }
         var tolerance = 1.0
         var result = simplify(points, tolerance: tolerance)

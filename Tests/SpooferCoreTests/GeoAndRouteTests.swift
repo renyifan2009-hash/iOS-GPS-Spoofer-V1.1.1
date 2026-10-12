@@ -170,7 +170,16 @@ final class RouteBuilderTests: XCTestCase {
         let xml = RouteBuilder.gpx(track, name: "Tom & Jerry <test>")
         XCTAssertEqual(xml.components(separatedBy: "<trkpt").count - 1, track.count)
         XCTAssertTrue(xml.contains("Tom &amp; Jerry &lt;test&gt;"))
-        XCTAssertTrue(xml.contains(".000Z") || xml.contains("Z</time>"))
+        // Every point is stamped with fractional seconds, from the fixed base time:
+        // pymobiledevice3 paces the playback on the gaps between the stamps.
+        let stamps = xml.components(separatedBy: "<time>").dropFirst().map { String($0.prefix { $0 != "<" }) }
+        XCTAssertEqual(stamps.count, track.count)
+        XCTAssertEqual(stamps.first, "2023-11-14T22:13:20.000Z")
+        for stamp in stamps {
+            XCTAssertNotNil(stamp.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$"#, options: .regularExpression),
+                            "not a stamp with milliseconds: \(stamp)")
+        }
+        XCTAssertEqual(xml.components(separatedBy: #"creator="AnyWhere""#).count - 1, 1)
         // And it parses back.
         let parsed = try RouteImporter.parse(Data(xml.utf8))
         XCTAssertEqual(parsed.points.count, track.count)
