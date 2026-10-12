@@ -131,7 +131,7 @@ extension AppModel {
             }
             // The file was chosen on purpose, but the stops it replaces may not be saved anywhere.
             guard okToDiscardRoute(title: "Replace the current route?",
-                                   message: "It has \(waypoints.count) stops and isn't saved. Importing “\(name)” replaces it.",
+                                   message: "\(unsavedRouteSentence) Importing “\(name)” replaces it.",
                                    discardTitle: "Replace") else { return }
             var points = imported.points
             if !imported.isWaypointList || points.count > 200 {
@@ -257,10 +257,17 @@ extension AppModel {
         return RouteDraftGuard.hasUnsavedWork(editing: routeSnapshot, savedCopy: saved)
     }
 
+    /// What is at stake, for the question: a route never saved, or a saved one edited since.
+    var unsavedRouteSentence: String {
+        let wasSaved = savedRouteID.map { id in library.routes.contains { $0.id == id } } ?? false
+        return wasSaved ? "You've changed this route since you saved it."
+                        : "It has \(waypoints.count) stops and isn't saved."
+    }
+
     /// Load a saved route, after asking if that replaces stops saved nowhere.
     func requestLoadSavedRoute(_ route: SavedRoute, thenStart: Bool = false) {
         guard okToDiscardRoute(title: "Replace the current route?",
-                               message: "It has \(waypoints.count) stops and isn't saved. Loading “\(route.name)” replaces it.",
+                               message: "\(unsavedRouteSentence) Loading “\(route.name)” replaces it.",
                                discardTitle: "Replace") else { return }
         loadSavedRoute(route)
         if thenStart { startRoute() }
@@ -268,7 +275,7 @@ extension AppModel {
 
     func requestClearWaypoints() {
         guard okToDiscardRoute(title: "Clear all \(waypoints.count) stops?",
-                               message: "The route isn't saved, so you can't get it back.",
+                               message: "\(unsavedRouteSentence) You can't get it back.",
                                discardTitle: "Clear Route") else { return }
         clearWaypoints()
     }
