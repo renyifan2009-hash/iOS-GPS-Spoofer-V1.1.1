@@ -107,8 +107,9 @@ No crash report from the tester exists, so this is what could be proven:
 - One audit finding was left open on purpose (PX-12, low, "uncertain" even after verification): the iPhone app declares the
   `.mobiledevicepairing` document type as *Imported* in `iPhoneRemote/SpoofRemote/Info.plist`, where *Exported* may be the
   more correct kind for a type in the app's own namespace. Only an AirDrop-open test on a real iPhone (B3 in
-  `docs/DEVICE-TESTING.md`) can show whether it matters, so it was not changed blind. Every other confirmed finding (81 in all,
-  of 89 candidates; 7 refuted) was fixed, some under different names than their audit ids.
+  `docs/DEVICE-TESTING.md`) can show whether it matters, so it was not changed blind. The audit confirmed 81 of 89 candidates (7 refuted).
+  All 13 high-severity ones were checked against the final code and are fixed (some under different names than their audit ids);
+  the medium and low ones went through the same fix passes, but only some were re-checked afterwards.
 - The release-channel update (the in-app Update downloading the release DMG, checking it and swapping it in) is built (f30a7aa) but
   cannot run until a release exists, because nothing is published overnight. Until then the in-app Update still rebuilds from
   source, and the self-test gate is what keeps that safe.
