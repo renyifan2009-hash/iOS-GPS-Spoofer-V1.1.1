@@ -32,7 +32,9 @@ enum SelfTest {
         guard isOn, !started else { return }
         started = true
         // No Dock icon, and nothing here ever activates the app.
-        NSApp.setActivationPolicy(.accessory)
+        if ProcessInfo.processInfo.environment["ANYWHERE_SELF_TEST_POLICY"] != "regular" {
+            NSApp.setActivationPolicy(.accessory)
+        }
         if parkingOn {
             Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
                 MainActor.assumeIsolated { parkNewWindows() }

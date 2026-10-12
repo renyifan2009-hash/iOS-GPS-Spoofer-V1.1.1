@@ -30,13 +30,18 @@ jobs:
             codesign --force --deep --sign - "$RUNNER_TEMP/v-$name/AnyWhere.app" >/dev/null 2>&1
             try "$name" "$RUNNER_TEMP/v-$name/AnyWhere.app"
           }
-          try P0-packaged-park-once build/AnyWhere.app
-          export ANYWHERE_SELF_TEST_NOPARK=1
-          try P1-packaged-no-parking build/AnyWhere.app
-          unset ANYWHERE_SELF_TEST_NOPARK
-          rm -f "$RUNNER_TEMP/ls-out.txt"
-          open -W -n build/AnyWhere.app --env ANYWHERE_SELF_TEST=1 --env ANYWHERE_SELF_TEST_SECONDS=5 --env ANYWHERE_SELF_TEST_NOPARK=1 --stdout "$RUNNER_TEMP/ls-out.txt" --stderr "$RUNNER_TEMP/ls-err.txt" &
-          LSPID=$!; n=0; while kill -0 $LSPID 2>/dev/null && [ $n -lt 40 ]; do sleep 1; n=$((n+1)); done
-          if grep -q SELF-TEST-OK "$RUNNER_TEMP/ls-out.txt" 2>/dev/null; then echo "RESULT P2-open-no-parking: PASS"; else echo "RESULT P2-open-no-parking: FAIL"; pkill -f "build/AnyWhere.app" || true; fi
+          # X1: a NORMAL launch of the packaged app (no self-test): is it healthy?
+          ( build/AnyWhere.app/Contents/MacOS/AnyWhere >"$RUNNER_TEMP/normal.txt" 2>&1 & echo $! > "$RUNNER_TEMP/normal.pid" )
+          sleep 20
+          NP=$(cat "$RUNNER_TEMP/normal.pid")
+          echo "X1 normal launch: pid=$NP"; ps -o pid,pcpu,etime,stat,command -p "$NP" || true
+          sleep 5; ps -o pid,pcpu,etime,stat -p "$NP" || true
+          sample "$NP" 2 -mayDie -file "$RUNNER_TEMP/normal.sample" >/dev/null 2>&1 || true
+          sed -n '/^Sort by top of stack/,/^Binary Images/p' "$RUNNER_TEMP/normal.sample" | sed -n '1,25p'
+          kill -9 "$NP" 2>/dev/null || true
+          export ANYWHERE_SELF_TEST_POLICY=regular
+          try X2-selftest-policy-regular build/AnyWhere.app
+          unset ANYWHERE_SELF_TEST_POLICY
+          variant X3-LSUIElement "Add :LSUIElement bool true"
           echo "--- sample from the baseline ---"
           sed -n '1,90p' "$RUNNER_TEMP/out-P0-packaged-as-built.txt" || true
