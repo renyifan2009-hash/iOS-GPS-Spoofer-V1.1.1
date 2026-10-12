@@ -21,7 +21,8 @@ extension AppModel {
             return StatusDisplay(title: "Ready", detail: "Your iPhone is using its real location.",
                                  tint: .secondary, symbol: "location", busy: false, live: false)
         case .connecting(let message):
-            return StatusDisplay(title: "Connecting", detail: message, tint: Brand.warning,
+            // "Mounting the developer disk image…" means nothing to most people.
+            return StatusDisplay(title: "Connecting", detail: SessionWording.friendly(connecting: message), tint: Brand.warning,
                                  symbol: "antenna.radiowaves.left.and.right", busy: true, live: false)
         case .reconnecting(let message):
             if let session, session.isWaitingForDevice {
@@ -400,6 +401,8 @@ struct SetupCheckRow: View {
                     IconTile(symbol: "exclamationmark", colors: TileColors.orange, size: 22)
                 case .failed:
                     IconTile(symbol: "xmark", colors: TileColors.red, size: 22)
+                case .later:
+                    IconTile(symbol: "clock", colors: TileColors.gray, size: 22)
                 }
             }
             VStack(alignment: .leading, spacing: 2) {

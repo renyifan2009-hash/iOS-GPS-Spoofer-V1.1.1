@@ -235,6 +235,8 @@ final class AppModel {
     @ObservationIgnored var developerModeCheckedAt = Date.distantPast
     /// iPhones we've asked to show the Developer Mode switch this launch.
     @ObservationIgnored var developerModeRevealed: Set<String> = []
+    /// iPhones where a session got going during this run, so Apple's developer support is loaded.
+    var developerSupportReady: Set<String> = []
     /// Set when a connected iPhone runs an older SpoofRemote than this code
     /// expects. A banner then offers the releases page. Nil when it's current,
     /// not installed, or the check couldn't run (see docs/PHONE-ONLY.md).
@@ -550,6 +552,10 @@ final class AppModel {
         guard isCurrentSession(id) else { return }
         let previous = sessionState
         sessionState = state
+        // A session that is up proves the iPhone has the developer support it needs.
+        if state == .active || state == .replaying, let udid = session?.device.udid {
+            developerSupportReady.insert(udid)
+        }
         switch state {
         case .idle:
             let restored = session?.restoredOnLastStop ?? false

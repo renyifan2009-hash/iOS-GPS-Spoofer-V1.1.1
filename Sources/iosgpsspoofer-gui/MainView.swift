@@ -536,9 +536,9 @@ struct Banners: View {
             if let device = model.selectedDevice, model.developerModeEnabled == false, model.session == nil {
                 banner(icon: "hammer.fill", colors: TileColors.orange,
                        text: "Developer Mode is off on \(device.deviceName).") {
-                    Button("Show on iPhone") { model.revealDeveloperMode() }
+                    Button("Show the Switch") { model.revealDeveloperMode() }
                         .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
-                        .help("Make the Developer Mode switch appear in the iPhone's Settings ▸ Privacy & Security")
+                        .help("The Developer Mode switch is hidden on a new iPhone. This makes it appear in the iPhone's Settings ▸ Privacy & Security")
                     Button("How to turn it on") { model.showConnectionHelp = true }
                         .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
                 }
