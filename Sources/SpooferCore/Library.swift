@@ -149,11 +149,28 @@ public struct LibraryData: Codable, Sendable, Equatable {
         favorites.first { Geo.distance($0.point, point) < metres }
     }
 
-    /// Case-insensitive lookup by name (exact match first, then prefix).
+    /// Case-insensitive lookup by name: an exact match, else the one favorite
+    /// whose name starts with it. Nil for a blank name (every name starts with
+    /// nothing, so it would pick the first favorite) and nil when several
+    /// favorites start with it, because guessing sends the phone to the wrong
+    /// place. `favorites(startingWith:)` lists them.
     public func favorite(named name: String) -> SavedPlace? {
-        let key = name.trimmingCharacters(in: .whitespaces).lowercased()
-        return favorites.first { $0.name.lowercased() == key }
-            ?? favorites.first { $0.name.lowercased().hasPrefix(key) }
+        let key = Self.lookupKey(name)
+        guard !key.isEmpty else { return nil }
+        if let exact = favorites.first(where: { $0.name.lowercased() == key }) { return exact }
+        let starting = favorites(startingWith: name)
+        return starting.count == 1 ? starting[0] : nil
+    }
+
+    /// Favorites whose name starts with `prefix`, ignoring case. None for a blank prefix.
+    public func favorites(startingWith prefix: String) -> [SavedPlace] {
+        let key = Self.lookupKey(prefix)
+        guard !key.isEmpty else { return [] }
+        return favorites.filter { $0.name.lowercased().hasPrefix(key) }
+    }
+
+    private static func lookupKey(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
