@@ -147,6 +147,7 @@ private struct EngineSettings: View {
 private struct MovementSettings: View {
     @Environment(Preferences.self) private var prefs
     @Environment(AppModel.self) private var model
+    @State private var askToRestore = false
 
     var body: some View {
         @Bindable var prefs = prefs
@@ -213,7 +214,18 @@ private struct MovementSettings: View {
                 }
             }
             Section {
-                Button("Restore All Defaults", role: .destructive) { prefs.resetAll() }
+                Button("Restore All Defaults…", role: .destructive) { askToRestore = true }
+                    .confirmationDialog("Put every setting back to how it started?", isPresented: $askToRestore,
+                                        titleVisibility: .visible) {
+                        Button("Restore Defaults", role: .destructive) {
+                            prefs.resetAll()
+                            // The saved helper path is one of the settings: look for the helper again.
+                            model.resolveTool()
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Units, map style, engine and movement all go back to the start. Your favorites and routes stay.")
+                    }
             }
         }
         .formStyle(.grouped)

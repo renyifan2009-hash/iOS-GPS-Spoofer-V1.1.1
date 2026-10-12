@@ -40,13 +40,26 @@ final class LibraryStore {
         return place
     }
 
-    func removeFavorite(near point: GeoPoint) {
-        data.favorites.removeAll { Geo.distance($0.point, point) < 15 }
+    /// What was removed comes back, so a note can offer Undo.
+    @discardableResult
+    func removeFavorite(near point: GeoPoint) -> [FavoriteListEdit.Removed] {
+        let result = FavoriteListEdit.removing(from: data.favorites) { Geo.distance($0.point, point) < 15 }
+        data.favorites = result.list
         persist()
+        return result.removed
     }
 
-    func removeFavorite(_ id: UUID) {
-        data.favorites.removeAll { $0.id == id }
+    @discardableResult
+    func removeFavorite(_ id: UUID) -> [FavoriteListEdit.Removed] {
+        let result = FavoriteListEdit.removing(from: data.favorites) { $0.id == id }
+        data.favorites = result.list
+        persist()
+        return result.removed
+    }
+
+    /// Undo of a removal: the places go back where they were.
+    func restoreFavorites(_ removed: [FavoriteListEdit.Removed]) {
+        data.favorites = FavoriteListEdit.restoring(removed, into: data.favorites)
         persist()
     }
 

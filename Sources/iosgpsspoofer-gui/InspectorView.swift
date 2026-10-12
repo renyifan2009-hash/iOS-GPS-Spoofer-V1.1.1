@@ -266,7 +266,7 @@ struct RouteSection: View {
                     .disabled(model.waypoints.count < 2)
                     Divider()
                     Button("Reverse Direction") { model.reverseRoute() }.disabled(model.waypoints.count < 2)
-                    Button("Clear All Waypoints", role: .destructive) { model.clearWaypoints() }
+                    Button("Clear All Waypoints", role: .destructive) { model.requestClearWaypoints() }
                         .disabled(model.waypoints.isEmpty)
                 } label: {
                     Image(systemName: "ellipsis")

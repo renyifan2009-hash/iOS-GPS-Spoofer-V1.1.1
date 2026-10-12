@@ -95,7 +95,7 @@ struct SidebarView: View {
                             Button("Rename…") { model.renameFavorite(place) }
                             Button("Copy Coordinates") { model.copyCoordinates(place.point) }
                             Divider()
-                            Button("Remove from Favorites", role: .destructive) { library.removeFavorite(place.id) }
+                            Button("Remove from Favorites", role: .destructive) { model.removeFavoriteWithUndo(place) }
                         }
                         .help("Click to select · double-click to teleport")
                 }
@@ -136,20 +136,17 @@ struct SidebarView: View {
                 ForEach(library.routes) { route in
                     RouteRow(route: route, units: prefs.units, isLoaded: model.savedRouteID == route.id)
                         .contentShape(Rectangle())
-                        .onTapGesture { model.loadSavedRoute(route) }
+                        .onTapGesture { model.requestLoadSavedRoute(route) }
                         .contextMenu {
-                            Button("Load") { model.loadSavedRoute(route) }
-                            Button("Load & Start") {
-                                model.loadSavedRoute(route)
-                                model.startRoute()
-                            }
+                            Button("Load") { model.requestLoadSavedRoute(route) }
+                            Button("Load & Start") { model.requestLoadSavedRoute(route, thenStart: true) }
                             Divider()
                             Button("Rename…") { model.renameSavedRoute(route) }
                             Button("Export GPX…") {
                                 model.exportRoute(name: route.name, waypoints: route.waypoints, track: nil)
                             }
                             Divider()
-                            Button("Delete", role: .destructive) { model.deleteSavedRoute(route) }
+                            Button("Delete…", role: .destructive) { model.requestDeleteSavedRoute(route) }
                         }
                 }
             }
