@@ -226,7 +226,7 @@ struct PairingView: View {
                 Text("Not finding it? Check that iPhone Remote is turned on at the Mac and that both are on the same Wi-Fi. "
                      + "AnyWhere also needs Local Network turned on in Settings.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
                 Button { openSettings() } label: {
                     Label("Open Settings", systemImage: "gearshape").frame(maxWidth: .infinity)
