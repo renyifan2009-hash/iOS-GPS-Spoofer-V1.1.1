@@ -58,7 +58,31 @@ intact, and `launchctl` was a stub, so no login item was changed.
 | 02:47 | 0e7da80 | Pairing-file assistant (File ▸ Pairing File for the iPhone App…, ⇧⌘K), Desktop default, readiness messages |
 | 02:50 | 07dd249 | Docs: names table, download-the-app install route, pairing steps |
 | 02:55 | 55eb6dc | Palette follows the logo; offscreen renderer for UI checks |
-| 03:00 | (next) | Launch self-test (`ANYWHERE_SELF_TEST=1`), installer gate + atomic swap + login-item repair, updater reports failures, CI runs the app |
+| 03:00 | 47719d6 | Launch self-test (`ANYWHERE_SELF_TEST=1`), installer gate + atomic swap + login-item repair, updater reports failures, CI runs the app |
+| 03:10 | fae4a8c, faa5eb5 | First-run fixes from the audit; install assistant (download, checksum, bundle-ID check, hand-off to Sideloadly/AltStore) |
+| 03:25 | f30a7aa | Release-channel updates (DMG from the newest release, checksum, signature, self-test, atomic swap) with 14 tests on real DMGs |
+| 04:20 | f1e3544 … 1d079ee | Merged the four implementers' branches (route engine, process layer, Mac UX, iPhone app): 388 + 111 tests |
+| 05:00 | (this commit) | Found and fixed a 100% CPU freeze of the packaged app on macOS 15 (menu bar item binding); fixed a Swift 6.1 compile error |
+
+## The tester's crash: what was found (the launch self-test earned its keep)
+
+The self-test and the diagnostics below were written to answer "why does the tester's app quit unexpectedly".
+No crash report from the tester exists, so this is what could be proven:
+
+1. **A real freeze on macOS 15 (fixed).** On GitHub's macOS 15 runners the packaged app sat at ~100% CPU with the
+   main thread inside SwiftUI's scene update, and never became responsive. Experiments (one scene removed at a time,
+   built on CI) showed the cause was the `MenuBarExtra` scene: its `isInserted` binding is written back by SwiftUI during
+   its own updates, and an `@Observable` setter invalidates observers even for an unchanged value, so each write caused
+   another update. `App.menuBarInserted` now stores only a real change. After the fix: 0% CPU and the self-test passes on
+   macOS 15. (It did not reproduce on this Mac's macOS 27.) A frozen app is what a person would force-quit.
+2. **`NSApp.terminate` is ignored while the first-launch Welcome sheet is up**, when called from a timer in an inactive app
+   (AppKit never even asks the delegate). The self-test works around it; whether a real ⌘Q is affected is untested
+   (`docs/DEVICE-TESTING.md` A7).
+3. **The merged code did not compile on Swift 6.1** (CI's Xcode 16): a `[weak self]` captured into a detached task.
+   Fixed (the app now hops back through `AppModel.shared`). It had compiled on this Mac's Swift 6.4, so CI is the only check
+   for the older compiler.
+4. Still the strongest theory for the tester's own crash: an app compiled locally on a toolchain/SDK mismatch, and the
+   in-app Update rebuilding from source. Both are now gated by the self-test (and the release channel avoids the rebuild).
 
 ## Blocked / needs a real device or the owner
 
