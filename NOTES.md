@@ -62,7 +62,14 @@ intact, and `launchctl` was a stub, so no login item was changed.
 | 03:10 | fae4a8c, faa5eb5 | First-run fixes from the audit; install assistant (download, checksum, bundle-ID check, hand-off to Sideloadly/AltStore) |
 | 03:25 | f30a7aa | Release-channel updates (DMG from the newest release, checksum, signature, self-test, atomic swap) with 14 tests on real DMGs |
 | 04:20 | f1e3544 … 1d079ee | Merged the four implementers' branches (route engine, process layer, Mac UX, iPhone app): 388 + 111 tests |
-| 05:00 | (this commit) | Found and fixed a 100% CPU freeze of the packaged app on macOS 15 (menu bar item binding); fixed a Swift 6.1 compile error |
+| 04:40 | 6c566f7 | Fixed a Swift 6.1 data-race compile error in the startup restore (it compiled on Swift 6.4; only CI's older compiler saw it) |
+| 05:00 | 5ee5745 | Found and fixed a 100% CPU freeze of the packaged app on macOS 15 (menu bar item binding) |
+| 05:02 | 982e871, 9dbe88e | Removed the throwaway diagnostic workflow; wrote up what was found about the tester's crash |
+| 05:09 | b62eb84 | Sidebar footer keeps "AnyWhere" on one line (CI's screenshot showed it wrapping to "AnyWh/ere") |
+| 05:10 | 603d58c | Device checklist: sleep/wake, unplug/replug, force-quit recovery |
+| 05:14 | 51e4fa9 | **A second crash found and fixed:** following the device to a pole (or typing latitude 90) made MapKit raise an exception nothing can catch. Every camera move now goes through `GeoPoint.mapSafe` |
+| 05:16 | 8dcec36 | CodeRabbit round 2 (4 findings: 3 fixed, 1 checked and skipped: `ps -ww`, because `ps` does not truncate when piped) |
+| 05:17 | 9d41662 | Route import reads and thins big files off the main thread; dragged pins, saved routes and dropped links can't hand the map a non-place |
 
 ## The tester's crash: what was found (the launch self-test earned its keep)
 
@@ -81,7 +88,14 @@ No crash report from the tester exists, so this is what could be proven:
 3. **The merged code did not compile on Swift 6.1** (CI's Xcode 16): a `[weak self]` captured into a detached task.
    Fixed (the app now hops back through `AppModel.shared`). It had compiled on this Mac's Swift 6.4, so CI is the only check
    for the older compiler.
-4. Still the strongest theory for the tester's own crash: an app compiled locally on a toolchain/SDK mismatch, and the
+4. **A crash that really aborts the app (fixed):** MapKit's `setCenter` raises an Objective-C exception ("Invalid Coordinate") for
+   a place it can't put on its flat map: latitude ±90 (following the device to a pole, or typing 90), NaN, or the invalid
+   value MapKit itself returns when the camera is shifted past the north or south edge. Swift cannot catch that, so the app
+   aborts, which macOS shows as "quit unexpectedly". The audit's verifier reproduced it. Every camera move now goes through
+   `GeoPoint.mapSafe` (refuses non-places, clamps to ±85°), with unit tests; dragged pins, saved routes and dropped files are
+   checked too. It is a real, reproduced way to get the "quit unexpectedly" dialog, but with no crash log from the tester it
+   is not proven to be theirs.
+5. Still the strongest theory for the tester's own crash (alongside 4): an app compiled locally on a toolchain/SDK mismatch, and the
    in-app Update rebuilding from source. Both are now gated by the self-test (and the release channel avoids the rebuild).
 
 ## Blocked / needs a real device or the owner
