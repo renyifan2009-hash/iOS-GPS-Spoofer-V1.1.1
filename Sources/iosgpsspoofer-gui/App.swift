@@ -88,6 +88,7 @@ struct AppCommands: Commands {
 struct PairingFileMenuItem: View {
     var body: some View {
         let model = AppModel.shared
+        Button("Install AnyWhere on iPhone…") { PhoneInstaller.shared.open() }
         Button("Pairing File for the iPhone App…") { model.openPairingFileAssistant() }
             .keyboardShortcut("k", modifiers: [.command, .shift])
     }

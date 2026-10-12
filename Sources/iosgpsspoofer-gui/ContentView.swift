@@ -28,6 +28,12 @@ struct ContentView: View {
                 .environment(model)
                 .tint(Brand.accent)
         }
+        .sheet(isPresented: Binding(get: { PhoneInstaller.shared.isPresented },
+                                    set: { PhoneInstaller.shared.isPresented = $0 })) {
+            PhoneInstallSheet()
+                .environment(model)
+                .tint(Brand.accent)
+        }
     }
 }
 

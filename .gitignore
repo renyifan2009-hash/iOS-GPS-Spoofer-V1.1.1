@@ -8,3 +8,6 @@ dist/
 __pycache__/
 *.pyc
 iPhoneRemote/Vendor/
+
+# Local agent worktrees and settings
+.claude/

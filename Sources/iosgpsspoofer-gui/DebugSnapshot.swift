@@ -102,6 +102,17 @@ enum DebugSnapshot {
             if case .working = model.pairingFileState { return }
             guard model.showPairingFile else { return }
             content = AnyView(PairingFileSheet().environment(model))
+        case "phone-install", "phone-install-ready":
+            // The iPhone-app installer: empty, or after the download (a made-up file; nothing is fetched).
+            if demo == "phone-install-ready" {
+                PhoneInstaller.shared.sideloaders = [PhoneApp.Sideloader(name: "Sideloadly", appURL: URL(fileURLWithPath: "/Applications/Sideloadly.app"))]
+                PhoneInstaller.shared.step = .ready(PhoneInstaller.Downloaded(
+                    url: URL(fileURLWithPath: "/Users/you/Downloads/AnyWhere 1.1.ipa"),
+                    info: PhoneApp.Info(bundleID: "com.iosgpsspoof.remote", version: "1.1", build: "3", displayName: "AnyWhere"),
+                    checksumVerified: true))
+                PhoneInstaller.shared.onPhone = .notInstalled
+            }
+            content = AnyView(PhoneInstallSheet().environment(model))
         case "welcome":
             guard model.selectedDevice != nil || ProcessInfo.processInfo.environment["FAKE_PMD_NO_DEVICE"] == "1" else { return }
             content = AnyView(WelcomeView().environment(model).environment(Preferences.shared))
@@ -188,7 +199,7 @@ enum DebugSnapshot {
                 while model.directionsState == .computing { try? await Task.sleep(for: .milliseconds(200)) }
                 model.startRoute()
             }
-        case "welcome":
+        case "welcome", "phone-install", "phone-install-ready":
             break   // rendered by renderOffscreenIfRequested
         case "pairing", "pairing-ready":
             // The pairing-file assistant, empty or after making the file (use
