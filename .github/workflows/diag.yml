@@ -1,0 +1,44 @@
+# Throwaway: finds why the launch self-test hangs on the macOS 15 runner. Delete after use.
+name: Diag
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  selftest-matrix:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version && xcrun --show-sdk-version
+      - name: Build release and package
+        run: |
+          swift build -c release
+          BIN_DIR="$(swift build -c release --show-bin-path)"
+          scripts/make-app.sh "$BIN_DIR" build
+          ls build
+      - name: "A. raw release binary, fresh preferences"
+        continue-on-error: true
+        run: scripts/self-test.sh "$(swift build -c release --show-bin-path)/iosgpsspoofer-gui" 40
+      - name: "B. packaged app, Welcome already seen"
+        continue-on-error: true
+        run: |
+          defaults write com.iosgpsspoofer.gui hasSeenWelcome -bool true
+          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
+      - name: "C. packaged app, fresh preferences (Welcome shows)"
+        continue-on-error: true
+        run: |
+          defaults delete com.iosgpsspoofer.gui hasSeenWelcome || true
+          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
+      - name: "D. packaged app, Welcome seen, menu bar item off"
+        continue-on-error: true
+        run: |
+          defaults write com.iosgpsspoofer.gui hasSeenWelcome -bool true
+          defaults write com.iosgpsspoofer.gui showMenuBarExtra -bool false
+          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
+      - name: "E. packaged app, fresh preferences, menu bar item off"
+        continue-on-error: true
+        run: |
+          defaults delete com.iosgpsspoofer.gui hasSeenWelcome || true
+          defaults write com.iosgpsspoofer.gui showMenuBarExtra -bool false
+          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
