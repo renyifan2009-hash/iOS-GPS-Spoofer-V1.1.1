@@ -110,9 +110,49 @@ No crash report from the tester exists, so this is what could be proven:
 
 ## Ship it (when you are ready)
 
-1. Review and merge `overnight/anywhere-rebrand` into `main` (CI must be green; it was green on the first push).
-2. Tag a release: `git tag v2.4.0 && git push origin v2.4.0`. The CI `release` job builds the DMG and `AnyWhere.ipa`, runs the
-   launch self-test, and publishes the release with `SHA256SUMS.txt`.
-3. Landing page: merge `anywhere-rebrand` in `svaka2000/igs-landing`, then `vercel --prod` there.
-4. Optional: rename the GitHub repo (`gh repo rename AnyWhere`), then update the slug in `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift`,
+CI runs on pull requests, on `main` and by hand, not on every push to a branch. Opening the PR starts it.
+
+1. Open a PR from `overnight/anywhere-rebrand` into `main` and let CI run (all 7 jobs were green on 9d41662, the last code change;
+   run 38248259692). Review and merge it.
+2. Pick the version. `VERSION` still says 2.3.0 and the release job refuses a tag that doesn't match it, so bump `VERSION`
+   (2.4.0 is a sensible number) in a commit on `main` first. The iPhone app changed too (import errors, Keychain cleanup,
+   accessibility): if you want Macs to nag people on the old iPhone build, also raise `CURRENT_PROJECT_VERSION` in
+   `iPhoneRemote/project.yml` and `SpoofRemote.expected` in `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift` together (a test
+   checks they agree). Both are release decisions, so neither was done overnight.
+3. Tag it: `git tag v2.4.0 && git push origin v2.4.0` (the tag must equal `VERSION`). The CI `release` job builds the DMG and
+   `AnyWhere.ipa`, runs the launch self-test, and publishes the release with `SHA256SUMS.txt`.
+4. Landing page: merge `anywhere-rebrand` in `svaka2000/igs-landing` (tip 64e18e9), then `vercel --prod` there.
+5. Optional: rename the GitHub repo (`gh repo rename AnyWhere`), then update the slug in `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift`,
    `install.sh`, `scripts/make-app.sh` (GitHub redirects the old name meanwhile).
+
+## SUMMARY (run closed 2026-10-12 about 05:35 PDT)
+
+**State.** Branch `overnight/anywhere-rebrand` is 77 commits ahead of `main` (156 files, +12.5k/−1k lines), pushed. CI on the last
+code change (9d41662) is green on all 7 jobs, including the launch self-test of the packaged app and of the app inside the
+DMG, the Xcode 16 / macOS 15 build and the swiftly + old-SDK build. Later commits are notes, comments and one picture.
+393 Mac-side tests and 111 iPhone-side tests pass. Nothing was merged, tagged, released, deployed or renamed.
+
+**What was asked, and what happened**
+
+| Ask | Result |
+|---|---|
+| Rename to AnyWhere™ with the supplied logo | Done everywhere people see it (app, menus, DMG, installer, CI, docs, iPhone app, landing branch). Icons are cut from the supplied logo by `brand/make-icons.py`. Bundle IDs, Bonjour name and the repo URL kept on purpose (A2); old app, data and login item are migrated, never deleted. |
+| "Can't find the pairing file" | Pairing assistant: File ▸ Pairing File for the iPhone App… (⇧⌘K). It says what is missing, saves to the Desktop, shows the file in Finder, sends it with AirDrop, says what to tap on the iPhone, and can delete the copy. The iPhone app shows import errors by the button. |
+| "Quit unexpectedly" (twice) | No crash log exists, so no single cause is proven. Found and fixed: a pole-latitude MapKit abort (reproduced), a macOS 15 100% CPU freeze in the menu bar item, and a Swift 6.1 compile error. The locally-built-on-a-bad-toolchain theory is now blocked by a launch self-test that every source build and every update must pass before it replaces anything. |
+| "Make our own loader instead of Sideloadly" | An install assistant, not a signer (A6): downloads the release IPA, checks its checksum and that it is really AnyWhere, then hands it to Sideloadly / AltStore / SideStore. No Apple-ID code was written. |
+| Bugs from the tester's screenshots, and "everything perfect" | Four audit → verify → fix passes (route engine, process layer, Mac UX, iPhone app); each finding was checked before it was fixed (ids are in the commit messages). Two CodeRabbit reviews; every finding was checked, valid ones fixed, one skipped with the reason. |
+
+**Not done, on purpose**
+- No analysis of Vanish or of the attached device files, and no workaround for Apple's iOS 26.4+ lockdown change (Boundaries).
+- No Apple-ID sign-in or signing code.
+- No publishing of any kind (A5).
+
+**Not proven, needs a real device** (all of `docs/DEVICE-TESTING.md`): AirDrop of the pairing file, installing through a signing
+tool, the iPhone-only mode, sleep/wake and unplug/replug, and whether ⌘Q works on the first-launch Welcome sheet (A7). The
+simulator, the offscreen renderer and CI cannot show these. If the tester's crash comes back with the DMG build, the newest
+`AnyWhere*.ips` in `~/Library/Logs/DiagnosticReports` is the next step.
+
+**Mistakes of mine worth knowing:** the installer-test incident above (a test removed the real old app; restored, root cause
+fixed, a memory rule written); a merge-time `git add -A` that briefly embedded agent worktrees (removed before pushing, `.claude/`
+now ignored); several CI diagnostic runs were misread because `continue-on-error` reports success (fixed by printing explicit
+result lines). Scratch worktrees are removed; the four `fix/*` branches are fully merged into the branch and can be deleted.
