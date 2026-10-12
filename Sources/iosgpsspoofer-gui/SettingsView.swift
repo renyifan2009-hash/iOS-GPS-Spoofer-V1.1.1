@@ -342,7 +342,7 @@ private struct AboutSettings: View {
                 .frame(width: 112, height: 112)
                 .shadow(color: Brand.indigo.opacity(0.35), radius: 14, y: 6)
             VStack(spacing: 4) {
-                Text("AnyWhere").font(Brand.title(24))
+                Text("AnyWhere™").font(Brand.title(24))
                 Text(versionLine)
                     .font(.callout)
                     .foregroundStyle(.secondary)

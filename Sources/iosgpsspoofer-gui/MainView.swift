@@ -537,10 +537,10 @@ struct Banners: View {
             }
             if let old = model.oldSpoofRemote {
                 banner(icon: "iphone.and.arrow.forward", colors: TileColors.orange,
-                       text: "\(old.deviceName) has an old AnyWhere. Update it, or the iPhone-only mode can fail.") {
+                       text: "\(old.deviceName) has an old AnyWhere app. Update it, or the iPhone-only mode can fail.") {
                     Button("Open Releases") { model.openSpoofRemoteReleases() }
                         .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
-                        .help("Open the releases page to reinstall the newest AnyWhere on the iPhone")
+                        .help("Open the releases page to reinstall the newest AnyWhere app on the iPhone")
                 }
             }
             switch Updater.shared.state {

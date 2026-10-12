@@ -325,7 +325,7 @@ struct ExportPairing: ParsableCommand {
         // not installed, or a failed read, says nothing.
         if let installed = try? ctx.pmd.installedSpoofRemoteVersion(udid: ctx.device.udid),
            installed < SpoofRemote.expected {
-            log("warning: \(ctx.device.deviceName) has an older AnyWhere (\(installed.displayString)).")
+            log("warning: \(ctx.device.deviceName) has an older AnyWhere app (\(installed.displayString)).")
             log("reinstall the newest one from \(SpoofRemote.releasesLatestURL), or the iPhone-only mode may fail.")
         }
     }

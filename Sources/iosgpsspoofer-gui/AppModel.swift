@@ -298,6 +298,11 @@ final class AppModel {
         fitMap()
         if !UserDefaults.standard.bool(forKey: StateKey.welcomed) { showWelcome = true }
         Updater.shared.checkIfDue()
+        // After the window is up: an old-named copy of the app may be left in Applications.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            AppModel.shared.offerToRemoveOldApp()
+        }
     }
 
     /// Called from `applicationDidFinishLaunching` once stray children are reaped.

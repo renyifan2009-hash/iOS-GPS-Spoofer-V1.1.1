@@ -169,7 +169,7 @@ private struct WelcomeHero: View {
                             }
                         }
                 }
-                Text("Welcome to AnyWhere")
+                Text("Welcome to AnyWhere™")
                     .font(Brand.title(30))
                     .foregroundStyle(.white)
                     .stagger(shown, order: 1)

@@ -113,12 +113,12 @@ extension AppModel {
                 guard model.selectedUDID == udid else { return }
                 if let failure {
                     // Stay quiet on screen; just note it for a bug report.
-                    model.appendLog("Couldn't check the AnyWhere version on \(name): \(failure)", level: .debug)
+                    model.appendLog("Couldn't check the AnyWhere app's version on \(name): \(failure)", level: .debug)
                     return
                 }
                 if let version, version < SpoofRemote.expected {
                     model.oldSpoofRemote = OldSpoofRemote(deviceName: name, installed: version.displayString)
-                    model.appendLog("\(name) has an older AnyWhere (\(version.displayString)). The newest is on the "
+                    model.appendLog("\(name) has an older AnyWhere app (\(version.displayString)). The newest is on the "
                         + "releases page. The iPhone-only mode can fail until it's updated.", level: .warning)
                 } else {
                     // Current, or not installed: nothing to warn about.

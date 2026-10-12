@@ -259,7 +259,7 @@ jobs:
           swift build -c release
 
   iphone-remote:
-    name: Build · SpoofRemote iPhone app
+    name: Build · AnyWhere iPhone app
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -290,8 +290,8 @@ jobs:
             -destination 'generic/platform=iOS Simulator' -configuration Debug \
             CODE_SIGNING_ALLOWED=NO build
 
-      # The file testers install with Sideloadly, which signs it with their own
-      # Apple ID. Built with the newest Xcode 26, for the iOS 26 design.
+      # The file testers install with a sideloading tool (or the AnyWhere installer), which signs it
+      # with their own Apple ID. Built with the newest Xcode 26, for the iOS 26 design.
       - name: Build for iPhones (unsigned .ipa)
         run: |
           XCODES=(/Applications/Xcode_26*.app)
@@ -302,14 +302,14 @@ jobs:
             -destination 'generic/platform=iOS' -configuration Release \
             -derivedDataPath "$RUNNER_TEMP/device" CODE_SIGNING_ALLOWED=NO build
           mkdir -p "$RUNNER_TEMP/ipa/Payload"
-          cp -R "$RUNNER_TEMP/device/Build/Products/Release-iphoneos/SpoofRemote.app" "$RUNNER_TEMP/ipa/Payload/"
-          (cd "$RUNNER_TEMP/ipa" && zip -qr "$GITHUB_WORKSPACE/SpoofRemote.ipa" Payload)
-          ls -la SpoofRemote.ipa
+          cp -R "$RUNNER_TEMP/device/Build/Products/Release-iphoneos/AnyWhere.app" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qr "$GITHUB_WORKSPACE/AnyWhere.ipa" Payload)
+          ls -la AnyWhere.ipa
 
       - name: Upload the .ipa
         uses: actions/upload-artifact@v4
         with:
-          name: SpoofRemote-ipa
-          path: SpoofRemote.ipa
+          name: AnyWhere-ipa
+          path: AnyWhere.ipa
           if-no-files-found: error
           retention-days: 14

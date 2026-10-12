@@ -56,7 +56,9 @@ targets:
         embed: false
     settings:
       base:
-        PRODUCT_NAME: SpoofRemote
+        # The app is called AnyWhere. The target, scheme and bundle ID keep the original
+        # name on purpose: an installed copy updates in place and keeps its Keychain items.
+        PRODUCT_NAME: AnyWhere
         PRODUCT_BUNDLE_IDENTIFIER: com.iosgpsspoof.remote
         MARKETING_VERSION: "1.1"
         CURRENT_PROJECT_VERSION: "3"
@@ -64,7 +66,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: SpoofRemote/Info.plist
-        INFOPLIST_KEY_CFBundleDisplayName: SpoofRemote
+        INFOPLIST_KEY_CFBundleDisplayName: AnyWhere
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
