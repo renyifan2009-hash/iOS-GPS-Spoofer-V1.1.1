@@ -189,32 +189,55 @@ extension Pymobiledevice3 {
     /// Throws when there's no lockdown record to save. When only the Remote
     /// Pairing identity can't be made, the file is still saved and the result
     /// says why, so the caller can tell the user.
+    ///
+    /// The file is made in a private folder (only this user can open it) and
+    /// moved to `url` once it is complete. It is never written where other
+    /// users of this Mac could read it, not even for a moment.
     @discardableResult
     public func exportPairingFile(udid: String, to url: URL) throws -> PairingExport {
+        let fm = FileManager.default
         _ = try? run(["lockdown", "wifi-connections", "on", "--udid", udid], timeout: 30)
-        try? FileManager.default.removeItem(at: url)
-        _ = try run(["lockdown", "save-pair-record", url.path, "--udid", udid], timeout: 30)
+
+        let staging = fm.temporaryDirectory.appendingPathComponent("anywhere-pairing-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: staging, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? fm.removeItem(at: staging) }
+        let draft = staging.appendingPathComponent("pairing.plist")
         // A key to the iPhone: no other user of this Mac should read it.
-        let protect = { _ = try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
-        protect()
-        // save-pair-record only logs "no pairing record was found" and exits 0.
-        guard let data = try? Data(contentsOf: url), !data.isEmpty else {
-            try? FileManager.default.removeItem(at: url)
-            throw SpoofError("this Mac has no pairing record for the iPhone. Unplug it, plug it back in, tap Trust, then try again.")
+        let protect = { (file: URL) in _ = try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path) }
+
+        let noRecord = SpoofError("this Mac has no pairing record for the iPhone. Unplug it, plug it back in, tap Trust, then try again.")
+        do {
+            _ = try run(["lockdown", "save-pair-record", draft.path, "--udid", udid], timeout: 30)
+        } catch {
+            // Current pymobiledevice3 exits with an error and says no record was found.
+            if "\(error)".lowercased().contains("no pairing record") { throw noRecord }
+            throw error
         }
+        protect(draft)
+        // Older versions only log "no pairing record was found" and exit 0.
+        guard let data = try? Data(contentsOf: draft), !data.isEmpty else { throw noRecord }
         guard let lockdown = try? PairingRecord(data: data), lockdown.hasLockdownRecord else {
-            try? FileManager.default.removeItem(at: url)
             throw SpoofError("the pairing record pymobiledevice3 saved for the iPhone is incomplete. Unplug the iPhone, plug it back in, tap Trust, then try again.")
         }
+        var problem: String?
         do {
             let record = try lockdown.settingRemotePairing(try remotePairingIdentity(udid: udid))
-            try record.data.write(to: url, options: .atomic)
+            try record.data.write(to: draft, options: .atomic)
             // Written as a new file, with the usual permissions again.
-            protect()
-            return PairingExport(url: url, remotePairingProblem: nil)
+            protect(draft)
         } catch {
-            return PairingExport(url: url, remotePairingProblem: SpoofSession.firstLine(of: error))
+            problem = SpoofSession.firstLine(of: error)
         }
+
+        // Only now does it leave the private folder.
+        try? fm.removeItem(at: url)
+        do {
+            try fm.moveItem(at: draft, to: url)
+        } catch {
+            throw SpoofError("couldn't save the pairing file in \(url.deletingLastPathComponent().path): \(error.localizedDescription)")
+        }
+        protect(url)
+        return PairingExport(url: url, remotePairingProblem: problem)
     }
 
     /// Pairs this Mac with the iPhone's remotepairingd over USB lockdown (no
