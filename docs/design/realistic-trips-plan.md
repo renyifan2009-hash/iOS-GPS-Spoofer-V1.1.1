@@ -27,7 +27,7 @@ MapKit (macOS 14), XCTest, URLSession, the public Overpass API.
   `Sendable`.
 - No network in unit tests; Overpass is tested with a saved JSON answer.
 - Overpass etiquette: one request at a time, at least 1 s apart, User-Agent
-  `iOS-GPS-Spoofer/<version> (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1)`,
+  `iOS-GPS-Spoofer/<version> (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3)`,
   cache answers 30 days.
 - UI copy: plain, short sentences; no jargon. US wording ("Yield",
   "Crosswalk").
@@ -2019,7 +2019,7 @@ extension AppModel {
     }
 
     static let roadDataLoader = OverpassLoader(
-        userAgent: "iOS-GPS-Spoofer/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev") (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1)",
+        userAgent: "iOS-GPS-Spoofer/\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev") (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3)",
         cacheDirectory: AppSupport.directory.appendingPathComponent("osm-cache", isDirectory: true))
 
     /// The path a route plays, as the planner sees it (closed for loops).

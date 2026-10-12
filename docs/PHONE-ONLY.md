@@ -13,10 +13,10 @@ developer, working or not, with the small print under any error.
 ## What you need
 
 - An iPhone with **iOS 17.4 or later**, with **Developer Mode** on.
-- A Mac with **iOS GPS Spoofer**, for the one-time setup. Use the current
+- A Mac with **AnyWhere**, for the one-time setup. Use the current
   version: older ones save a pairing file that newer iOS versions can't use.
-- The **SpoofRemote** app on the iPhone. Each
-  [release](https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/releases)
+- The **AnyWhere** app on the iPhone. Each
+  [release](https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3/releases)
   has a `SpoofRemote.ipa` to install with [Sideloadly](https://sideloadly.io),
   which signs it with your Apple ID, and step-by-step instructions. You can
   also build it with Xcode ([how](IPHONE-REMOTE.md#build-the-iphone-app)).
@@ -30,31 +30,34 @@ developer, working or not, with the small print under any error.
 ## Set it up (once)
 
 1. **Plug the iPhone into the Mac**, unlock it and tap **Trust**.
-2. **Load Apple's developer support.** In iOS GPS Spoofer, teleport anywhere,
+2. **Load Apple's developer support.** In AnyWhere, teleport anywhere,
    then click **Stop**. This loads the support onto the iPhone. It stays loaded
    until the iPhone restarts.
-3. **Save the pairing file.** Keep the iPhone plugged in and unlocked. In iOS
-   GPS Spoofer, choose **File ▸ Save iPhone Pairing File…** and save it. The
-   AirDrop window opens. Pick your iPhone. If the Mac says **Saved, for older
-   iOS only**, see the table below before going on.
-4. **Open it on the iPhone.** Accept the AirDrop and choose **SpoofRemote**.
-   SpoofRemote opens its setup screen, and "Pairing file added" gets a tick.
+3. **Make the pairing file.** Keep the iPhone plugged in and unlocked. In
+   AnyWhere on the Mac, choose **File ▸ Pairing File for the iPhone App…**
+   (**⇧⌘K**, or the iPhone icon at the bottom of the sidebar). The window says
+   if anything is missing (no iPhone, no helper tool, iOS older than 17.4). Click
+   **Create Pairing File**. It's saved on your **Desktop**, and the window shows
+   where. If it says **This file works on older iOS only**, see the table below
+   before going on.
+4. **Open it on the iPhone.** Accept the AirDrop and choose **AnyWhere**.
+   AnyWhere opens its setup screen, and "Pairing file added" gets a tick.
 5. **Turn on LocalDevVPN.** Install it, open it and tap **Connect**. Back in
-   SpoofRemote, "LocalDevVPN is on" gets a tick.
+   AnyWhere, "LocalDevVPN is on" gets a tick.
 
-The pairing file lets SpoofRemote act like your Mac towards this iPhone. Send
-it to that iPhone only. SpoofRemote keeps it in the iPhone's Keychain, and it
+The pairing file lets AnyWhere act like your Mac towards this iPhone. Send
+it to that iPhone only. AnyWhere keeps it in the iPhone's Keychain, and it
 isn't backed up.
 
 ## Use it
 
-1. In SpoofRemote, tap **This iPhone** at the top of the bottom card.
+1. In AnyWhere, tap **This iPhone** at the top of the bottom card.
 2. Search for a place or tap the map, then tap **Start Here**.
 3. Tap another place and **Move Here** to jump again, or **Stop** to get the
    real location back.
 
-Keep LocalDevVPN connected. While SpoofRemote holds a location, iOS shows a
-blue pill in the status bar. That's SpoofRemote staying awake in the
+Keep LocalDevVPN connected. While AnyWhere holds a location, iOS shows a
+blue pill in the status bar. That's AnyWhere staying awake in the
 background, because the location only lasts while the app runs.
 
 **After the iPhone restarts,** connect it to the Mac once and do step 2 again.
@@ -62,43 +65,43 @@ Apple's developer support has to be loaded again after every restart.
 
 ## Keeping the two apps in step
 
-The Mac app updates itself. SpoofRemote does not: it only changes when you
+The Mac app updates itself. AnyWhere does not: it only changes when you
 reinstall the `.ipa` from the
-[releases page](https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/releases/latest).
-So you can end up with a new Mac app and an old SpoofRemote, and the
+[releases page](https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3/releases/latest).
+So you can end up with a new Mac app and an old AnyWhere, and the
 iPhone-only mode then fails with a confusing error. Two notices catch this:
 
 - **On the Mac.** When an iPhone is plugged in, and again when you save a
-  pairing file, the Mac reads which SpoofRemote is on it. If it's older than
+  pairing file, the Mac reads which AnyWhere is on it. If it's older than
   the Mac app expects, a banner says so, with a button that opens the releases
-  page. If SpoofRemote isn't installed, or the check can't run, the Mac says
+  page. If AnyWhere isn't installed, or the check can't run, the Mac says
   nothing. The check never blocks or slows down saving the file or normal use.
   The command line does the same after `iosgpsspoof export-pairing`.
-- **On the iPhone.** SpoofRemote carries the version it was built from. At most
+- **On the iPhone.** AnyWhere carries the version it was built from. At most
   once a day it asks GitHub for the newest release and, if that's newer, shows
   a small notice on the main screen and the setup screen, with a button to the
   releases page. You can dismiss it; it comes back only for a newer release.
   When "This iPhone" mode fails to connect and a newer release is out, the
   error says so too, because updating is the likely fix. This is the only thing
-  SpoofRemote sends to the internet, it sends nothing about you or the iPhone,
+  AnyWhere sends to the internet, it sends nothing about you or the iPhone,
   and no network or an odd answer simply shows nothing.
 
 ## If something goes wrong
 
 | What you see | What to do |
 |---|---|
-| "Can't reach this iPhone's developer services" | Open LocalDevVPN and tap **Connect**. If it's already on, allow SpoofRemote in **Settings ▸ Privacy & Security ▸ Local Network**. |
+| "Can't reach this iPhone's developer services" | Open LocalDevVPN and tap **Connect**. If it's already on, allow AnyWhere in **Settings ▸ Privacy & Security ▸ Local Network**. |
 | "The iPhone didn't accept the pairing file" | Save a new pairing file on the Mac (step 3) and open it again. For example, resetting **Location & Privacy** makes the iPhone forget the computers it trusted, and the old file with them. |
-| "This iPhone needs a newer pairing file", or the setup screen says "This pairing file is too old" | The file has only the older of its two identities, and this iPhone's iOS needs the newer one. Update iOS GPS Spoofer on the Mac, plug the iPhone in, and do step 3 and 4 again. |
+| "This iPhone needs a newer pairing file", or the setup screen says "This pairing file is too old" | The file has only the older of its two identities, and this iPhone's iOS needs the newer one. Update AnyWhere on the Mac, plug the iPhone in, and do step 3 and 4 again. |
 | The Mac says "Saved, for older iOS only" | The Mac couldn't add the identity newer iOS versions need. The **Activity** section of the inspector gives the reason. Usually: plug the iPhone in with a cable (Wi-Fi isn't enough for this), unlock it, check Developer Mode is on, or update pymobiledevice3 by running `./setup.sh` again. Then save the file again. |
-| The iPhone asks whether to trust SpoofRemote when you tap **Start Here** | The iPhone no longer knows the identity in the file, so SpoofRemote is pairing again. Tap **Trust**. SpoofRemote keeps the new identity, so it shouldn't ask again. |
-| "Connecting took too long" | Check LocalDevVPN is connected and try again. If the iPhone is asking whether to trust SpoofRemote, tap **Trust**. |
-| "Moving took too long, so SpoofRemote stopped" | The connection stopped answering in the middle of a move. Start again. The iPhone can keep the last location for a while; if it stays, close SpoofRemote and open it again. |
+| The iPhone asks whether to trust AnyWhere when you tap **Start Here** | The iPhone no longer knows the identity in the file, so AnyWhere is pairing again. Tap **Trust**. AnyWhere keeps the new identity, so it shouldn't ask again. |
+| "Connecting took too long" | Check LocalDevVPN is connected and try again. If the iPhone is asking whether to trust AnyWhere, tap **Trust**. |
+| "Moving took too long, so AnyWhere stopped" | The connection stopped answering in the middle of a move. Start again. The iPhone can keep the last location for a while; if it stays, close AnyWhere and open it again. |
 | "This iPhone closed the connection while the tunnel was opening" | Turn LocalDevVPN off and on, then try again. If it keeps happening, save a new pairing file (step 3). A StikDebug user reported the same on iOS 26.7 ([issue 474](https://github.com/StikDebug/StikDebug/issues/474)), so tell the developer your iOS version. |
-| "Can't find this iPhone's pairing service" | LocalDevVPN is on, but the service SpoofRemote needs didn't answer. Turn LocalDevVPN off and on. Restarting the iPhone also restarts the service (then do step 2 again). |
+| "Can't find this iPhone's pairing service" | LocalDevVPN is on, but the service AnyWhere needs didn't answer. Turn LocalDevVPN off and on. Restarting the iPhone also restarts the service (then do step 2 again). |
 | "Apple's developer support isn't loaded" | Connect the iPhone to the Mac and do step 2. |
 | "Developer Mode is off" | **Settings ▸ Privacy & Security ▸ Developer Mode**. The iPhone restarts. Then do step 2. |
-| The location jumps back to the real one | iOS may have stopped SpoofRemote in the background. Open it and tap **Start Here** again. If this keeps happening, tell the developer what you were doing. |
+| The location jumps back to the real one | iOS may have stopped AnyWhere in the background. Open it and tap **Start Here** again. If this keeps happening, tell the developer what you were doing. |
 
 Under an error, on the main screen and on the setup screen, there's a line of
 small print: the step that failed, the kind of connection, and the library's
@@ -125,7 +128,7 @@ instead of USB:
    directly. LocalDevVPN routes only the address `10.7.0.1` into its tunnel,
    swaps each packet's source and destination, and hands it back, so the
    iPhone answers itself. Other traffic doesn't go through it. Using
-   LocalDevVPN means SpoofRemote doesn't need Apple's Network Extension
+   LocalDevVPN means AnyWhere doesn't need Apple's Network Extension
    entitlement, which free developer accounts can't get.
 3. **The developer tunnel, inside the app.** The [idevice](https://github.com/jkcoxson/idevice)
    library (Rust, MIT) opens the tunnel one of two ways:
@@ -142,29 +145,29 @@ instead of USB:
    talks RSD and DVT. DVT's location simulation sets and clears the location.
    This is the same service Xcode's "Simulate Location" uses.
 4. **Staying awake.** The simulated location belongs to the connection that set
-   it. SpoofRemote holds a background location session
+   it. AnyWhere holds a background location session
    (`CLBackgroundActivitySession`, `UIBackgroundModes: location`) so iOS
    doesn't suspend it and close that connection.
 
 Some details of step 3:
 
-- **Which ports answer.** Before connecting, SpoofRemote knocks on both ports
+- **Which ports answer.** Before connecting, AnyWhere knocks on both ports
   at `10.7.0.1`. If neither answers, LocalDevVPN is off. If only
   `remotepairingd` answers and the file has no Remote Pairing identity, it
   asks for a newer file instead of failing with a connection error.
 - **Where remotepairingd listens.** Usually port 49152, the first port iOS
   hands out, and StikDebug connects there without asking. iOS doesn't promise
-  it, so when 49152 doesn't answer, or isn't the right service, SpoofRemote
+  it, so when 49152 doesn't answer, or isn't the right service, AnyWhere
   looks the port up with Bonjour (`_remotepairing._tcp`), as SideStore does,
   and remembers it for as long as it works.
 - **Pairing again.** If the iPhone no longer knows the identity, idevice pairs
-  again on the same connection and the iPhone asks you to trust SpoofRemote.
-  SpoofRemote saves the new identity over the old one in the Keychain, also
+  again on the same connection and the iPhone asks you to trust AnyWhere.
+  AnyWhere saves the new identity over the old one in the Keychain, also
   when the connection fails after the pairing went through.
 - **A time limit.** idevice's reads never time out, so a connection that gets
   no answer would leave the app stuck on "Starting…". After 60 seconds
-  SpoofRemote gives up on it and says so. A call it gave up on can still
-  return later. It then only closes its own connection, and SpoofRemote sets
+  AnyWhere gives up on it and says so. A call it gave up on can still
+  return later. It then only closes its own connection, and AnyWhere sets
   the current location again in case that disturbed it.
 
 The code:
@@ -181,9 +184,9 @@ The code:
 | Mac: making the Remote Pairing identity (Python, run by pymobiledevice3's interpreter) | `Sources/SpooferCore/RemotePairingScript.swift` |
 | Mac: File ▸ Save iPhone Pairing File… | `Sources/iosgpsspoofer-gui/AppModel+PhoneOnly.swift` |
 | Command line: `iosgpsspoof export-pairing` | `Sources/iosgpsspoof/Commands.swift` |
-| SpoofRemote's version and the release check (shared, with tests) | `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift`, `ReleaseVersion.swift` |
-| Mac: reading the iPhone's installed SpoofRemote | `Sources/SpooferCore/Device.swift` (`installedSpoofRemoteVersion`) |
-| SpoofRemote: the newer-release notice | `iPhoneRemote/SpoofRemote/UpdateChecker.swift`, `UpdateNoticeView.swift` |
+| AnyWhere's version and the release check (shared, with tests) | `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift`, `ReleaseVersion.swift` |
+| Mac: reading the iPhone's installed AnyWhere | `Sources/SpooferCore/Device.swift` (`installedSpoofRemoteVersion`) |
+| AnyWhere: the newer-release notice | `iPhoneRemote/SpoofRemote/UpdateChecker.swift`, `UpdateNoticeView.swift` |
 
 ### Trying it in the iOS Simulator
 

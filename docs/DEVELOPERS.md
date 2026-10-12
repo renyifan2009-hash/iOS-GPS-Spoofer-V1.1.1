@@ -1,8 +1,27 @@
-# iOS GPS Spoofer: developer guide
+# AnyWhere: developer guide
 
 The [README](../README.md) is for people who just want to use the app. This
 page covers how it works, building it, the command-line tool, tests and
 packaging.
+
+## Names
+
+The product is **AnyWhere™** (renamed from "iOS GPS Spoofer"). Only what people see changed.
+These keep their original names on purpose, because renaming them would orphan installed copies,
+Keychain items, permissions and the update path:
+
+| Kept | Why |
+|---|---|
+| Mac bundle ID `com.iosgpsspoofer.gui`, iPhone bundle ID `com.iosgpsspoof.remote` | Preferences, permissions, Keychain items and in-place updates are keyed by them. |
+| The iPhone app's Xcode target and scheme `SpoofRemote` (its product is `AnyWhere.app`) | The project file and CI refer to it. |
+| SwiftPM products `iosgpsspoof` (CLI) and `iosgpsspoofer-gui`, module names such as `SpooferCore` | Source layout; users never see them. |
+| Bonjour service `_iosgpsspoof._tcp` | Older iPhone apps still find a newer Mac and the other way round. |
+| GitHub repo `renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3` | Renaming a repo is the owner's call. |
+
+Application Support moved from `iOS GPS Spoofer` to `AnyWhere`. `AppSupport` copies what is in the old
+folder (saved places, routes, the remote's pairing) the first time and never deletes it; the Python
+environment is rebuilt. An old-named `.app` that is still in Applications is offered to the Trash
+(`LegacyApp`). The icons are cut from the supplied logo by `brand/make-icons.py`.
 
 ## Contents
 
@@ -41,7 +60,7 @@ The image stays mounted until the phone restarts.
 
 Two front ends share one core, `SpooferCore`:
 
-- **iOS GPS Spoofer.app**, a SwiftUI macOS app (`Sources/iosgpsspoofer-gui`).
+- **AnyWhere.app**, a SwiftUI macOS app (`Sources/iosgpsspoofer-gui`).
 - **`iosgpsspoof`**, the command-line tool (`Sources/iosgpsspoof`).
 
 ## Building
@@ -60,7 +79,7 @@ open Package.swift          # Xcode: pick the iosgpsspoofer-gui scheme and My Ma
 `setup.sh` options: `--no-open`, `--uninstall`, and the environment variables
 `SPOOFER_APP_DIR` (where to install the app), `SPOOFER_HELPER_DIR` (where to
 put the pymobiledevice3 environment) and `SPOOFER_COMMIT`. The full log goes to
-`~/Library/Logs/iOS GPS Spoofer/install.log`.
+`~/Library/Logs/AnyWhere/install.log`.
 
 `install.sh` is the one-line installer from the README. It downloads the
 newest commit of `SPOOFER_REPO` at `SPOOFER_REF` (default `main`) to a temporary
@@ -79,13 +98,13 @@ toolchain. If a build fails after switching Swift versions, delete `.build`.
 
 | What | Where |
 |---|---|
-| The app | `/Applications/iOS GPS Spoofer.app` (or `~/Applications`) |
-| The CLI inside the app | `/Applications/iOS GPS Spoofer.app/Contents/MacOS/iosgpsspoof` |
-| pymobiledevice3 environment | `~/Library/Application Support/iOS GPS Spoofer/venv` |
-| Favorites, recents, saved routes | `~/Library/Application Support/iOS GPS Spoofer/library.json` |
-| The live helper script | `~/Library/Application Support/iOS GPS Spoofer/helpers/` |
-| iPhone Remote pairings | `~/Library/Application Support/iOS GPS Spoofer/remote-pairing.json` |
-| Installer log | `~/Library/Logs/iOS GPS Spoofer/install.log` |
+| The app | `/Applications/AnyWhere.app` (or `~/Applications`) |
+| The CLI inside the app | `/Applications/AnyWhere.app/Contents/MacOS/iosgpsspoof` |
+| pymobiledevice3 environment | `~/Library/Application Support/AnyWhere/venv` |
+| Favorites, recents, saved routes | `~/Library/Application Support/AnyWhere/library.json` |
+| The live helper script | `~/Library/Application Support/AnyWhere/helpers/` |
+| iPhone Remote pairings | `~/Library/Application Support/AnyWhere/remote-pairing.json` |
+| Installer log | `~/Library/Logs/AnyWhere/install.log` |
 
 Both front ends look for pymobiledevice3 in this order:
 
@@ -106,7 +125,7 @@ setup card, or **Settings ▸ Engine ▸ Update**). The same installer runs in a
 terminal with:
 
 ```bash
-"/Applications/iOS GPS Spoofer.app/Contents/MacOS/iOS GPS Spoofer" --install-helper
+"/Applications/AnyWhere.app/Contents/MacOS/AnyWhere" --install-helper
 ```
 
 ## Engines: live and classic
@@ -190,10 +209,10 @@ activity log.
   requests an hour per IP, which VPNs and school networks share). If it's
   newer, a banner offers **Update**. That runs the one-line installer in the
   background, which quits the app, replaces it and opens the new one. Output
-  goes to `~/Library/Logs/iOS GPS Spoofer/update.log`.
-- **An old SpoofRemote.** SpoofRemote doesn't update itself, so when an iPhone
+  goes to `~/Library/Logs/AnyWhere/update.log`.
+- **An old AnyWhere.** AnyWhere doesn't update itself, so when an iPhone
   is plugged in, and after File ▸ Save iPhone Pairing File…, the Mac reads
-  which SpoofRemote (`com.iosgpsspoof.remote`) is on it with `apps list` (over
+  which AnyWhere (`com.iosgpsspoof.remote`) is on it with `apps list` (over
   lockdown, no tunnel) and, if it's older than this code expects, shows a
   banner with a button to the releases page. Not installed, or a failed read,
   shows nothing, and it never blocks saving the file. The version it expects is
@@ -206,7 +225,7 @@ activity log.
   pairing record (saved after turning on lockdown's network connections) and
   a Remote Pairing identity made over USB, which newer iOS versions need. If
   the identity can't be made, the file is still saved and a warning says why.
-  SpoofRemote on that iPhone then sets its own location with no Mac. See
+  AnyWhere on that iPhone then sets its own location with no Mac. See
   [PHONE-ONLY.md](PHONE-ONLY.md).
 - **Automation.** `SPOOF_UDID=<udid>` and `SPOOF_START="lat,lon"` preselect a
   device and teleport on launch.
@@ -262,7 +281,7 @@ first light it meets at a junction (within 30 m).
 
 It sends pieces of 15 km or less, one request at a time, with a User-Agent
 naming the app, and caches answers for 30 days in
-`~/Library/Application Support/iOS GPS Spoofer/osm-cache`. Servers are tried in
+`~/Library/Application Support/AnyWhere/osm-cache`. Servers are tried in
 turn. A server that says it's out of turns (429) is left alone until a later
 retry, since its policy asks for 30 s; a busy one (503/504) gets one more try
 after a short wait. The one that answers is tried first next time. If none answers, the app retries
@@ -280,7 +299,7 @@ stopped with the reason and time left), `roadData=`, `lights=`, `signs=`,
 The CLI is inside the app bundle. Add it to your `PATH`, or call it directly:
 
 ```bash
-alias iosgpsspoof='"/Applications/iOS GPS Spoofer.app/Contents/MacOS/iosgpsspoof"'
+alias iosgpsspoof='"/Applications/AnyWhere.app/Contents/MacOS/iosgpsspoof"'
 ```
 
 ```bash
@@ -303,11 +322,11 @@ iosgpsspoof route @Home @Work --duration 25m --ping-pong
 
 iosgpsspoof clear                       # if a previous run was killed hard
 
-# Let the SpoofRemote iPhone app control the location (prints a pairing code)
+# Let the AnyWhere iPhone app control the location (prints a pairing code)
 iosgpsspoof serve
 iosgpsspoof serve --install-agent       # …and start it at every login
 
-# The iPhone's pairing file, for SpoofRemote's iPhone-only mode (docs/PHONE-ONLY.md).
+# The iPhone's pairing file, for AnyWhere's iPhone-only mode (docs/PHONE-ONLY.md).
 # Plug the iPhone in: the part newer iOS versions need is made over USB.
 iosgpsspoof export-pairing              # writes "<iPhone name>.mobiledevicepairing" here
 ```
@@ -331,10 +350,10 @@ location. Pass `--no-clear-on-exit` to leave it in place.
 ## Troubleshooting with pymobiledevice3
 
 The app's own pymobiledevice3 is at
-`~/Library/Application Support/iOS GPS Spoofer/venv/bin/python3 -m pymobiledevice3`.
+`~/Library/Application Support/AnyWhere/venv/bin/python3 -m pymobiledevice3`.
 
 ```bash
-PMD=(~/"Library/Application Support/iOS GPS Spoofer/venv/bin/python3" -m pymobiledevice3)
+PMD=(~/"Library/Application Support/AnyWhere/venv/bin/python3" -m pymobiledevice3)
 "${PMD[@]}" usbmux list                       # what the Mac sees
 "${PMD[@]}" lockdown pair                     # pair again (then tap Trust and enter the passcode)
 "${PMD[@]}" amfi developer-mode-status        # true / false
@@ -353,10 +372,10 @@ PMD=(~/"Library/Application Support/iOS GPS Spoofer/venv/bin/python3" -m pymobil
 ## Packaging
 
 ```bash
-./package-dmg.sh                        # → dist/iOS-GPS-Spoofer-<version>.dmg
+./package-dmg.sh                        # → dist/AnyWhere-<version>.dmg
 ```
 
-It builds in release mode, wraps the binaries into `iOS GPS Spoofer.app` with
+It builds in release mode, wraps the binaries into `AnyWhere.app` with
 [`scripts/make-app.sh`](../scripts/make-app.sh), and makes a drag-to-install
 DMG. `make-app.sh` writes the Info.plist (version from `VERSION`, plus the git
 commit, repository and build date), renders the icon (the app draws its own
@@ -410,7 +429,7 @@ SPOOFER_SNAPSHOT=1 SPOOFER_DEMO=route \
 | `SPOOFER_APPEARANCE` | `dark` or `light`. |
 | `FAKE_PMD_DEVMODE=false`, `FAKE_PMD_NO_DEVICE=1`, `FAKE_PMD_FAIL_SET=1`, `FAKE_PMD_IOS=17.5` | Pretend Developer Mode is off, no iPhone is plugged in, setting the location fails, or a different iOS version (the default, 16.7.10, makes the app send every move itself). |
 | `PYTHONPATH="$PWD/Tests/Fixtures/fake-site"`, `FAKE_PMD_RP=fresh` | For File ▸ Save iPhone Pairing File…: a stand-in for pymobiledevice3's library, so the file gets its Remote Pairing identity, and what the pretend iPhone does when asked for one (`paired`, `fresh`, `never`, `locked`, `bare`, `missing`). |
-| `FAKE_PMD_SPOOFREMOTE=current\|old\|none\|fail` | What `apps list` reports for SpoofRemote on the pretend iPhone: the current build, an old one, none installed, or a failed read. Drives the old-SpoofRemote warning. |
+| `FAKE_PMD_SPOOFREMOTE=current\|old\|none\|fail` | What `apps list` reports for AnyWhere on the pretend iPhone: the current build, an old one, none installed, or a failed read. Drives the old-SpoofRemote warning. |
 
 MapKit doesn't draw map tiles in a window that other windows cover, so local
 captures can show a blank map. CI runners have nothing on screen, so the
@@ -425,7 +444,7 @@ screenshots CI uploads include the map.
 | Build · Xcode 26 | the Liquid Glass code path, build and tests |
 | Build · swift.org toolchain + macOS 15 SDK | a new Swift with an old SDK, as on a tester's Mac where the build once broke |
 | Installer · clean Mac | `./setup.sh`, the installed app finding its helper from `/`, running it again to update, the piped `install.sh`, and `--uninstall` |
-| Build · SpoofRemote | the iPhone app for the simulator, with idevice (fetched, checked against its SHA-256, and cached), and for iPhones as the unsigned `SpoofRemote.ipa` testers install |
+| Build · AnyWhere | the iPhone app for the simulator, with idevice (fetched, checked against its SHA-256, and cached), and for iPhones as the unsigned `SpoofRemote.ipa` testers install |
 
 The DMG and the `.ipa` are uploaded as artifacts. A build says which run made
 it (`2.3.0-ci.45`). For a release, run the workflow by hand on `main` with
@@ -437,10 +456,10 @@ it (`2.3.0-ci.45`). For a release, run the workflow by hand on `main` with
 |---|---|
 | `Sources/SpooferCore` | engines, sessions, pymobiledevice3 discovery and process running, geodesy, routes, GPX/KML, coordinate parsing, the library |
 | `Sources/SpooferRemote`, `Sources/RemoteAPI` | the iPhone remote's HTTP server and its wire format |
-| `Sources/PhoneOnlyCore` | the iPhone-only mode's rules that need no iPhone: the pairing file's format, which connection to try, what an error means. The Mac app and SpoofRemote both link it |
+| `Sources/PhoneOnlyCore` | the iPhone-only mode's rules that need no iPhone: the pairing file's format, which connection to try, what an error means. The Mac app and AnyWhere both link it |
 | `Sources/iosgpsspoof` | the CLI |
 | `Sources/iosgpsspoofer-gui` | the Mac app |
-| `iPhoneRemote/` | the SpoofRemote iPhone app ([guide](IPHONE-REMOTE.md)) |
+| `iPhoneRemote/` | the AnyWhere iPhone app ([guide](IPHONE-REMOTE.md)) |
 | `scripts/make-app.sh` | turns a build into the `.app` |
 | `setup.sh`, `install.sh` | the installer, and its one-line bootstrap |
 | `docs/` | this guide, the iPhone remote guide, and a landing page |

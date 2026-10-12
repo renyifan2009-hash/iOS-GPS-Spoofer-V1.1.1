@@ -1,4 +1,4 @@
-# iOS GPS Spoofer
+# AnyWhere™
 
 Change your iPhone's GPS location from your Mac. Jump anywhere in the world,
 drive a route on real roads, or steer with a joystick. Nothing gets installed
@@ -21,13 +21,33 @@ What the iPhone shows:
 
 ## Install
 
-It takes about 5 minutes.
+There are two ways. **Option 1 is the easiest and the one to try first.**
+
+### Option 1: download the app (about 1 minute)
+
+1. Open the
+   [Releases page](https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3/releases/latest)
+   and download **AnyWhere-…dmg**.
+2. Open the downloaded file and drag **AnyWhere** onto **Applications**.
+3. Open **AnyWhere** from Applications. macOS says it can't verify the app
+   (it isn't from the App Store). That is expected. Open **System Settings ▸
+   Privacy & Security**, scroll down to the message about AnyWhere and click
+   **Open Anyway**. You only do this once.
+4. The app offers to install its small helper tool the first time. Click
+   **Install**.
+
+This is the same file the project's automatic checks build and test, so it
+runs on every Mac that meets the requirements above.
+
+### Option 2: build it on your Mac (about 5 minutes)
+
+Use this if you can't download the app, or you want the very newest changes.
 
 1. Open **Terminal**. Press **⌘ Space**, type `Terminal`, then press **Return**.
 2. Copy this line. Paste it into Terminal with **⌘ V**, then press **Return**:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/main/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3/main/install.sh | bash
    ```
 
 3. **A window may ask to install the "command line developer tools".** Click
@@ -38,8 +58,12 @@ It takes about 5 minutes.
    in your **Applications** folder. When you see **Done!**, the app opens by
    itself.
 
-Next time, open **iOS GPS Spoofer** from Launchpad, or search for it with
+Next time, open **AnyWhere** from Launchpad, or search for it with
 Spotlight (**⌘ Space**).
+
+> **Coming from "iOS GPS Spoofer"?** The app was renamed. Installing again (either
+> option) keeps your favorites and saved routes. If the old app is still in
+> Applications, AnyWhere offers to move it to the Trash the first time it opens.
 
 <details>
 <summary>Already downloaded the project as a ZIP?</summary>
@@ -99,14 +123,14 @@ place you picked.
 
 When a new version is out, the app shows a banner. Click **Update**. It
 downloads and builds the new version (a few minutes), then restarts by itself.
-You can also choose **iOS GPS Spoofer ▸ Check for Updates…**, or run the
+You can also choose **AnyWhere ▸ Check for Updates…**, or run the
 install line again. Your favorites and saved routes are kept.
 
 ## Something not working?
 
 **The install stopped with an error.**
 Run the install line again. If it fails the same way, send the developer the
-file `~/Library/Logs/iOS GPS Spoofer/install.log`. To find it, open Finder,
+file `~/Library/Logs/AnyWhere/install.log`. To find it, open Finder,
 press **⌘ ⇧ G**, and paste that path.
 
 **Terminal says "xcrun: error: invalid active developer path".**
@@ -116,6 +140,13 @@ Apple's developer tools are missing. Run `xcode-select --install`, click
 **An old copy of the project fails to build with an error about `glassEffect`.**
 That copy is out of date. Use the install line above. It always gets the
 newest version.
+
+**I can't find the pairing file the iPhone app asks for.**
+It's made on the Mac, not on the iPhone. In AnyWhere on the Mac, choose
+**File ▸ Pairing File for the iPhone App…** (or press **⇧⌘K**, or click the
+iPhone icon at the bottom of the sidebar). Plug the iPhone in first. The window
+tells you if anything is missing, saves the file on your **Desktop**, and sends
+it to the iPhone with AirDrop. Details: [docs/PHONE-ONLY.md](docs/PHONE-ONLY.md).
 
 **The app says "Connect your iPhone", but it's plugged in.**
 - Unlock the iPhone. Tap **Trust** if it asks.
@@ -162,11 +193,11 @@ the developer.
 Paste this into Terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/main/install.sh | bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3/main/install.sh | bash -s -- --uninstall
 ```
 
 It removes the app and its helper tool. Your favorites and routes stay in
-`~/Library/Application Support/iOS GPS Spoofer`. Delete that folder too if you
+`~/Library/Application Support/AnyWhere`. Delete that folder too if you
 don't need them.
 
 ## Good to know
@@ -188,6 +219,6 @@ don't need them.
 
 How it works, the command-line tool, building from source, tests and
 packaging: [docs/DEVELOPERS.md](docs/DEVELOPERS.md). The iPhone app,
-SpoofRemote: [docs/IPHONE-REMOTE.md](docs/IPHONE-REMOTE.md). Its iPhone-only
+AnyWhere: [docs/IPHONE-REMOTE.md](docs/IPHONE-REMOTE.md). Its iPhone-only
 mode (beta), which works with no Mac nearby and on cellular:
 [docs/PHONE-ONLY.md](docs/PHONE-ONLY.md).

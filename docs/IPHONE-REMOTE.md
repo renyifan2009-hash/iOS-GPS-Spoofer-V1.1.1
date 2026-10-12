@@ -1,10 +1,10 @@
 # iPhone Remote
 
 Control the simulated location entirely from your iPhone. Your Mac stays in a
-bag, a car or another room and keeps the location alive; the **SpoofRemote**
+bag, a car or another room and keeps the location alive; the **AnyWhere**
 app on the iPhone picks places and tells it to start, move or stop.
 
-SpoofRemote also has an **iPhone-only mode (beta)**: after a one-time setup
+AnyWhere also has an **iPhone-only mode (beta)**: after a one-time setup
 with the Mac, it sets the location by itself, with no Mac, on Wi-Fi or
 cellular. The switch at the top of its bottom card picks **Mac** or **This
 iPhone**. That mode has its own guide: [PHONE-ONLY.md](PHONE-ONLY.md).
@@ -28,7 +28,7 @@ connection to its own iPhone, the way a Mac would.
 No jailbreak, private entitlement, or system modification is used or needed.
 
 ```
- iPhone (SpoofRemote app) ──HTTP/JSON, local network──▶ Mac helper ──developer service──▶ same iPhone
+ iPhone (AnyWhere app) ──HTTP/JSON, local network──▶ Mac helper ──developer service──▶ same iPhone
         pick a place                                      SpooferCore                    reports that place
 ```
 
@@ -42,7 +42,7 @@ No jailbreak, private entitlement, or system modification is used or needed.
   live status (Mac reachable, iPhone linked, what's being simulated), and an
   animated first-run introduction. Liquid Glass design on iOS 26 and later;
   it still runs on iOS 17.
-- **A newer-release notice**: SpoofRemote doesn't update itself, so at most
+- **A newer-release notice**: AnyWhere doesn't update itself, so at most
   once a day it asks GitHub whether a newer release is out and, if so, shows a
   small notice with a button to the releases page. It sends nothing about you
   or the iPhone, and no answer simply shows nothing. See
@@ -75,7 +75,7 @@ Sources/
 Tests/SpooferRemoteTests/             # parser, pairing, routing, IP filter tests
 iPhoneRemote/
   project.yml                         # XcodeGen spec; stamps the repo VERSION into BuildVersion.swift at build time
-  SpoofRemote/
+  AnyWhere/
     SpoofRemoteApp.swift              # @main
     ContentView.swift                 # map + status + controls
     MapSearchView.swift               # MKLocalSearchCompleter / MKLocalSearch
@@ -175,7 +175,7 @@ Install the Mac app first (see the [README](../README.md#install)). The
 command-line tool is inside it:
 
 ```bash
-alias iosgpsspoof='"/Applications/iOS GPS Spoofer.app/Contents/MacOS/iosgpsspoof"'
+alias iosgpsspoof='"/Applications/AnyWhere.app/Contents/MacOS/iosgpsspoof"'
 iosgpsspoof serve
 ```
 
@@ -213,7 +213,7 @@ open SpoofRemote.xcodeproj
 library the iPhone-only mode uses (about 210 MB, once). It checks the download
 against a pinned SHA-256 and puts it in `iPhoneRemote/Vendor/`.
 
-Select the **SpoofRemote** target ▸ *Signing & Capabilities* ▸ choose your
+Select the **AnyWhere** target ▸ *Signing & Capabilities* ▸ choose your
 **Team**, pick your iPhone as the run destination, and press **⌘R**.
 
 ### Option B: by hand in Xcode
@@ -223,10 +223,10 @@ Select the **SpoofRemote** target ▸ *Signing & Capabilities* ▸ choose your
 2. Delete the template's `ContentView.swift`, `SpoofRemoteApp.swift` and
    `Assets.xcassets` (Move to Trash).
 3. Drag everything in `iPhoneRemote/SpoofRemote/` into the project navigator
-   (*Copy items if needed* off, *Create groups*, target **SpoofRemote** ticked).
+   (*Copy items if needed* off, *Create groups*, target **AnyWhere** ticked).
 4. **File ▸ Add Package Dependencies… ▸ Add Local…**, choose the repository
    folder (the one with `Package.swift`), and add the **RemoteAPI** and
-   **PhoneOnlyCore** libraries to the SpoofRemote target.
+   **PhoneOnlyCore** libraries to the AnyWhere target.
 5. Run `iPhoneRemote/scripts/fetch-idevice.sh`, then drag
    `iPhoneRemote/Vendor/IDevice.xcframework` into the project and add it to
    the target under *Frameworks, Libraries, and Embedded Content* with
@@ -252,7 +252,7 @@ if you skip step 6:
 | `NSAppTransportSecurity` ▸ `NSAllowsLocalNetworking` | YES | plain HTTP to local addresses |
 | `NSLocationWhenInUseUsageDescription` | "Shows where iOS reports this iPhone to be…" | the optional blue dot that confirms the simulated location, and the iPhone-only mode's background session |
 | `UIBackgroundModes` | `location` | the iPhone-only mode stays awake while it holds a location |
-| `CFBundleDocumentTypes`, `UTImportedTypeDeclarations` | `com.iosgpsspoof.mobiledevicepairing` (`.mobiledevicepairing`) | pairing files from the Mac open in SpoofRemote |
+| `CFBundleDocumentTypes`, `UTImportedTypeDeclarations` | `com.iosgpsspoof.mobiledevicepairing` (`.mobiledevicepairing`) | pairing files from the Mac open in AnyWhere |
 
 The Mac app's bundle (`package-dmg.sh`) also declares
 `NSLocalNetworkUsageDescription` and `NSBonjourServices`.
@@ -261,7 +261,7 @@ The Mac app's bundle (`package-dmg.sh`) also declares
 
 1. Start the Mac helper once and leave the Mac awake (plugged in, lid open,
    or clamshell mode with power and an external display).
-2. Open **SpoofRemote**. The introduction ends with **Find My Mac**; allow
+2. Open **AnyWhere**. The introduction ends with **Find My Mac**; allow
    **Local Network** access when iOS asks.
 3. Tap your Mac and enter the 6-digit code. You only do this once.
 4. Search for a place or tap the map, then **Start Here**.
@@ -283,7 +283,7 @@ iPhone it's spoofing:
 3. On the Mac: `.build/release/iosgpsspoof doctor` should list the iPhone,
    then run `.build/release/iosgpsspoof serve`. The banner shows
    `172.20.10.x  iPhone Personal Hotspot` under *Reachable at*.
-4. In SpoofRemote: **Find My Mac**. If the Mac doesn't appear (Bonjour across
+4. In AnyWhere: **Find My Mac**. If the Mac doesn't appear (Bonjour across
    the hotspot isn't guaranteed), tap **Enter an address instead** and type
    the `172.20.10.x` address, port `47653`, and the code.
 5. **Start Here**. The Mac log shows `holding … on <iPhone>`; Maps on the
@@ -313,7 +313,7 @@ the Mac automatically.
 | Symptom | Fix |
 |---|---|
 | "Can't reach the Mac" | Is `serve` (or the app setting) running? Same network? Firewall asked to allow `iosgpsspoof`? Try the address shown in the banner. |
-| Mac not listed | Allow Local Network for SpoofRemote (Settings ▸ Privacy & Security ▸ Local Network), or connect by address. |
+| Mac not listed | Allow Local Network for AnyWhere (Settings ▸ Privacy & Security ▸ Local Network), or connect by address. |
 | "The Mac can't see this iPhone" | Plug it in, unlock it, tap Trust. `iosgpsspoof doctor` should list it. |
 | "port 47653 is already in use" | Another helper (or the Mac app's iPhone Remote) is running. Stop one, or use `--port`. |
 | Starts, then *Retrying* | See the Mac's log; usually Developer Mode is off or the developer disk image needs internet once. |
