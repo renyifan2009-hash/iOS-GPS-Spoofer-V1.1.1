@@ -85,6 +85,8 @@ struct PairingFileSheet: View {
                 .keyboardShortcut(.defaultAction)
                 Text("It is saved on your Desktop. Keep the iPhone plugged in and unlocked.")
                     .font(.caption).foregroundStyle(.secondary)
+                Text("Making it also turns on “Show this iPhone when on Wi-Fi” for this iPhone. You can turn that off later in Finder.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         case .working:
             HStack(spacing: 10) {
