@@ -20,6 +20,20 @@ jobs:
           BIN_DIR="$(swift build -c release --show-bin-path)"
           scripts/make-app.sh "$BIN_DIR" build
           ls build
+      - name: Install a real pymobiledevice3 in .venv (as the failing jobs have)
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet pymobiledevice3
+          .venv/bin/pymobiledevice3 version
+      - name: "F. packaged app, fresh preferences, real pymobiledevice3"
+        continue-on-error: true
+        run: |
+          defaults delete com.iosgpsspoofer.gui hasSeenWelcome || true
+          defaults delete com.iosgpsspoofer.gui showMenuBarExtra || true
+          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
+      - name: "G. raw release binary, real pymobiledevice3"
+        continue-on-error: true
+        run: scripts/self-test.sh "$(swift build -c release --show-bin-path)/iosgpsspoofer-gui" 40
       - name: "A. raw release binary, fresh preferences"
         continue-on-error: true
         run: scripts/self-test.sh "$(swift build -c release --show-bin-path)/iosgpsspoofer-gui" 40
