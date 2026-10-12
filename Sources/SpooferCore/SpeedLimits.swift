@@ -69,11 +69,13 @@ public enum SpeedLimits {
     /// Speed zones along `path`: every `spacing` metres, the limit of the road
     /// under the route (running the same way, either direction), merged into stretches.
     public static func zones(along path: RoutePath, ways: [OSMWay], spacing: Double = 20) -> [SpeedZone] {
-        guard path.length > 0, !ways.isEmpty else { return [] }
+        guard path.length > 0, spacing > 0, spacing.isFinite, !ways.isEmpty else { return [] }
         var segments: [(a: GeoPoint, b: GeoPoint, speed: Double)] = []
         for way in ways {
             guard let speed = speed(tags: way.tags), way.points.count >= 2 else { continue }
-            for i in 0..<(way.points.count - 1) { segments.append((way.points[i], way.points[i + 1], speed)) }
+            for i in 0..<(way.points.count - 1) where way.points[i].isValid && way.points[i + 1].isValid {
+                segments.append((way.points[i], way.points[i + 1], speed))
+            }
         }
         guard !segments.isEmpty else { return [] }
 
@@ -83,13 +85,16 @@ public enum SpeedLimits {
         }
         var grid: [Int64: [Int]] = [:]
         for (index, segment) in segments.enumerated() {
-            let span = max(abs(segment.b.latitude - segment.a.latitude), abs(segment.b.longitude - segment.a.longitude))
+            let dLat = segment.b.latitude - segment.a.latitude
+            // The short way round, so a road over the antimeridian is a few cells, not the whole globe.
+            let dLon = GridCells.longitudeDelta(from: segment.a.longitude, to: segment.b.longitude)
+            let span = max(abs(dLat), abs(dLon))
             let steps = max(1, Int((span / (cell / 2)).rounded(.up)))
             for k in 0...steps {
                 let t = Double(k) / Double(steps)
-                let lon = segment.a.longitude + (segment.b.longitude - segment.a.longitude) * t
-                let lat = segment.a.latitude + (segment.b.latitude - segment.a.latitude) * t
-                let id = key(Int(floor(lon / cell)), Int(floor(lat / cell)))
+                let lon = segment.a.longitude + dLon * t
+                let lat = segment.a.latitude + dLat * t
+                let id = key(GridCells.column(of: lon, cell: cell), GridCells.row(of: lat, cell: cell))
                 if grid[id]?.last != index { grid[id, default: []].append(index) }
             }
         }
@@ -100,14 +105,16 @@ public enum SpeedLimits {
         for n in 0..<count {
             let sample = path.sample(at: min(path.length, Double(n) * spacing))
             let p = sample.point
+            guard p.isValid else { continue }   // not a real place: no road to find
             let cosLat = cos(Geo.radians(p.latitude))
             func xy(_ q: GeoPoint) -> (x: Double, y: Double) {
                 (Geo.normalizedLongitude(q.longitude - p.longitude) * k * cosLat, (q.latitude - p.latitude) * k)
             }
             var candidates = Set<Int>()
-            let x = Int(floor(p.longitude / cell)), y = Int(floor(p.latitude / cell))
+            let x = GridCells.column(of: p.longitude, cell: cell), y = GridCells.row(of: p.latitude, cell: cell)
             for dx in -1...1 {
-                for dy in -1...1 { candidates.formUnion(grid[key(x + dx, y + dy)] ?? []) }
+                let column = GridCells.wrapped(column: x + dx, cell: cell)
+                for dy in -1...1 { candidates.formUnion(grid[key(column, y + dy)] ?? []) }
             }
             var best: (offset: Double, speed: Double)?
             for index in candidates.sorted() {

@@ -14,6 +14,7 @@ public struct RouteMatcher: Sendable {
 
     public init(path: RoutePath, cellSize: Double = 0.001) {
         self.path = path
+        let cellSize = cellSize.isFinite && cellSize > 0 ? cellSize : 0.001
         cell = cellSize
         var grid: [Key: [Int]] = [:]
         let points = path.points
@@ -22,13 +23,18 @@ public struct RouteMatcher: Sendable {
                 // Walk the segment in half-cell steps: a long straight leg only
                 // touches the cells it crosses.
                 let a = points[i], b = points[i + 1]
-                let span = max(abs(b.latitude - a.latitude), abs(b.longitude - a.longitude))
+                // A leg that ends at something that isn't a real place can't be put on a grid.
+                guard a.isValid, b.isValid else { continue }
+                let dLat = b.latitude - a.latitude
+                // The short way round, so a leg over the antimeridian is a few cells, not the whole globe.
+                let dLon = GridCells.longitudeDelta(from: a.longitude, to: b.longitude)
+                let span = max(abs(dLat), abs(dLon))
                 let steps = max(1, Int((span / (cellSize / 2)).rounded(.up)))
                 var seen = Set<Key>()
                 for k in 0...steps {
                     let t = Double(k) / Double(steps)
-                    let key = Key(x: Int(floor((a.longitude + (b.longitude - a.longitude) * t) / cellSize)),
-                                  y: Int(floor((a.latitude + (b.latitude - a.latitude) * t) / cellSize)))
+                    let key = Key(x: GridCells.column(of: a.longitude + dLon * t, cell: cellSize),
+                                  y: GridCells.row(of: a.latitude + dLat * t, cell: cellSize))
                     if seen.insert(key).inserted { grid[key, default: []].append(i) }
                 }
             }
@@ -40,12 +46,16 @@ public struct RouteMatcher: Sendable {
     /// along the route, and how far from it the point is.
     public func passes(near point: GeoPoint, radius: Double) -> [(distance: Double, offset: Double)] {
         let points = path.points
-        guard points.count >= 2, point.isValid else { return [] }
+        guard points.count >= 2, point.isValid, radius.isFinite, radius >= 0 else { return [] }
         let latSpan = radius / 111_000 + cell
         let lonSpan = radius / (111_000 * max(0.05, cos(Geo.radians(point.latitude)))) + cell
         var candidates = Set<Int>()
-        for x in Int(floor((point.longitude - lonSpan) / cell))...Int(floor((point.longitude + lonSpan) / cell)) {
-            for y in Int(floor((point.latitude - latSpan) / cell))...Int(floor((point.latitude + latSpan) / cell)) {
+        let columns = Int(floor((point.longitude - lonSpan) / cell))...Int(floor((point.longitude + lonSpan) / cell))
+        let rows = Int(floor((point.latitude - latSpan) / cell))...Int(floor((point.latitude + latSpan) / cell))
+        for column in columns {
+            // Past +/-180 the next column is the one on the other side of the antimeridian.
+            let x = GridCells.wrapped(column: column, cell: cell)
+            for y in rows {
                 candidates.formUnion(grid[Key(x: x, y: y)] ?? [])
             }
         }
@@ -101,5 +111,35 @@ public struct RouteMatcher: Sendable {
             }
         }
         return result
+    }
+}
+
+/// Cell numbers for the grids that find what is near a route. Longitude wraps
+/// at the antimeridian, so a leg or a lookup that crosses it lands on the cells
+/// on both sides of it instead of running round the world.
+enum GridCells {
+    /// The column holding `longitude`. 180 and -180 are one meridian, so both
+    /// give the westernmost column.
+    static func column(of longitude: Double, cell: Double) -> Int {
+        var l = Geo.normalizedLongitude(longitude)
+        if l >= 180 { l = -180 }
+        return Int(floor(l / cell))
+    }
+
+    static func row(of latitude: Double, cell: Double) -> Int {
+        Int(floor(latitude / cell))
+    }
+
+    /// The column that a number past the grid's edge (east of 180 or west of
+    /// -180) stands for.
+    static func wrapped(column: Int, cell: Double) -> Int {
+        self.column(of: (Double(column) + 0.5) * cell, cell: cell)
+    }
+
+    /// `to - from` in degrees of longitude, the short way round.
+    static func longitudeDelta(from: Double, to: Double) -> Double {
+        var d = to - from
+        if d > 180 { d -= 360 } else if d < -180 { d += 360 }
+        return d
     }
 }
