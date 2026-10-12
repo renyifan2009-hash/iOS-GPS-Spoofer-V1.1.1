@@ -53,6 +53,35 @@ final class CoordinateTests: XCTestCase {
         }
     }
 
+    func testTypographicCharactersFromWebPagesAndDocuments() {
+        // Copied from a web page, a PDF or a word processor, a southern or western coordinate
+        // often has a real minus sign, a dash or a non-breaking space in it.
+        assertParses("\u{2212}33.8688, 151.2093", -33.8688, 151.2093)                  // minus sign
+        assertParses("\u{2212}33.8688, \u{2212}151.2093", -33.8688, -151.2093)
+        assertParses("\u{2013}33.8688, 151.2093", -33.8688, 151.2093)                  // en dash
+        assertParses("\u{2014}33.8688, 151.2093", -33.8688, 151.2093)                  // em dash
+        assertParses("\u{2212}33.8688\u{00B0}, 151.2093\u{00B0}", -33.8688, 151.2093)
+        assertParses("\u{2212}33\u{00B0}51\u{2032}54\u{2033}, 151\u{00B0}12\u{2032}55\u{2033}", -33.865, 151.215278)
+        assertParses("48.8584\u{00A0}2.2945", 48.8584, 2.2945)                          // no-break space
+        assertParses("48.8584,\u{202F}2.2945", 48.8584, 2.2945)                         // narrow no-break space
+        assertParses("48.8584\u{FF0C}2.2945", 48.8584, 2.2945)                          // full-width comma
+        assertParses("48.8584,\u{200B} 2.2945\u{200E}", 48.8584, 2.2945)                // invisible marks
+        assertParses("\u{FEFF}(\u{2212}33.8688; 151.2093)", -33.8688, 151.2093)
+        // They are still not a way to sneak in nonsense.
+        for text in ["\u{2212}", "\u{2212}\u{2212}33.8688, 151.2093", "33.8688\u{2212}151.2093", "\u{2013}\u{2013}",
+                     "48.8584\u{00A0}"] {
+            XCTAssertNil(Coordinate.parsePoint(text), "should not parse: \(text)")
+        }
+    }
+
+    func testDegreesMinutesSecondsRoundCarriesUpward() {
+        // 59.99999994 minutes of arc rounds to a whole degree: never "48°60′60.0″".
+        XCTAssertEqual(Coordinate.formatDMS(GeoPoint(48.99999999, 2.0)), "49°00′00.0″N 2°00′00.0″E")
+        XCTAssertEqual(Coordinate.formatDMS(GeoPoint(-10.508333333, 179.99999999)), "10°30′30.0″S 180°00′00.0″E")
+        // Seconds that round to 60 carry into the minutes only.
+        XCTAssertEqual(Coordinate.formatDMS(GeoPoint(12.01666666, 0)), "12°01′00.0″N 0°00′00.0″E")
+    }
+
     func testTupleAPIStillWorks() {
         let parsed = Coordinate.parse("48.8584,2.2945")
         XCTAssertEqual(parsed?.latitude ?? 0, 48.8584, accuracy: 1e-9)

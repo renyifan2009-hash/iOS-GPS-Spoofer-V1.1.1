@@ -32,11 +32,36 @@ public enum Coordinate {
     ///
     /// Range is not checked here — call `validate` for a helpful error.
     public static func parsePoint(_ raw: String) -> GeoPoint? {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = plainCharacters(raw).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, text.count < 4096 else { return nil }
         let point = parseLink(text) ?? parseDecimalPair(text) ?? parseSexagesimal(text)
         guard let point, point.latitude.isFinite, point.longitude.isFinite else { return nil }
         return point
+    }
+
+    /// Web pages, PDFs and word processors swap plain characters for typographic
+    /// ones: a real minus sign (U+2212) or a dash for the hyphen, a non-breaking
+    /// space for the space, a full-width comma. Put the plain ones back, and drop
+    /// the invisible marks that come along when text is copied.
+    static func plainCharacters(_ text: String) -> String {
+        var plain = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x2212, 0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0xFE63, 0xFF0D:
+                plain.append("-")
+            case 0x00A0, 0x2002...0x200A, 0x202F, 0x205F, 0x3000:
+                plain.append(" ")
+            case 0xFF0C, 0x3001:
+                plain.append(",")
+            case 0xFF1B:
+                plain.append(";")
+            case 0x200B...0x200F, 0x202A...0x202E, 0x2060, 0xFEFF:
+                continue   // zero-width and direction marks
+            default:
+                plain.append(scalar)
+            }
+        }
+        return String(plain)
     }
 
     // MARK: - Formatting
