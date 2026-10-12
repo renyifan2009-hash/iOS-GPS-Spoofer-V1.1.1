@@ -120,8 +120,27 @@ extension AppModel {
     }
 
     func importRoute(from url: URL) {
+        // A recorded track can be tens of megabytes: reading and thinning it happens off the main
+        // thread, so the window keeps answering. Everything that touches the app's state is applied here.
+        Task {
+            let loaded = await Task.detached(priority: .userInitiated) {
+                Result<(imported: ImportedRoute, points: [GeoPoint]), any Error> {
+                    let imported = try RouteImporter.load(contentsOf: url)
+                    var points = imported.points
+                    if points.count > 1, !imported.isWaypointList || points.count > 200 {
+                        points = RouteSimplifier.simplify(points, maxPoints: 200)
+                    }
+                    return (imported, points)
+                }
+            }.value
+            applyImportedRoute(loaded, from: url)
+        }
+    }
+
+    private func applyImportedRoute(_ loaded: Result<(imported: ImportedRoute, points: [GeoPoint]), any Error>,
+                                    from url: URL) {
         do {
-            let imported = try RouteImporter.load(contentsOf: url)
+            let (imported, points) = try loaded.get()
             let name = imported.name ?? url.deletingPathExtension().lastPathComponent
             if imported.points.count == 1, let only = imported.points.first {
                 mode = .teleport
@@ -133,10 +152,6 @@ extension AppModel {
             guard okToDiscardRoute(title: "Replace the current route?",
                                    message: "\(unsavedRouteSentence) Importing “\(name)” replaces it.",
                                    discardTitle: "Replace") else { return }
-            var points = imported.points
-            if !imported.isWaypointList || points.count > 200 {
-                points = RouteSimplifier.simplify(points, maxPoints: 200)
-            }
             followRoads = false   // a recorded track already follows its roads
             waypoints = points.map { Waypoint(point: $0) }
             routeName = name
@@ -220,8 +235,13 @@ extension AppModel {
         travelMode = route.travelMode
         followRoads = route.followRoads
         let waits = route.waits ?? []
-        waypoints = route.waypoints.enumerated().map { i, point in
-            Waypoint(point: point, wait: i < waits.count ? max(0, waits[i]) : 0)
+        // A stop that isn't a real place (a hand-edited or damaged file) would crash the map; leave it out.
+        waypoints = route.waypoints.enumerated().compactMap { i, point in
+            point.isValid ? Waypoint(point: point, wait: i < waits.count ? max(0, waits[i]) : 0) : nil
+        }
+        let skipped = route.waypoints.count - waypoints.count
+        if skipped > 0 {
+            appendLog("“\(route.name)” had \(skipped) stop\(skipped == 1 ? "" : "s") that aren't real places; left out.", level: .warning)
         }
         loopMode = route.loopMode
         pacing = .speed

@@ -197,7 +197,8 @@ struct MainView: View {
             .animation(.snappy(duration: 0.3), value: model.mode)
             .animation(.easeOut(duration: 0.25), value: model.shouldShowConnectCard)
             .dropDestination(for: URL.self) { urls, _ in
-                guard let url = urls.first(where: { RouteImporter.supportedExtensions.contains($0.pathExtension.lowercased()) })
+                // Only files on this Mac: a dragged web link would be fetched on the spot.
+                guard let url = urls.first(where: { $0.isFileURL && RouteImporter.supportedExtensions.contains($0.pathExtension.lowercased()) })
                 else { return false }
                 model.importRoute(from: url)
                 return true

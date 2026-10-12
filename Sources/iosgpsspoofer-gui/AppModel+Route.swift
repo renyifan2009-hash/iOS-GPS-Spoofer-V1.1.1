@@ -23,7 +23,8 @@ extension AppModel {
     }
 
     func moveWaypoint(id: UUID, to point: GeoPoint) {
-        guard let i = waypoints.firstIndex(where: { $0.id == id }) else { return }
+        // Dragging a pin past the edge of the map gives a coordinate that isn't a place.
+        guard point.isValid, let i = waypoints.firstIndex(where: { $0.id == id }) else { return }
         waypoints[i].point = point
     }
 
