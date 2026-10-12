@@ -70,6 +70,8 @@ intact, and `launchctl` was a stub, so no login item was changed.
 | 05:14 | 51e4fa9 | **A second crash found and fixed:** following the device to a pole (or typing latitude 90) made MapKit raise an exception nothing can catch. Every camera move now goes through `GeoPoint.mapSafe` |
 | 05:16 | 8dcec36 | CodeRabbit round 2 (4 findings: 3 fixed, 1 checked and skipped: `ps -ww`, because `ps` does not truncate when piped) |
 | 05:17 | 9d41662 | Route import reads and thins big files off the main thread; dragged pins, saved routes and dropped links can't hand the map a non-place |
+| 09:36 | c5df4aa | Auto-stop killswitch (Location menu, Settings, countdown chip) and redacted diagnostics; 20 new tests; checked against the fake iPhone (set at start, clear at 1:02 on a 1-minute setting) |
+| 09:48 | da33d59 | CodeRabbit round 3 (1 finding, valid and worse than described): a huge number typed into Custom… trapped the app (Int overflow). Bounded; the new tests crash the old code |
 
 ## The tester's crash: what was found (the launch self-test earned its keep)
 
