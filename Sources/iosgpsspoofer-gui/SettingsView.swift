@@ -106,8 +106,8 @@ private struct EngineSettings: View {
                     }
                 }
             }
-            Section("Tunnel (iOS 17+)") {
-                Picker("Transport", selection: $prefs.transport) {
+            Section("How it reaches the iPhone (iOS 17+)") {
+                Picker("Connection method", selection: $prefs.transport) {
                     ForEach(Transport.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .disabled(model.hasSession)

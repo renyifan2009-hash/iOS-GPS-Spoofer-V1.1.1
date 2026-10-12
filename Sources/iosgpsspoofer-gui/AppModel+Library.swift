@@ -42,7 +42,7 @@ extension AppModel {
 
     func addFavorite(at point: GeoPoint, suggestedName: String?) {
         guard let name = promptForText(title: "Add to Favorites",
-                                       message: "Name this place. The CLI can use it as @name.",
+                                       message: "Give this place a name.",
                                        defaultValue: suggestedName ?? "") else { return }
         let place = library.addFavorite(name: name, point: point)
         appendLog("Saved “\(place.name)” to favorites.", level: .success)

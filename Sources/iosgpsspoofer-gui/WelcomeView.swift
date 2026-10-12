@@ -8,6 +8,8 @@ struct WelcomeView: View {
     @Environment(AppModel.self) private var model
     @State private var shown = false
     @State private var showHelp = false
+    /// Fixed when the sheet opens, so the button doesn't change its name while it closes.
+    @State private var firstRun = !UserDefaults.standard.bool(forKey: AppModel.StateKey.welcomed)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -60,14 +62,16 @@ struct WelcomeView: View {
                         ConnectionHelp().padding(18).frame(width: 380)
                     }
                 if model.pmd == nil {
-                    Button("Choose pymobiledevice3…") { model.choosePymobiledevice3() }
+                    Button("Choose the Helper…") { model.choosePymobiledevice3() }
                         .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+                        .help("Already installed the helper tool yourself? Pick the pymobiledevice3 program.")
                 }
                 Spacer()
                 Button {
                     model.finishWelcome()
                 } label: {
-                    Label("Get Started", systemImage: "arrow.right")
+                    // "Get Started" the first time. Opened again from the checklist, there is nothing to start.
+                    Label(firstRun ? "Get Started" : "Done", systemImage: firstRun ? "arrow.right" : "checkmark")
                         .labelStyle(TrailingIconLabelStyle())
                         .padding(.horizontal, 6)
                 }

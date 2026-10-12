@@ -695,7 +695,7 @@ struct SetupCard: View {
             status
 
             HStack {
-                Button("Choose pymobiledevice3…") { model.choosePymobiledevice3() }
+                Button("Choose the Helper…") { model.choosePymobiledevice3() }
                     .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
                     .help("Already installed it yourself? Pick the pymobiledevice3 program.")
                 Spacer()

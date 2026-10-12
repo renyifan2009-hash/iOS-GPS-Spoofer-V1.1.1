@@ -75,6 +75,8 @@ struct DeviceHeader: View {
 struct TeleportSection: View {
     @Environment(AppModel.self) private var model
     @Environment(Preferences.self) private var prefs
+    private enum CoordinateField: Hashable { case latitude, longitude }
+    @FocusState private var focusedField: CoordinateField?
 
     var body: some View {
         @Bindable var model = model
@@ -110,10 +112,11 @@ struct TeleportSection: View {
                     .help(model.targetIsFavorite ? "Remove from favorites" : "Add to favorites (⌘D)")
                 }
                 HStack(spacing: 10) {
-                    coordinateField("Latitude", text: $model.latitudeText)
-                    coordinateField("Longitude", text: $model.longitudeText)
+                    coordinateField("Latitude", text: $model.latitudeText, field: .latitude)
+                    coordinateField("Longitude", text: $model.longitudeText, field: .longitude)
                 }
-                if model.target == nil {
+                // Not while typing: "-" on its way to "-122.0" isn't a mistake yet.
+                if model.target == nil && focusedField == nil {
                     Label("Latitude −90…90, longitude −180…180", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(Brand.warning)
                 }
@@ -189,7 +192,7 @@ struct TeleportSection: View {
         }
     }
 
-    private func coordinateField(_ label: String, text: Binding<String>) -> some View {
+    private func coordinateField(_ label: String, text: Binding<String>, field: CoordinateField) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label.uppercased())
                 .font(.system(size: 9.5, weight: .bold, design: .rounded))
@@ -198,6 +201,18 @@ struct TeleportSection: View {
             TextField(label, text: text)
                 .textFieldStyle(.roundedBorder)
                 .font(.body.monospacedDigit())
+                .focused($focusedField, equals: field)
+                .onSubmit { showTypedCoordinates() }
+        }
+    }
+
+    /// Return in a coordinate field: take the map there, or say what is wrong.
+    private func showTypedCoordinates() {
+        if let target = model.target {
+            model.focus(on: target)
+        } else {
+            model.warn("Check the coordinates", "Latitude is −90 to 90. Longitude is −180 to 180.",
+                       log: "Enter a valid latitude (−90…90) and longitude (−180…180).")
         }
     }
 }
@@ -711,7 +726,7 @@ struct ConnectionSection: View {
         @Bindable var prefs = prefs
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("Tunnel", selection: $prefs.transport) {
+                Picker("Connection method", selection: $prefs.transport) {
                     ForEach(Transport.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .disabled(model.hasSession)
@@ -872,9 +887,10 @@ struct ActionBar: View {
                     Button {
                         model.startRoute()
                     } label: {
-                        Label("Start Route From Here", systemImage: "play.fill").frame(maxWidth: .infinity)
+                        Label("Start at First Stop", systemImage: "play.fill").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(BrandButtonStyle(kind: .secondary))
+                    .help("Moves the iPhone to the first stop, then follows the route from there.")
                     .disabled(model.routeGeometry.count < 2)
                 }
             case .joystick:
