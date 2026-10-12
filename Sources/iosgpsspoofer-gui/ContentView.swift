@@ -49,7 +49,7 @@ struct SidebarView: View {
         List(selection: $model.selectedUDID) {
             Section {
                 if model.sidebarDevices.isEmpty {
-                    NoDeviceRow(searching: !model.hasRefreshedOnce)
+                    NoDeviceRow(state: model.sidebarEmptyState)
                 }
                 ForEach(model.sidebarDevices) { row in
                     DeviceRow(device: row.device, connected: row.connected,
@@ -65,7 +65,8 @@ struct SidebarView: View {
                         ProgressView().controlSize(.mini)
                     } else {
                         Button {
-                            Task { await model.refresh() }
+                            // With no helper there is nothing to scan with: say so, don't do nothing.
+                            if model.pmd == nil { model.explain(.helperMissing) } else { Task { await model.refresh() } }
                         } label: {
                             Image(systemName: "arrow.clockwise")
                         }
@@ -241,16 +242,30 @@ struct DeviceRow: View {
     }
 }
 
+/// What the Devices list says with no iPhone in it. The words depend on why: the helper isn't
+/// installed (nothing was looked for), the helper can't list iPhones, or there just isn't one.
 struct NoDeviceRow: View {
-    let searching: Bool
+    let state: SidebarEmptyState
     @State private var showHelp = false
 
     var body: some View {
         HStack(spacing: 8) {
-            if searching {
+            switch state {
+            case .searching:
                 ProgressView().controlSize(.small)
                 Text("Looking for devices…").foregroundStyle(.secondary)
-            } else {
+            case .helperMissing:
+                IconTile(symbol: "wrench.and.screwdriver.fill", colors: TileColors.orange, size: 22)
+                Text("Install the helper first").foregroundStyle(.secondary)
+                    .help("The card on the map has an Install button.")
+            case .listFailed(let message):
+                IconTile(symbol: "exclamationmark.triangle.fill", colors: TileColors.orange, size: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Can't look for iPhones").foregroundStyle(.secondary)
+                    Text(message).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                }
+                .help(message)
+            case .noIPhone:
                 IconTile(symbol: "iphone.slash", colors: TileColors.gray, size: 22)
                 Text("No iPhone connected").foregroundStyle(.secondary)
                 Spacer()
@@ -260,6 +275,7 @@ struct NoDeviceRow: View {
                     Image(systemName: "questionmark.circle")
                 }
                 .buttonStyle(.borderless)
+                .help("How to connect an iPhone")
                 .popover(isPresented: $showHelp, arrowEdge: .trailing) { ConnectionHelp().padding(18).frame(width: 360) }
             }
         }

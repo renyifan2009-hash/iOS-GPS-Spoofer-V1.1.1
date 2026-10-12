@@ -641,8 +641,11 @@ struct ConnectCard: View {
                 IconTile(symbol: "iphone", colors: TileColors.brand, size: 58)
             }
             VStack(spacing: 6) {
-                Text("Connect your iPhone").font(Brand.title(24))
-                Text("Plug it into this Mac with a USB cable, unlock it and tap **Trust**. It appears here automatically.")
+                // If the helper itself can't list iPhones, the cable is not the thing to check.
+                Text(model.deviceListError == nil ? "Connect your iPhone" : "Can't look for iPhones").font(Brand.title(24))
+                Text(LocalizedStringKey(model.deviceListError == nil
+                     ? "Plug it into this Mac with a USB cable, unlock it and tap **Trust**. It appears here automatically."
+                     : "The helper tool didn't answer. Install it again below, then plug in your iPhone."))
                     .font(.callout)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)

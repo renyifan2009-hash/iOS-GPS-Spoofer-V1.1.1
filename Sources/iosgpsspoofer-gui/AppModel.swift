@@ -96,6 +96,9 @@ final class AppModel {
     var selectedUDID: String?
     var isRefreshing = false
     var hasRefreshedOnce = false
+    /// Set when the helper has failed to list iPhones several scans in a row (first line of the error).
+    var deviceListError: String?
+    @ObservationIgnored var deviceListHealth = DeviceListHealth()
 
     // MARK: Mode & teleport target
     var mode: Mode = .teleport {
@@ -329,6 +332,9 @@ final class AppModel {
             pmd = nil
             setupError = "\(error)"
         }
+        // A different (or reinstalled) helper starts with a clean record of failed scans.
+        deviceListHealth = DeviceListHealth()
+        deviceListError = nil
         if didBootstrap { startEngineProbe() }
     }
 
@@ -418,6 +424,8 @@ final class AppModel {
         defer { isRefreshing = false; hasRefreshedOnce = true }
         do {
             let list = try await pmd.listDevicesAsync()
+            deviceListHealth.succeeded()
+            if deviceListError != nil { deviceListError = nil }
             if list != devices { devices = list }
             let keepSelection = session?.device.udid == selectedUDID && selectedUDID != nil
             if !keepSelection, selectedUDID == nil || !list.contains(where: { $0.udid == selectedUDID }) {
@@ -442,7 +450,13 @@ final class AppModel {
             }
             if !list.isEmpty { connectCardDismissed = false }
         } catch {
-            appendLog("Device refresh failed: \(SpoofSession.firstLine(of: error))", level: .debug)
+            let message = SpoofSession.firstLine(of: error)
+            appendLog("Device refresh failed: \(message)", level: .debug)
+            // Once is a hiccup. Twice in a row means the helper is at fault: say so, once.
+            if deviceListHealth.failed(message) {
+                appendLog("The helper tool can't list iPhones: \(message)", level: .warning)
+            }
+            if deviceListError != deviceListHealth.error { deviceListError = deviceListHealth.error }
         }
 
         if let autoStart, startupSweepDone, !didAutoStart, session == nil, selectedDevice != nil {

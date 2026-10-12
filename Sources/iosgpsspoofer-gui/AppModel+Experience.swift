@@ -54,8 +54,14 @@ extension AppModel {
         case .classicOnly: engine = .classicOnly
         }
         return SetupInputs(helperInstalled: pmd != nil, helperVersion: pymobiledevice3Version, iPhone: phone,
-                           hasLookedForDevices: hasRefreshedOnce, developerMode: developerModeEnabled,
+                           hasLookedForDevices: hasRefreshedOnce, deviceListError: deviceListError,
+                           developerMode: developerModeEnabled,
                            developerSupport: developerSupportState, engine: engine)
+    }
+
+    /// What the sidebar's Devices list says when it has no iPhone.
+    var sidebarEmptyState: SidebarEmptyState {
+        .resolve(helperInstalled: pmd != nil, hasLookedOnce: hasRefreshedOnce, listError: deviceListError)
     }
 
     var setupIsComplete: Bool {
