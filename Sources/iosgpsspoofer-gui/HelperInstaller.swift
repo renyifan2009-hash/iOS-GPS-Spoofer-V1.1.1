@@ -160,36 +160,33 @@ final class HelperInstaller {
         return best?.url
     }
 
-    /// Run a command, passing each output line to `output`.
-    private nonisolated static func stream(_ executable: URL, _ arguments: [String],
-                                           output: @escaping @Sendable (String) -> Void) -> Result<Void, StreamFailure> {
-        let process = Process()
-        process.executableURL = executable
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        let tail = TailBuffer()
-        let lines = LineSplitter { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { return }
-            tail.append(trimmed)
-            output(trimmed)
-        }
-        lines.attach(to: pipe.fileHandleForReading)
+    /// The longest an install step may take. pip gives up on a connection that
+    /// goes silent by itself, but one that keeps trickling in could go on for
+    /// ever, and nothing else ends it: there is no Cancel.
+    nonisolated static let stepDeadline: TimeInterval = 20 * 60
+
+    /// Run a command, passing each output line to `output`. Stopped, and reported
+    /// as a failure, if it takes longer than `deadline`.
+    nonisolated static func stream(_ executable: URL, _ arguments: [String],
+                                   deadline: TimeInterval = stepDeadline,
+                                   output: @escaping @Sendable (String) -> Void) -> Result<Void, StreamFailure> {
+        let result: ProcessRunner.StreamResult
         do {
-            try process.run()
+            result = try ProcessRunner.stream(executable, arguments: arguments, environment: environment,
+                                              timeout: deadline, onLine: output)
         } catch {
             return .failure(StreamFailure(message: "\(error)"))
         }
-        process.waitUntilExit()
-        lines.waitUntilFinished(timeout: 3)
-        guard process.terminationStatus == 0 else {
-            let text = tail.text
+        if result.timedOut {
+            let minutes = max(1, Int(deadline / 60))
+            return .failure(StreamFailure(message: "Installing took longer than \(minutes) minutes and was stopped. "
+                                          + "Check the Mac's internet connection and press Try Again."))
+        }
+        guard result.status == 0 else {
+            let text = result.tail.joined(separator: "\n")
             let offline = text.contains("Could not find a version") || text.contains("NewConnectionError")
                 || text.contains("Failed to establish a new connection") || text.contains("Temporary failure")
+                || text.contains("ReadTimeoutError") || text.contains("Read timed out")
             return .failure(StreamFailure(message: offline
                 ? "Couldn't download it. Check the Mac's internet connection and try again."
                 : text))
@@ -199,24 +196,5 @@ final class HelperInstaller {
 
     struct StreamFailure: Error {
         let message: String
-    }
-}
-
-/// The last few lines of a process's output, for error messages.
-private final class TailBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var lines: [String] = []
-
-    func append(_ line: String) {
-        lock.lock()
-        lines.append(line)
-        if lines.count > 8 { lines.removeFirst(lines.count - 8) }
-        lock.unlock()
-    }
-
-    var text: String {
-        lock.lock()
-        defer { lock.unlock() }
-        return lines.joined(separator: "\n")
     }
 }

@@ -375,6 +375,77 @@ public enum ProcessRunner {
         let (stdout, stderr) = collector.strings()
         return ProcessResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
+
+    /// What `stream` saw.
+    public struct StreamResult: Sendable {
+        public let status: Int32
+        /// The last few lines the command printed (both streams, trimmed).
+        public let tail: [String]
+        /// It ran past the deadline and was stopped.
+        public let timedOut: Bool
+    }
+
+    /// Run a process, passing each output line (stdout and stderr together) to
+    /// `onLine` as it arrives, and stop it if it runs longer than `timeout`.
+    /// Throws only when the process can't be started.
+    public static func stream(_ executable: URL, arguments: [String], environment: [String: String]? = nil,
+                              timeout: TimeInterval,
+                              onLine: @escaping @Sendable (String) -> Void) throws -> StreamResult {
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = arguments
+        if let environment { process.environment = environment }
+        process.standardInput = FileHandle.nullDevice
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+
+        let tail = LineTail(limit: 8)
+        let lines = LineSplitter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return }
+            tail.append(trimmed)
+            onLine(trimmed)
+        }
+        lines.attach(to: pipe.fileHandleForReading)
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        try process.run()
+
+        var timedOut = false
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            timedOut = true
+            process.interrupt()
+            if exited.wait(timeout: .now() + 3) == .timedOut {
+                process.terminate()
+                if exited.wait(timeout: .now() + 2) == .timedOut { kill(process.processIdentifier, SIGKILL) }
+            }
+        }
+        lines.waitUntilFinished(timeout: 3)
+        return StreamResult(status: process.isRunning ? -1 : process.terminationStatus, tail: tail.lines, timedOut: timedOut)
+    }
+}
+
+/// The last few lines of a stream, for error messages.
+final class LineTail: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String] = []
+    private let limit: Int
+
+    init(limit: Int) { self.limit = limit }
+
+    func append(_ line: String) {
+        lock.lock()
+        stored.append(line)
+        if stored.count > limit { stored.removeFirst(stored.count - limit) }
+        lock.unlock()
+    }
+
+    var lines: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
 }
 
 /// Accumulates a child's stdout/stderr from readability handlers.
