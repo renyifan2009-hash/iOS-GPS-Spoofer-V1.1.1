@@ -297,7 +297,7 @@ migrate_legacy_data() {
 # can compile fine and then crash the moment it starts; this catches that before the new copy
 # replaces a working one.
 self_test_app() {
-  local app="$1" exe out pid status waited=0
+  local app="$1" exe out status=0
   exe="$app/Contents/MacOS/$APP_NAME"
   if [ "${SPOOFER_SKIP_SELF_TEST:-0}" = 1 ]; then
     warn "Skipping the start-up test (SPOOFER_SKIP_SELF_TEST=1)."
@@ -311,28 +311,20 @@ self_test_app() {
     return 0
   fi
   out="$(mktemp "${TMPDIR:-/tmp}/anywhere-selftest.XXXXXX")"
-  ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=5 "$exe" >"$out" 2>&1 </dev/null &
-  pid=$!
-  while kill -0 "$pid" 2>/dev/null; do
-    if [ "$waited" -ge 120 ]; then
-      kill -KILL "$pid" 2>/dev/null || true
-      break
-    fi
-    sleep 1
-    waited=$((waited + 1))
-  done
-  status=0
-  wait "$pid" 2>/dev/null || status=$?
-  { echo "--- start-up test (status $status, ${waited}s) ---"; cat "$out"; } >>"$LOG"
-  if [ "$status" = 0 ] && grep -q '^SELF-TEST-OK' "$out"; then
+  # scripts/self-test.sh waits for the app to say it started, and samples it if it hangs.
+  scripts/self-test.sh "$exe" 120 >"$out" 2>&1 || status=$?
+  { echo "--- start-up test (status $status) ---"; cat "$out"; } >>"$LOG"
+  if [ "$status" = 0 ]; then
     rm -f "$out"
     ok "The new app starts"
     return 0
   fi
+  local hung=0
+  grep -q "still running after" "$out" && hung=1
   rm -f "$out"
   local repo="${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3}" headline
-  if [ "$waited" -ge 120 ]; then
-    headline="The app was built, but it didn't finish starting within 2 minutes. It was NOT installed."
+  if [ "$hung" = 1 ]; then
+    headline="The app was built, but it didn't finish starting. It was NOT installed."
   else
     headline="The app was built, but it crashes as soon as it starts. It was NOT installed."
   fi

@@ -167,9 +167,7 @@ jobs:
       # so a crash that only the release build has would pass every other step.
       - name: The packaged app starts (launch self-test)
         run: |
-          ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=6 "build/AnyWhere.app/Contents/MacOS/AnyWhere" \
-            | tee "$RUNNER_TEMP/selftest-app.txt"
-          grep -q '^SELF-TEST-OK' "$RUNNER_TEMP/selftest-app.txt"
+          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere"
 
       - name: The app inside the DMG starts too
         run: |
@@ -178,9 +176,7 @@ jobs:
           ditto "$MOUNT/AnyWhere.app" "$RUNNER_TEMP/AnyWhere.app"
           hdiutil detach "$MOUNT" -quiet
           codesign --verify --deep --strict "$RUNNER_TEMP/AnyWhere.app"
-          ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=6 "$RUNNER_TEMP/AnyWhere.app/Contents/MacOS/AnyWhere" \
-            | tee "$RUNNER_TEMP/selftest-dmg.txt"
-          grep -q '^SELF-TEST-OK' "$RUNNER_TEMP/selftest-dmg.txt"
+          scripts/self-test.sh "$RUNNER_TEMP/AnyWhere.app/Contents/MacOS/AnyWhere"
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
@@ -259,8 +255,7 @@ jobs:
       - name: The release app starts (launch self-test)
         run: |
           BIN="$(swift build -c release --show-bin-path)/iosgpsspoofer-gui"
-          ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=6 "$BIN" | tee "$RUNNER_TEMP/selftest.txt"
-          grep -q '^SELF-TEST-OK' "$RUNNER_TEMP/selftest.txt"
+          "$GITHUB_WORKSPACE/scripts/self-test.sh" "$BIN"
 
   # A tester's setup that once broke the build: a newer Swift from swift.org
   # (installed with swiftly) paired with the older macOS 15 SDK of Command Line
@@ -297,8 +292,7 @@ jobs:
         run: |
           . "$HOME/.swiftly/env.sh"
           BIN="$(swift build -c release --show-bin-path)/iosgpsspoofer-gui"
-          ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=6 "$BIN" | tee "$RUNNER_TEMP/selftest.txt"
-          grep -q '^SELF-TEST-OK' "$RUNNER_TEMP/selftest.txt"
+          "$GITHUB_WORKSPACE/scripts/self-test.sh" "$BIN"
 
   iphone-remote:
     name: Build · AnyWhere iPhone app
