@@ -30,27 +30,13 @@ jobs:
             codesign --force --deep --sign - "$RUNNER_TEMP/v-$name/AnyWhere.app" >/dev/null 2>&1
             try "$name" "$RUNNER_TEMP/v-$name/AnyWhere.app"
           }
-          try P0-packaged-as-built build/AnyWhere.app
-          # Control: the bundle's own binary, copied out of the bundle.
-          rm -rf "$RUNNER_TEMP/v-copy"; mkdir -p "$RUNNER_TEMP/v-copy/AnyWhere.app/Contents/MacOS"
-          cp build/AnyWhere.app/Contents/MacOS/AnyWhere "$RUNNER_TEMP/v-copy/plain-binary"
-          if scripts/self-test.sh "$RUNNER_TEMP/v-copy/plain-binary" 25 >"$RUNNER_TEMP/out-V1.txt" 2>&1; then echo "RESULT V1-bundle-binary-copied-out: PASS"; else echo "RESULT V1-bundle-binary-copied-out: FAIL"; fi
-          # Menu bar item off (its content is a SwiftUI scene too).
-          defaults write com.iosgpsspoofer.gui showMenuBarExtra -bool false
-          try V2-menubar-off build/AnyWhere.app
-          defaults delete com.iosgpsspoofer.gui showMenuBarExtra || true
-          # Bare-minimum Info.plist.
-          rm -rf "$RUNNER_TEMP/v-min"; mkdir -p "$RUNNER_TEMP/v-min/AnyWhere.app/Contents/MacOS"
-          cp build/AnyWhere.app/Contents/MacOS/AnyWhere "$RUNNER_TEMP/v-min/AnyWhere.app/Contents/MacOS/AnyWhere"
-          printf '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>AnyWhere</string><key>CFBundleIdentifier</key><string>com.example.min</string><key>CFBundleName</key><string>AnyWhere</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>' > "$RUNNER_TEMP/v-min/AnyWhere.app/Contents/Info.plist"
-          try V3-minimal-plist-unsealed "$RUNNER_TEMP/v-min/AnyWhere.app"
-          # Same bundle, signed as a bundle.
-          codesign --force --deep --sign - "$RUNNER_TEMP/v-min/AnyWhere.app" >/dev/null 2>&1
-          try V4-minimal-plist-sealed "$RUNNER_TEMP/v-min/AnyWhere.app"
-          # Launched through LaunchServices instead of exec'd from a shell.
+          try P0-packaged-park-once build/AnyWhere.app
+          export ANYWHERE_SELF_TEST_NOPARK=1
+          try P1-packaged-no-parking build/AnyWhere.app
+          unset ANYWHERE_SELF_TEST_NOPARK
           rm -f "$RUNNER_TEMP/ls-out.txt"
-          open -W -n build/AnyWhere.app --env ANYWHERE_SELF_TEST=1 --env ANYWHERE_SELF_TEST_SECONDS=5 --stdout "$RUNNER_TEMP/ls-out.txt" --stderr "$RUNNER_TEMP/ls-err.txt" &
+          open -W -n build/AnyWhere.app --env ANYWHERE_SELF_TEST=1 --env ANYWHERE_SELF_TEST_SECONDS=5 --env ANYWHERE_SELF_TEST_NOPARK=1 --stdout "$RUNNER_TEMP/ls-out.txt" --stderr "$RUNNER_TEMP/ls-err.txt" &
           LSPID=$!; n=0; while kill -0 $LSPID 2>/dev/null && [ $n -lt 40 ]; do sleep 1; n=$((n+1)); done
-          if grep -q SELF-TEST-OK "$RUNNER_TEMP/ls-out.txt" 2>/dev/null; then echo "RESULT V5-launched-with-open: PASS"; else echo "RESULT V5-launched-with-open: FAIL"; pkill -f "build/AnyWhere.app" || true; fi
+          if grep -q SELF-TEST-OK "$RUNNER_TEMP/ls-out.txt" 2>/dev/null; then echo "RESULT P2-open-no-parking: PASS"; else echo "RESULT P2-open-no-parking: FAIL"; pkill -f "build/AnyWhere.app" || true; fi
           echo "--- sample from the baseline ---"
           sed -n '1,90p' "$RUNNER_TEMP/out-P0-packaged-as-built.txt" || true

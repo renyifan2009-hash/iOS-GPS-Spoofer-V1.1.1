@@ -22,23 +22,30 @@ enum SelfTest {
     }()
 
     private static var started = false
+    /// Windows already moved out of the way. Each is parked once: re-ordering windows over and
+    /// over makes SwiftUI rebuild the whole main menu every time (a bundled app has one), which on
+    /// a slow virtual machine can keep the main thread busy for good.
+    private static var parked: Set<Int> = []
+    private static let parkingOn = ProcessInfo.processInfo.environment["ANYWHERE_SELF_TEST_NOPARK"] != "1"
 
     static func begin() {
         guard isOn, !started else { return }
         started = true
         // No Dock icon, and nothing here ever activates the app.
         NSApp.setActivationPolicy(.accessory)
-        Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
-            MainActor.assumeIsolated { parkWindows() }
+        if parkingOn {
+            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+                MainActor.assumeIsolated { parkNewWindows() }
+            }
         }
         Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { _ in
             MainActor.assumeIsolated { finish() }
         }
     }
 
-    /// Windows go behind every other window, on the desktop level, so a person at the Mac sees nothing.
-    private static func parkWindows() {
-        for window in NSApp.windows where window.isVisible || window.isSheet {
+    /// New windows go behind every other window, on the desktop level, so a person at the Mac sees nothing.
+    private static func parkNewWindows() {
+        for window in NSApp.windows where (window.isVisible || window.isSheet) && parked.insert(window.windowNumber).inserted {
             window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopWindow)))
             window.collectionBehavior.insert([.canJoinAllSpaces, .fullScreenAuxiliary])
             window.ignoresMouseEvents = true
