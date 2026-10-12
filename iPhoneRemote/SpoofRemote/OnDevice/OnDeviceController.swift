@@ -48,8 +48,8 @@ final class OnDeviceController {
     static let isSupported = ProcessInfo.processInfo.isOperatingSystemAtLeast(
         OperatingSystemVersion(majorVersion: 17, minorVersion: 4, patchVersion: 0))
 
-    static let pairingFileTooOldMessage = "This iPhone needs a newer pairing file. On your Mac, update iOS GPS "
-        + "Spoofer, plug this iPhone in and choose File ▸ Save iPhone Pairing File… again. Then open the new file here."
+    static let pairingFileTooOldMessage = "This iPhone needs a newer pairing file. On your Mac, update AnyWhere, "
+        + "plug this iPhone in and choose File ▸ Pairing File for the iPhone App… again. Then open the new file here."
 
     private let engine = OnDeviceEngine()
     private let keepAlive = KeepAlive()

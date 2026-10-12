@@ -306,17 +306,17 @@ private struct RemoteSettings: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Use AnyWhere with no Mac nearby")
                         Text("""
-                            Save the plugged-in iPhone's pairing file and AirDrop it to that iPhone.                             AnyWhere then changes the location by itself, even on cellular.
+                            Make the plugged-in iPhone's pairing file and AirDrop it to that iPhone. \
+                            AnyWhere on the iPhone then changes the location by itself.
                             """)
                             .font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer()
-                    Button("Save Pairing File…") { model.savePairingFile() }
-                        .disabled(!model.canSavePairingFile)
+                    Button("Pairing File…") { model.openPairingFileAssistant() }
                 }
-                if !model.canSavePairingFile {
-                    Text("Plug in an iPhone with iOS 17.4 or later, unlock it and tap Trust.")
+                if !model.pairingReadiness.isReady {
+                    Text("\(model.pairingReadiness.title). \(model.pairingReadiness.instruction)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

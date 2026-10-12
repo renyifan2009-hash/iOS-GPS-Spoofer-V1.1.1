@@ -1,7 +1,7 @@
 import Foundation
 
 /// The pairing file for SpoofRemote's iPhone-only mode, as both sides read it:
-/// the Mac app writes it (File ▸ Save iPhone Pairing File…) and SpoofRemote
+/// the Mac app writes it (File ▸ Pairing File for the iPhone App…) and SpoofRemote
 /// opens it on the iPhone. See docs/PHONE-ONLY.md.
 ///
 /// One property list can hold two identities:

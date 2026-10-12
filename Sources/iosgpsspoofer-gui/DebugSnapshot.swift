@@ -12,7 +12,7 @@ import SwiftUI
 ///                        their ids are printed as "SNAPSHOT-WINDOW <id> <title>".
 ///   SPOOFER_APPEARANCE=dark|light   force the look.
 ///   SPOOFER_WINDOW_SIZE=1040x692    the main window's size.
-///   SPOOFER_DEMO=…       play a scene: `teleport`, `route`, `route-roads`
+///   SPOOFER_DEMO=…       play a scene: `teleport`, `route`, `route-roads`, `pairing`, `pairing-ready`
 ///                        (Follow roads and Loop on), `joystick` (once an
 ///                        iPhone shows up), or `settings` (opens Settings;
 ///                        `settings-remote` / `settings-movement` /
@@ -67,6 +67,7 @@ enum DebugSnapshot {
             }
         }
         runDemoIfReady()
+        renderOffscreenIfRequested()
         if Date().timeIntervalSince(lastReport) >= 2 {
             lastReport = Date()
             let model = AppModel.shared
@@ -81,6 +82,49 @@ enum DebugSnapshot {
                   + "zones=\(model.roadFeatures.zones.count) eta=\(model.routeProgress?.eta.map { String(format: "%.0f", $0) } ?? "-")")
             fflush(stdout)
         }
+    }
+
+    // MARK: Offscreen render
+
+    /// SPOOFER_RENDER=<file.png>: draw a SwiftUI view straight into a PNG, with no window on
+    /// screen and no Screen Recording permission (`screencapture` needs both, and fails on a
+    /// locked screen). Maps and other Metal views don't render this way; controls and text do.
+    private static var rendered = false
+
+    static func renderOffscreenIfRequested() {
+        guard !rendered, let path = ProcessInfo.processInfo.environment["SPOOFER_RENDER"], !path.isEmpty else { return }
+        let model = AppModel.shared
+        let waiting: Bool = {
+            switch model.pairingFileState {
+            case .working: return true
+            default: return false
+            }
+        }()
+        guard demo?.hasPrefix("pairing") == true, model.showPairingFile, !waiting else { return }
+        rendered = true
+        let dark = ProcessInfo.processInfo.environment["SPOOFER_APPEARANCE"] == "dark"
+        let view = PairingFileSheet()
+            .environment(model)
+            .tint(Brand.accent)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, dark ? .dark : .light)
+        let host = NSHostingView(rootView: view)
+        let fitting = host.fittingSize
+        host.frame = NSRect(origin: .zero, size: NSSize(width: max(fitting.width, 540), height: max(fitting.height, 300)))
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { print("RENDER-FAILED no bitmap"); return }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        do {
+            try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            print("RENDERED \(path) \(Int(host.bounds.width))x\(Int(host.bounds.height))")
+        } catch {
+            print("RENDER-FAILED \(error)")
+        }
+        fflush(stdout)
+        NSApp.terminate(nil)
     }
 
     private static func runDemoIfReady() {
@@ -139,6 +183,11 @@ enum DebugSnapshot {
                 while model.directionsState == .computing { try? await Task.sleep(for: .milliseconds(200)) }
                 model.startRoute()
             }
+        case "pairing", "pairing-ready":
+            // The pairing-file assistant, empty or after making the file (use
+            // ANYWHERE_PAIRING_DIR=<folder> to keep it off the real Desktop).
+            model.openPairingFileAssistant()
+            if demo == "pairing-ready" { model.createPairingFile() }
         case "joystick":
             model.mode = .joystick
             model.setTarget(GeoPoint(40.7580, -73.9855), name: "Times Square, New York", focus: true)

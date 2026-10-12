@@ -2,8 +2,8 @@ import Foundation
 import PhoneOnlyCore
 @preconcurrency import Security
 
-/// This iPhone's pairing file, saved by the Mac app (File ▸ Save iPhone
-/// Pairing File…) or `iosgpsspoof export-pairing`. It proves to the iPhone
+/// This iPhone's pairing file, made by the Mac app (File ▸ Pairing File for the
+/// iPhone App…) or `iosgpsspoof export-pairing`. It proves to the iPhone
 /// that this app is a computer it trusts, so it lives in the Keychain, on this
 /// device only, and isn't backed up. `PairingRecord` has the format.
 struct PairingFile: Equatable, Sendable {
@@ -20,7 +20,7 @@ struct PairingFile: Equatable, Sendable {
             case .unreadable:
                 "Couldn't open that file."
             case .notAPairingFile:
-                "That isn't a pairing file. On your Mac, use File ▸ Save iPhone Pairing File… in AnyWhere."
+                "That isn't a pairing file. On your Mac, open AnyWhere and choose File ▸ Pairing File for the iPhone App…"
             }
         }
     }

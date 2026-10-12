@@ -23,6 +23,11 @@ struct ContentView: View {
             ConnectionHelpSheet()
                 .tint(Brand.accent)
         }
+        .sheet(isPresented: $model.showPairingFile) {
+            PairingFileSheet()
+                .environment(model)
+                .tint(Brand.accent)
+        }
     }
 }
 
@@ -168,6 +173,13 @@ struct SidebarFooter: View {
             }
             .buttonStyle(.borderless)
             .help("Setup checklist")
+            Button {
+                model.openPairingFileAssistant()
+            } label: {
+                Image(systemName: "iphone.and.arrow.forward")
+            }
+            .buttonStyle(.borderless)
+            .help("Pairing file for the iPhone app (⇧⌘K)")
             SettingsLink {
                 Image(systemName: "gearshape")
             }

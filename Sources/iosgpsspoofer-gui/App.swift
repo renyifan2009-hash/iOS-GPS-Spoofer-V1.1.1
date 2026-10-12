@@ -83,12 +83,13 @@ struct AppCommands: Commands {
     }
 }
 
-/// For the SpoofRemote app's iPhone-only mode.
+/// For the AnyWhere iPhone app's iPhone-only mode. Always enabled: the assistant says what is
+/// missing, which a greyed-out menu item never could.
 struct PairingFileMenuItem: View {
     var body: some View {
         let model = AppModel.shared
-        Button("Save iPhone Pairing File…") { model.savePairingFile() }
-            .disabled(!model.canSavePairingFile)
+        Button("Pairing File for the iPhone App…") { model.openPairingFileAssistant() }
+            .keyboardShortcut("k", modifiers: [.command, .shift])
     }
 }
 

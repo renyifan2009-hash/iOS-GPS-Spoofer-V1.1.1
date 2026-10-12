@@ -224,6 +224,9 @@ final class AppModel {
     /// Shown once on first launch, then from Help ▸ Welcome.
     var showWelcome = false
     var showConnectionHelp = false
+    /// The pairing-file assistant (File ▸ Pairing File for the iPhone App…).
+    var showPairingFile = false
+    var pairingFileState: PairingFileState = .idle
     /// The "connect your iPhone" card was dismissed to plan without a device.
     var connectCardDismissed = false
     /// `amfi developer-mode-status` for the selected device (nil = unknown).

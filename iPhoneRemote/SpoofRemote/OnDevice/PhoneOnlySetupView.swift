@@ -133,10 +133,10 @@ struct PhoneOnlySetupView: View {
 
     private func pairingDetail(tooOld: Bool) -> String {
         if !phone.isSetUp {
-            return "Plug this iPhone into your Mac and open AnyWhere. Choose File ▸ Save iPhone Pairing File…, then AirDrop it here and open it with AnyWhere."
+            return "On your Mac, plug this iPhone in and open AnyWhere. Choose File ▸ Pairing File for the iPhone App…, click Create Pairing File, then Send with AirDrop. Here, tap Accept and pick AnyWhere. If you saved it to Files instead, tap Choose File below and pick it from Downloads."
         }
         if tooOld {
-            return "This iPhone's iOS needs a newer kind of pairing file. On your Mac, update AnyWhere, plug this iPhone in and choose File ▸ Save iPhone Pairing File… again. Then AirDrop it here."
+            return "This iPhone's iOS needs a newer kind of pairing file. On your Mac, update AnyWhere, plug this iPhone in and choose File ▸ Pairing File for the iPhone App… again. Then AirDrop it here."
         }
         return "It's in this iPhone's Keychain. It lets this app talk to the iPhone like your Mac does."
     }

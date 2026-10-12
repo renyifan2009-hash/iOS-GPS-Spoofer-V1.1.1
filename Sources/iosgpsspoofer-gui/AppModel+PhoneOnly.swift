@@ -3,6 +3,21 @@ import PhoneOnlyCore
 import SpooferCore
 import UniformTypeIdentifiers
 
+/// Where the pairing-file assistant is.
+enum PairingFileState: Equatable {
+    case idle
+    case working
+    case ready(PairingFileResult)
+    case failed(String)
+}
+
+struct PairingFileResult: Equatable {
+    let url: URL
+    let deviceName: String
+    /// Set when the file lacks the part newer iOS versions need: why. It still works on older iOS.
+    let olderIOSOnly: String?
+}
+
 /// A connected iPhone with an older SpoofRemote than this code expects.
 struct OldSpoofRemote: Equatable {
     let deviceName: String
@@ -14,42 +29,70 @@ struct OldSpoofRemote: Equatable {
 /// its own location, without a Mac, once it has the iPhone's pairing file.
 /// See docs/PHONE-ONLY.md.
 extension AppModel {
-    /// Plugged in, trusted, and new enough (iOS 17.4) for the iPhone-only mode.
-    var canSavePairingFile: Bool {
-        guard pmd != nil, let device = selectedDevice else { return false }
-        return device.supportsUserspaceTunnel
+        /// Whether a pairing file can be made right now, and if not, why.
+    var pairingReadiness: PairingFileReadiness {
+        PairingFileReadiness.evaluate(helperAvailable: pmd != nil, device: selectedDevice)
     }
 
-    /// Save the selected iPhone's pairing file, then offer to AirDrop it. The
-    /// file should hold two identities; if the one newer iOS versions need
-    /// couldn't be made, say so instead of handing over a file that won't work.
-    func savePairingFile() {
-        guard let pmd, let device = selectedDevice else { return }
-        guard device.supportsUserspaceTunnel else {
-            appendLog("The iPhone-only mode needs iOS 17.4 or later. \(device.deviceName) has iOS \(device.productVersion).",
-                      level: .warning)
-            return
+    /// Kept for callers that only need a yes or no.
+    var canSavePairingFile: Bool { pairingReadiness.isReady }
+
+    private static let lastPairingFileKey = "lastPairingFilePath"
+    private static let lastPairingFileDeviceKey = "lastPairingFileDevice"
+
+    /// Open the assistant. If a file made earlier is still on this Mac, show it again, so
+    /// "where did it go?" always has an answer.
+    func openPairingFileAssistant() {
+        if case .idle = pairingFileState, let remembered = rememberedPairingFile() {
+            pairingFileState = .ready(remembered)
         }
-        let panel = NSSavePanel()
-        panel.title = "Save iPhone Pairing File"
-        panel.message = """
-            Send this file to \(device.deviceName) and open it with AnyWhere. \
-            It lets AnyWhere act as this Mac towards that iPhone, so send it to no one else.
-            """
-        panel.nameFieldStringValue = "\(device.deviceName.replacingOccurrences(of: "/", with: "-")).mobiledevicepairing"
-        panel.allowedContentTypes = [UTType(filenameExtension: "mobiledevicepairing") ?? .data]
-        panel.canCreateDirectories = true
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        showPairingFile = true
+    }
+
+    private func rememberedPairingFile() -> PairingFileResult? {
+        let defaults = UserDefaults.standard
+        guard let path = defaults.string(forKey: Self.lastPairingFileKey),
+              FileManager.default.fileExists(atPath: path) else {
+            defaults.removeObject(forKey: Self.lastPairingFileKey)
+            return nil
+        }
+        return PairingFileResult(url: URL(fileURLWithPath: path),
+                                 deviceName: defaults.string(forKey: Self.lastPairingFileDeviceKey) ?? "your iPhone",
+                                 olderIOSOnly: nil)
+    }
+
+    /// Make the selected iPhone's pairing file. It goes to the Desktop unless `chooseLocation`
+    /// asks for a save panel. The file should hold two identities; if the one newer iOS
+    /// versions need couldn't be made, the result says so instead of passing off a file that
+    /// won't work.
+    func createPairingFile(chooseLocation: Bool = false) {
+        guard case .ready = pairingReadiness, let pmd, let device = selectedDevice else { return }
+        if case .working = pairingFileState { return }
+
+        var destination = PairingFileLocation.defaultURL(forDevice: device.deviceName)
+        if chooseLocation {
+            let panel = NSSavePanel()
+            panel.title = "Save Pairing File"
+            panel.message = "This file lets AnyWhere on \(device.deviceName) act as this Mac, so send it to no one else."
+            panel.nameFieldStringValue = destination.lastPathComponent
+            panel.directoryURL = destination.deletingLastPathComponent()
+            panel.allowedContentTypes = [UTType(filenameExtension: PairingFileLocation.fileExtension) ?? .data]
+            panel.canCreateDirectories = true
+            guard panel.runModal() == .OK, let url = panel.url else { return }
+            destination = url
+        }
 
         let udid = device.udid
         let name = device.deviceName
-        appendLog("Saving the pairing file for \(name)…", level: .info)
+        let target = destination
+        pairingFileState = .working
+        appendLog("Making the pairing file for \(name)…", level: .info)
         Task.detached(priority: .userInitiated) {
             // Sendable results only: what failed, or what the file is missing.
             let failure: String?
             let remotePairingProblem: String?
             do {
-                remotePairingProblem = try pmd.exportPairingFile(udid: udid, to: url).remotePairingProblem
+                remotePairingProblem = try pmd.exportPairingFile(udid: udid, to: target).remotePairingProblem
                 failure = nil
             } catch {
                 failure = SpoofSession.firstLine(of: error)
@@ -58,33 +101,56 @@ extension AppModel {
             await MainActor.run {
                 let model = AppModel.shared
                 if let failure {
-                    model.appendLog("Couldn't save the pairing file: \(failure)", level: .error)
-                    model.showToast(Toast(symbol: "exclamationmark.triangle.fill", title: "Couldn't save the pairing file",
-                                          subtitle: "Unlock the iPhone, tap Trust if asked, and try again.", style: .warning))
+                    model.pairingFileState = .failed(failure)
+                    model.appendLog("Couldn't make the pairing file: \(failure)", level: .error)
                     return
                 }
+                let defaults = UserDefaults.standard
+                defaults.set(target.path, forKey: Self.lastPairingFileKey)
+                defaults.set(name, forKey: Self.lastPairingFileDeviceKey)
+                model.pairingFileState = .ready(PairingFileResult(url: target, deviceName: name, olderIOSOnly: remotePairingProblem))
                 if let remotePairingProblem {
                     // Still worth sending: it works where the iPhone answers lockdown through LocalDevVPN.
-                    model.appendLog("Saved \(url.lastPathComponent) without the part newer iOS versions need, "
+                    model.appendLog("Saved \(target.lastPathComponent) without the part newer iOS versions need, "
                         + "so it only works on older iOS. Reason: \(remotePairingProblem)", level: .warning)
-                    model.showToast(Toast(symbol: "exclamationmark.triangle.fill", title: "Saved, for older iOS only",
-                                          subtitle: "The part newer iOS needs couldn't be added. Activity says why.",
-                                          style: .warning), duration: 7)
                 } else {
-                    model.appendLog("Saved \(url.lastPathComponent). Open it on \(name) with AnyWhere.", level: .success)
+                    model.appendLog("Saved \(target.lastPathComponent) in \(target.deletingLastPathComponent().lastPathComponent).",
+                                    level: .success)
                 }
-                // AirDrop is the easy way across; Finder if it isn't available.
-                if let airDrop = NSSharingService(named: .sendViaAirDrop), airDrop.canPerform(withItems: [url]) {
-                    airDrop.perform(withItems: [url])
-                } else {
-                    NSWorkspace.shared.activateFileViewerSelecting([url])
-                }
-                // The iPhone is plugged in now: a good moment to check its
-                // SpoofRemote, so an old one is caught before it's AirDropped a
-                // file it can't use.
+                // The iPhone is plugged in now: a good moment to check its AnyWhere app, so an
+                // old one is caught before it's AirDropped a file it can't use.
                 model.checkSpoofRemoteVersion()
             }
         }
+    }
+
+    /// Send the file to the iPhone with AirDrop; Finder, selected, if AirDrop isn't available.
+    func sharePairingFile() {
+        guard case .ready(let result) = pairingFileState else { return }
+        if let airDrop = NSSharingService(named: .sendViaAirDrop), airDrop.canPerform(withItems: [result.url]) {
+            airDrop.perform(withItems: [result.url])
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([result.url])
+            showToast(Toast(symbol: "exclamationmark.triangle.fill", title: "AirDrop isn't available",
+                            subtitle: "The file is selected in Finder. Send it to the iPhone another way.", style: .warning), duration: 6)
+        }
+    }
+
+    func revealPairingFile() {
+        guard case .ready(let result) = pairingFileState else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([result.url])
+    }
+
+    /// The file is a key to the iPhone: once it has been sent, it should not stay on the Mac.
+    func removePairingFileFromMac() {
+        guard case .ready(let result) = pairingFileState else { return }
+        try? FileManager.default.removeItem(at: result.url)
+        UserDefaults.standard.removeObject(forKey: Self.lastPairingFileKey)
+        UserDefaults.standard.removeObject(forKey: Self.lastPairingFileDeviceKey)
+        pairingFileState = .idle
+        appendLog("Removed \(result.url.lastPathComponent) from this Mac.", level: .info)
+        showToast(Toast(symbol: "trash.fill", title: "Removed from this Mac",
+                        subtitle: "The iPhone keeps its own copy.", style: .success))
     }
 
     /// Read which SpoofRemote is on the selected iPhone and, if it's older than
