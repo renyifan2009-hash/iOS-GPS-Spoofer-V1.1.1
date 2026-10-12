@@ -2,6 +2,9 @@
 name: Diag
 on:
   workflow_dispatch:
+  push:
+    branches: [overnight/anywhere-rebrand]
+    paths: [".github/workflows/diag.yml"]
 permissions:
   contents: read
 jobs:
