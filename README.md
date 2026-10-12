@@ -121,10 +121,20 @@ place you picked.
 
 ## Update
 
-When a new version is out, the app shows a banner. Click **Update**. It
-downloads and builds the new version (a few minutes), then restarts by itself.
-You can also choose **AnyWhere ▸ Check for Updates…**, or run the
-install line again. Your favorites and saved routes are kept.
+When a new version is out, the app shows a banner. Click **Update**. You can
+also choose **AnyWhere ▸ Check for Updates…**. Your favorites and saved routes
+are kept.
+
+- **If you downloaded the app (Option 1):** it downloads the new release
+  (about 20 MB), checks it against its checksum, opens it once as a test, and
+  only then swaps it in and restarts. It takes about a minute. If anything is
+  wrong, it stops and tells you, and your current app is left alone.
+- **If you built the app on your Mac (Option 2):** it downloads and builds the
+  new version (a few minutes), opens it once as a test, then restarts. You can
+  also run the install line again.
+
+The app has to be in your **Applications** folder (not running from the
+downloaded disk image) to update itself.
 
 ## Something not working?
 

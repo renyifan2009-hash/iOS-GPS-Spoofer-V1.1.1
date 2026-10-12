@@ -159,7 +159,8 @@ jobs:
           if [ "${{ inputs.release_build }}" != "true" ] && [ "$GITHUB_REF_TYPE" != "tag" ]; then
             VERSION="$VERSION-ci.${GITHUB_RUN_NUMBER}"
           fi
-          VERSION="$VERSION" ./package-dmg.sh
+          # This DMG is the published app: it updates from releases, not by rebuilding.
+          VERSION="$VERSION" SPOOFER_CHANNEL=release ./package-dmg.sh
           ls -la dist
 
       # The app that was just packaged must start. Nothing else in CI launches the release app,

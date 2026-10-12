@@ -14,6 +14,8 @@
 #   VERSION          marketing version (default: the VERSION file)
 #   SPOOFER_COMMIT   git commit the build came from (default: git rev-parse HEAD)
 #   SPOOFER_REPO     GitHub "owner/name" the app checks for updates
+#   SPOOFER_CHANNEL  "release" for the published DMG (it updates from the newest release);
+#                    anything else, the default, "source" (it updates by rebuilding)
 
 set -euo pipefail
 
@@ -34,6 +36,7 @@ if [ -z "$COMMIT" ] && [ -e "$ROOT/.git" ]; then
   COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
 fi
 REPO="${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3}"
+CHANNEL="${SPOOFER_CHANNEL:-source}"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 BUILD_NUMBER="$(date -u +%Y%m%d.%H%M)"
 
@@ -74,6 +77,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>SpooferGitCommit</key><string>$COMMIT</string>
   <key>SpooferRepository</key><string>$REPO</string>
   <key>SpooferBuildDate</key><string>$BUILD_DATE</string>
+  <key>SpooferChannel</key><string>$CHANNEL</string>
 </dict></plist>
 PLIST
 
