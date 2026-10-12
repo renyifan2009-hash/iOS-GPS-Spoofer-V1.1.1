@@ -20,6 +20,10 @@ for the first pass. It is the file CI builds and starts.
 | A6 | ⌘Q during a route. | The iPhone goes back to its real location. | |
 | A7 | On a fresh install (or after `defaults delete com.iosgpsspoofer.gui hasSeenWelcome`), press ⌘Q while the Welcome sheet is showing. | The app quits. (CI showed that `NSApp.terminate` is ignored in that state when called from a timer in an inactive app. Whether a real ⌘Q is affected is untested: please try it, and tell me if it doesn't quit.) | |
 
+| A8 | Teleport somewhere and leave it held. Close the Mac's lid for a minute, then open it. | Within about 15 seconds the app says it woke and re-applies the location. The iPhone is still at the place. | |
+| A9 | While held, unplug the cable and plug it back in. | The app notices and reconnects (a few seconds). It never says "iOS 0", and never loops forever. | |
+| A10 | While held, force-quit the app (Activity Monitor ▸ Quit ▸ Force Quit), then open it again. | On launch it says it cleaned up and puts the real location back (or tells you to restart the iPhone if it couldn't). | |
+
 ## B. The pairing file (the tester's problem)
 
 | # | Do this | You should see | OK? |
