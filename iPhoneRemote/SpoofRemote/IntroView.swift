@@ -30,17 +30,23 @@ struct IntroView: View {
                 .frame(height: 44)
                 .padding(.horizontal, 20)
 
-                ZStack {
-                    switch page {
-                    case 0: WelcomePage().transition(pageTransition)
-                    case 1: HowItWorksPage().transition(pageTransition)
-                    default: ConnectPage().transition(pageTransition)
+                // A page that doesn't fit (a small iPhone, large text) scrolls. The dots and
+                // buttons below stay where they are, so the intro can always be left.
+                IntroPageScroll {
+                    ZStack {
+                        switch page {
+                        case 0: WelcomePage().transition(pageTransition)
+                        case 1: HowItWorksPage().transition(pageTransition)
+                        default: ConnectPage().transition(pageTransition)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
-                .gesture(
+                // Beside the scroll view's own gesture, so a swipe sideways still turns the page.
+                .simultaneousGesture(
                     DragGesture(minimumDistance: 24).onEnded { value in
+                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
                         if value.translation.width < -60 { go(to: page + 1) }
                         if value.translation.width > 60 { go(to: page - 1) }
                     })
@@ -71,6 +77,9 @@ struct IntroView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 18)
+                // The buttons stay on screen. At the very largest sizes they would take
+                // half of it and leave a few lines for the page.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
             }
         }
         .environment(\.colorScheme, .dark)
@@ -94,14 +103,41 @@ struct IntroView: View {
 
 // MARK: - Pages
 
+/// The area for a page. A page that fits is centred in it, as before. One that
+/// doesn't (an iPhone SE, or Larger Text) scrolls instead of being cut off or
+/// overlapping the buttons.
+private struct IntroPageScroll<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        GeometryReader { proxy in
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                    .environment(\.introPageHeight, proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+}
+
+private extension EnvironmentValues {
+    /// How tall the area for a page is, so a picture can give way on a small screen.
+    @Entry var introPageHeight: CGFloat = 600
+}
+
 private struct WelcomePage: View {
     @State private var shown = false
+    @Environment(\.introPageHeight) private var pageHeight
+
+    /// The globe takes what the words leave, between 150 and 280 points.
+    private var globe: CGFloat { min(280, max(150, pageHeight - 300)) }
 
     var body: some View {
         VStack(spacing: 26) {
             Spacer(minLength: 0)
             HeroGlobe()
-                .frame(width: 280, height: 280)
+                .frame(width: globe, height: globe)
             VStack(spacing: 10) {
                 Text("Your iPhone.")
                     .font(.system(size: 40, weight: .bold, design: .rounded))
@@ -113,7 +149,7 @@ private struct WelcomePage: View {
                                  Color(red: 0.49, green: 0.83, blue: 0.99)],
                         startPoint: .leading, endPoint: .trailing))
                     .reveal(shown, order: 4)
-                Text("Pick a place on this phone and your Mac moves its location there. Stop, and the real GPS comes straight back.")
+                Text("Pick a place on this phone. Your Mac, or this iPhone on its own, moves its location there. Stop, and the real GPS comes straight back.")
                     .font(.body)
                     .foregroundStyle(.white.opacity(0.75))
                     .multilineTextAlignment(.center)
@@ -129,12 +165,16 @@ private struct WelcomePage: View {
 
 private struct HowItWorksPage: View {
     @State private var shown = false
+    @Environment(\.introPageHeight) private var pageHeight
+
+    /// An iPhone SE has about 480 points for a page. Everything gets a little tighter there.
+    private var compact: Bool { pageHeight < 600 }
 
     var body: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: compact ? 14 : 28) {
             Spacer(minLength: 0)
             LinkDiagram()
-                .frame(height: 120)
+                .frame(height: compact ? 96 : 120)
                 .padding(.horizontal, 30)
                 .reveal(shown, order: 0)
             VStack(spacing: 8) {
@@ -142,14 +182,14 @@ private struct HowItWorksPage: View {
                     .font(.system(size: 32, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
                     .reveal(shown, order: 1)
-                Text("iOS doesn't let an app change where the whole phone thinks it is. Your Mac can, through Apple's developer tools, the same way Xcode does. This app is its remote.")
+                Text("iOS doesn't let an app change where the whole phone thinks it is. Your Mac can, through Apple's developer tools, the same way Xcode does. This app is its remote. With a pairing file from your Mac, this iPhone can also do it on its own.")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.72))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 28)
                     .reveal(shown, order: 2)
             }
-            VStack(spacing: 12) {
+            VStack(spacing: compact ? 8 : 12) {
                 FeatureRow(symbol: "magnifyingglass", colors: [Brand.indigo, Brand.sky],
                            title: "Search or tap the map", text: "Addresses, landmarks or exact coordinates.")
                     .reveal(shown, order: 3)
@@ -169,15 +209,18 @@ private struct HowItWorksPage: View {
 
 private struct ConnectPage: View {
     @State private var shown = false
+    @Environment(\.introPageHeight) private var pageHeight
+
+    private var compact: Bool { pageHeight < 600 }
 
     var body: some View {
-        VStack(spacing: 26) {
+        VStack(spacing: compact ? 14 : 26) {
             Spacer(minLength: 0)
             ZStack {
-                Circle().fill(Brand.gradient).frame(width: 96, height: 96)
+                Circle().fill(Brand.gradient).frame(width: compact ? 60 : 96, height: compact ? 60 : 96)
                     .shadow(color: Brand.indigo.opacity(0.7), radius: 30, y: 10)
                 Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 42, weight: .semibold))
+                    .font(.system(size: compact ? 26 : 42, weight: .semibold))
                     .symbolEffect(.bounce, value: shown)
             }
             .reveal(shown, order: 0)
@@ -196,7 +239,7 @@ private struct ConnectPage: View {
                 StepRow(number: 1, text: "Plug the iPhone into the Mac and tap **Trust**.")
                     .reveal(shown, order: 3)
                 Divider().overlay(.white.opacity(0.12)).padding(.leading, 56)
-                StepRow(number: 2, text: "On the Mac, run `iosgpsspoof serve`, or turn on **Settings ▸ iPhone Remote** in the app.")
+                StepRow(number: 2, text: "On the Mac, open **AnyWhere ▸ Settings ▸ iPhone Remote** and turn it on.")
                     .reveal(shown, order: 4)
                 Divider().overlay(.white.opacity(0.12)).padding(.leading, 56)
                 StepRow(number: 3, text: "Enter the **6-digit code** the Mac shows.")
@@ -205,6 +248,17 @@ private struct ConnectPage: View {
             .padding(.vertical, 6)
             .glassSurface(cornerRadius: 26)
             .padding(.horizontal, 24)
+            // What comes next, before it comes: iOS asks about the local network when the
+            // search for the Mac starts. And the way for people with no Mac at hand.
+            VStack(spacing: 6) {
+                Text("iOS will ask to find devices on your local network. Tap Allow.")
+                Text("No Mac nearby? Tap Later, then choose This iPhone.")
+            }
+            .font(.footnote)
+            .foregroundStyle(.white.opacity(0.72))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 32)
+            .reveal(shown, order: 6)
             Spacer(minLength: 0)
         }
         .onAppear { shown = true }

@@ -87,6 +87,7 @@ struct PhoneOnlySetupView: View {
             }
         }
         .environment(\.colorScheme, .dark)
+        .tint(Brand.sky)     // the app's indigo accent is too dark on this always-dark sheet
         .task { await phone.checkLoopback() }
         .onChange(of: scenePhase) { _, phase in
             // Back from LocalDevVPN: see whether it's on now.
@@ -137,7 +138,7 @@ struct PhoneOnlySetupView: View {
                     // Right under the button that caused it, not at the bottom of the screen.
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote)
-                        .foregroundStyle(Brand.warning)
+                        .foregroundStyle(Brand.warningText)
                         .fixedSize(horizontal: false, vertical: true)
                         .transition(.rise)
                 }
@@ -247,6 +248,11 @@ struct PhoneOnlySetupView: View {
                     .foregroundStyle(done == false ? Brand.warning : .white)
                     .contentTransition(.symbolEffect(.replace))
             }
+            // The tick is the only thing that says whether the step is done. A step
+            // with no yes or no (done is nil) has nothing to say.
+            .accessibilityElement()
+            .accessibilityLabel(done == true ? "Done" : "Not done yet")
+            .accessibilityHidden(done == nil)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(Brand.rounded(.headline))

@@ -8,6 +8,7 @@ struct PairingView: View {
     @Environment(ConnectionManager.self) private var connection
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum Step: Equatable {
         case list
@@ -93,6 +94,8 @@ struct PairingView: View {
             }
         }
         .environment(\.colorScheme, .dark)
+        // The accent is the dark indigo of the app. On this always-dark sheet the buttons need a light one.
+        .tint(Brand.sky)
         .onAppear {
             connection.lastError = nil
             connection.startBrowsing()
@@ -109,7 +112,8 @@ struct PairingView: View {
                 Image(systemName: "laptopcomputer.and.iphone")
                     .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(.white)
-                    .symbolEffect(.pulse, options: .repeating, isActive: step == .list && connection.discovered.isEmpty)
+                    .symbolEffect(.pulse, options: .repeating,
+                                  isActive: !reduceMotion && step == .list && connection.discovered.isEmpty)
             }
             Text(title)
                 .font(Brand.rounded(.title2))
@@ -303,7 +307,7 @@ struct PairingView: View {
         case .connecting:
             Label("Connecting", systemImage: "circle.dotted").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         case .offline:
-            Label("Offline", systemImage: "circle").font(.caption.weight(.semibold)).foregroundStyle(Brand.warning)
+            Label("Offline", systemImage: "circle").font(.caption.weight(.semibold)).foregroundStyle(Brand.warningText)
         case .unpaired:
             EmptyView()
         }
@@ -371,7 +375,7 @@ struct PairingView: View {
             if let problem = manualProblem {
                 Text(PairingInput.message(for: problem))
                     .font(.footnote)
-                    .foregroundStyle(Brand.warning)
+                    .foregroundStyle(Brand.warningText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -482,6 +486,10 @@ struct CodeField: View {
                 .textContentType(.oneTimeCode)
                 .focused($focused)
                 .opacity(0.02)
+                // The field is what VoiceOver finds: the boxes over it are only a picture of it.
+                // (No accessibilityValue: that would hide the digits being typed.)
+                .accessibilityLabel("Pairing code")
+                .accessibilityHint("Type the \(RemoteAPI.pairingCodeLength) digits shown on your Mac.")
                 .onChange(of: code) { _, newValue in
                     // Only ASCII digits are ever sent: the Mac's code is ASCII.
                     let digits = PairingInput.code(from: newValue, length: RemoteAPI.pairingCodeLength)
@@ -514,6 +522,7 @@ struct CodeField: View {
             .animation(Brand.snappy, value: code)
             .contentShape(Rectangle())
             .onTapGesture { focused = true }
+            .accessibilityHidden(true)
         }
         .onAppear { if autoFocus { focused = true } }
     }

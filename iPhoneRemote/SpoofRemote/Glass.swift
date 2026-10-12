@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// SpoofRemote's look: Apple's Liquid Glass (iOS 26 and later, when built
 /// with the iOS 26 SDK) over a night-sky brand gradient. Every helper falls
@@ -33,6 +34,28 @@ enum Brand {
     /// The one spring everything moves with, so the app feels of a piece.
     static let spring = Animation.spring(duration: 0.5, bounce: 0.28)
     static let snappy = Animation.spring(duration: 0.32, bounce: 0.18)
+}
+
+/// Colours for text. The brand's amber and sky are made to be seen as shapes:
+/// dots, tints, icons. As text on the light glass card they are about 1.5 to
+/// 1.9 to 1 against it (4.5 to 1 is the least for small text), so error and
+/// help text read as faint. These keep the same hue, a good deal darker when
+/// the screen is light. In dark mode, and on the sheets that are always dark,
+/// they are the brand colours as they were.
+extension Brand {
+    /// Amber for text: about 5 to 1 or better on the light glass card.
+    static let warningText = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.96, green: 0.62, blue: 0.04, alpha: 1)
+            : UIColor(red: 0.48, green: 0.31, blue: 0.00, alpha: 1)
+    })
+
+    /// Sky blue for text.
+    static let skyText = Color(UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.13, green: 0.76, blue: 0.96, alpha: 1)
+            : UIColor(red: 0.00, green: 0.38, blue: 0.62, alpha: 1)
+    })
 }
 
 extension View {
@@ -191,6 +214,7 @@ struct IconTile: View {
                 Image(systemName: symbol)
                     .font(.system(size: size * 0.46, weight: .semibold))
                     .foregroundStyle(.white)
+                    .accessibilityHidden(true)      // decoration: the words beside it say it
             }
             .overlay {
                 RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
@@ -206,18 +230,21 @@ struct PulsingDot: View {
     var color: Color = Brand.live
     var size: CGFloat = 9
     @State private var ripple = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Circle()
             .fill(color)
             .frame(width: size, height: size)
             .background {
+                // The ripple is the motion. With Reduce Motion on, the dot stands alone.
                 Circle()
                     .fill(color.opacity(0.5))
                     .scaleEffect(ripple ? 2.8 : 1)
-                    .opacity(ripple ? 0 : 0.9)
+                    .opacity(reduceMotion ? 0 : (ripple ? 0 : 0.9))
             }
             .onAppear {
+                guard !reduceMotion else { return }
                 withAnimation(.easeOut(duration: 1.5).repeatForever(autoreverses: false)) { ripple = true }
             }
     }
@@ -226,8 +253,11 @@ struct PulsingDot: View {
 /// The animated night-sky background of the intro and pairing screens:
 /// a slowly drifting mesh gradient on iOS 18+, layered glows before that.
 struct AuroraBackground: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+        // Paused with Reduce Motion on: the sky stays as it was drawn at first.
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: reduceMotion)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             if #available(iOS 18.0, *) {
                 MeshGradient(width: 3, height: 3, points: Self.points(t), colors: Self.colors)
