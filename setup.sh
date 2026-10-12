@@ -16,6 +16,8 @@
 #   SPOOFER_HELPER_DIR  put the pymobiledevice3 helper here (default:
 #                       ~/Library/Application Support/AnyWhere/venv)
 #   SPOOFER_COMMIT      the git commit being built (shown in Settings ▸ About)
+#   SPOOFER_PYTHON      use this Python 3.9+ for the helper (default: the newest one found)
+#   SPOOFER_SKIP_SELF_TEST=1   install even if the freshly built app fails its start-up test
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -145,11 +147,25 @@ check_developer_tools() {
     echo "developer dir: $dev_dir"
   } >>"$LOG"
   ok "Swift ${SWIFT_VERSION:-(unknown version)} with the macOS $SDK_VERSION SDK"
+  # A Swift from swift.org (installed with swiftly) next to an older macOS SDK is the setup that once
+  # built an app that crashed at launch. The start-up test below catches it; this says why early.
+  local swift_path
+  swift_path="$(command -v swift 2>/dev/null || true)"
+  case "$swift_path" in
+    ""|/usr/bin/swift|/Applications/Xcode*|/Library/Developer/*) ;;
+    *) warn "Building with the Swift at $swift_path (not Apple's). If the app crashes when it starts,"
+       warn "download the ready-made app instead: https://github.com/${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3}/releases/latest" ;;
+  esac
 }
 
 # The newest Python 3.9+ that can make virtual environments. Apple's own
 # /usr/bin/python3 comes with the Command Line Tools, so there's always one.
 pick_python() {
+  # SPOOFER_PYTHON=/path/to/python3 picks one yourself (it still has to be 3.9 or newer).
+  if [ -n "${SPOOFER_PYTHON:-}" ] && [ -x "$SPOOFER_PYTHON" ]; then
+    echo "$SPOOFER_PYTHON"
+    return 0
+  fi
   local best="" best_minor=-1 python minor
   for python in /opt/homebrew/bin/python3 /usr/local/bin/python3 \
                 /Library/Frameworks/Python.framework/Versions/Current/bin/python3 /usr/bin/python3; do

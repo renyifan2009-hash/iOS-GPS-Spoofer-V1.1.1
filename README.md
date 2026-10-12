@@ -148,6 +148,19 @@ iPhone icon at the bottom of the sidebar). Plug the iPhone in first. The window
 tells you if anything is missing, saves the file on your **Desktop**, and sends
 it to the iPhone with AirDrop. Details: [docs/PHONE-ONLY.md](docs/PHONE-ONLY.md).
 
+**AnyWhere "quit unexpectedly".**
+Most often this is an app that was built on a Mac whose developer tools don't
+match its system, so it crashes the moment it opens. The fix is the ready-made
+app: download **AnyWhere-…dmg** from the
+[Releases page](https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3/releases/latest)
+(see **Option 1** above). It is built and started on GitHub's machines before
+it is published, so it opens the same everywhere. The installer and the
+in-app update also start the new app once before they replace anything, and
+leave your current copy alone if it crashes.
+If it keeps happening, send the developer two things: the newest file in
+`~/Library/Logs/DiagnosticReports` that starts with "AnyWhere" (open Finder,
+press **⌘ ⇧ G**, paste that path), and `~/Library/Logs/AnyWhere/install.log`.
+
 **The app says "Connect your iPhone", but it's plugged in.**
 - Unlock the iPhone. Tap **Trust** if it asks.
 - Try another cable. Some cables only charge.
