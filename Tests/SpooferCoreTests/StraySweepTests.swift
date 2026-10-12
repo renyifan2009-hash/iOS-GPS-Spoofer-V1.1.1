@@ -8,6 +8,11 @@ import XCTest
 final class StraySweepTests: XCTestCase {
     private let udid = "00008110-000DEMO0000DEMO"
 
+    override func tearDown() {
+        // A sweep that finds a hold marks the Mac as busy putting a location back.
+        ChildProcessRegistry.finishRestoring()
+    }
+
     private func hold(_ command: String) -> StrayHold? {
         StrayProcess(pid: 1, command: command).hold
     }
@@ -146,5 +151,68 @@ final class StraySweepTests: XCTestCase {
         XCTAssertTrue(outcome.restored.isEmpty)
         XCTAssertEqual(outcome.failed.map(\.udid), [udid])
         XCTAssertEqual(outcome.failed.first?.reason, "Device is not connected")
+    }
+
+    // MARK: Not starting over the top of it
+
+    func testASweepThatFindsAHoldMarksTheRestoreAsUnderWay() throws {
+        let child = try sleeper()
+        defer { if child.isRunning { child.terminate() } }
+        XCTAssertFalse(ChildProcessRegistry.isRestoringLocation)
+        _ = ChildProcessRegistry.sweep(find: {
+            [StrayProcess(pid: child.processIdentifier,
+                          command: "pymobiledevice3 developer dvt simulate-location set --userspace --udid \(udid) -- 1 2")]
+        }, helperGrace: 0.2)
+        child.waitUntilExit()
+        XCTAssertTrue(ChildProcessRegistry.isRestoringLocation)
+        ChildProcessRegistry.finishRestoring()
+        XCTAssertFalse(ChildProcessRegistry.isRestoringLocation)
+    }
+
+    func testAHelperAloneIsNothingToWaitFor() throws {
+        let helper = try sleeper("exec sleep 30")
+        defer { if helper.isRunning { helper.terminate() } }
+        _ = ChildProcessRegistry.sweep(find: {
+            [StrayProcess(pid: helper.processIdentifier,
+                          command: "python3 -u /x/iosgpsspoof-live-helper-v1-ab12cd34.py -- developer dvt simulate-location set --udid \(udid) -- 1 2")]
+        }, helperGrace: 0.1)
+        helper.waitUntilExit()
+        XCTAssertFalse(ChildProcessRegistry.isRestoringLocation)
+    }
+
+    func testRestoringEndsTheWait() throws {
+        try XCTSkipIf(which("python3") == nil, "needs python3 to run the pretend pymobiledevice3")
+        let child = try sleeper()
+        defer { if child.isRunning { child.terminate() } }
+        let report = ChildProcessRegistry.sweep(find: {
+            [StrayProcess(pid: child.processIdentifier,
+                          command: "pymobiledevice3 developer dvt simulate-location set --userspace --udid \(udid) -- 1 2")]
+        }, helperGrace: 0.2)
+        child.waitUntilExit()
+        XCTAssertTrue(ChildProcessRegistry.isRestoringLocation)
+        let pmd = Pymobiledevice3(executableURL: SessionHarness.fixtures.appendingPathComponent("fake-pymobiledevice3"))
+        _ = ChildProcessRegistry.restoreLocations(of: report.holds, using: pmd)
+        XCTAssertFalse(ChildProcessRegistry.isRestoringLocation)
+    }
+
+    func testANewSessionWaitsUntilTheLeftoverLocationIsBack() throws {
+        let harness = try SessionHarness(engine: .classic, iOS: "18.0")
+        defer { harness.finish() }
+        let child = try sleeper()
+        defer { if child.isRunning { child.terminate() } }
+        _ = ChildProcessRegistry.sweep(find: {
+            [StrayProcess(pid: child.processIdentifier,
+                          command: "pymobiledevice3 developer dvt simulate-location set --userspace --udid \(udid) -- 1 2")]
+        }, helperGrace: 0.2)
+        child.waitUntilExit()
+
+        harness.session.start(at: GeoPoint(48.8584, 2.2945))
+        // While the old location is being put back, the new one is not set.
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertEqual(harness.session.state, .connecting("Putting your real location back first…"))
+        XCTAssertFalse(harness.lines(of: harness.pmdLog).contains { $0.contains("simulate-location set") })
+
+        ChildProcessRegistry.finishRestoring()
+        XCTAssertTrue(harness.waitForState { $0 == .active }, "\(harness.states)")
     }
 }

@@ -126,11 +126,29 @@ public final class ChildProcessRegistry: @unchecked Sendable {
 
     private static let sweepLock = NSLock()
     nonisolated(unsafe) private static var _lastSweep = SweepReport.empty
+    nonisolated(unsafe) private static var _restoringUntil = Date.distantPast
 
     /// What the most recent sweep found, for whoever reports it to the person.
     public static var lastSweep: SweepReport {
         sweepLock.lock(); defer { sweepLock.unlock() }
         return _lastSweep
+    }
+
+    /// True from the moment a sweep finds an iPhone left on a fake location until
+    /// it has been put back (`restoreLocations`) or given up on
+    /// (`finishRestoring`), and for two minutes at most. A new session waits while
+    /// this is true, because the clear could otherwise land after the session had
+    /// set its own location and undo it.
+    public static var isRestoringLocation: Bool {
+        sweepLock.lock(); defer { sweepLock.unlock() }
+        return Date() < _restoringUntil
+    }
+
+    /// The leftover location has been dealt with (or can't be): sessions may start.
+    public static func finishRestoring() {
+        sweepLock.lock()
+        _restoringUntil = .distantPast
+        sweepLock.unlock()
     }
 
     /// Kill location-simulation processes orphaned by a previous run that was
@@ -174,6 +192,7 @@ public final class ChildProcessRegistry: @unchecked Sendable {
         let report = SweepReport(reaped: strays.count, holds: holds)
         sweepLock.lock()
         _lastSweep = report
+        if !holds.isEmpty { _restoringUntil = Date().addingTimeInterval(120) }
         sweepLock.unlock()
         return report
     }
@@ -207,6 +226,7 @@ public final class ChildProcessRegistry: @unchecked Sendable {
     /// Put the real location back on each iPhone in `holds`, one clear each.
     public static func restoreLocations(of holds: [StrayHold], using pmd: Pymobiledevice3,
                                         timeout: TimeInterval = 60) -> Restoration {
+        defer { finishRestoring() }
         var restored: [String] = []
         var failed: [(udid: String, reason: String)] = []
         var done = Set<[String]>()

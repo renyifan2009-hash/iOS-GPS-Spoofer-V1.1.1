@@ -380,6 +380,15 @@ public final class SpoofSession: @unchecked Sendable {
     private func launch(token: Int) {
         guard isCurrent(token) else { return }
 
+        // A killed run left an iPhone on a fake location and the app is putting it
+        // back (see `ChildProcessRegistry.sweep`). Setting ours before that is done
+        // could be undone by it, so wait for it. This lasts a few seconds.
+        if ChildProcessRegistry.isRestoringLocation {
+            setState(.connecting("Putting your real location back first…"))
+            while ChildProcessRegistry.isRestoringLocation, isCurrent(token) { Thread.sleep(forTimeInterval: 0.1) }
+            guard isCurrent(token) else { return }
+        }
+
         let listed: Device?
         do {
             listed = try pmd.find(udid: device.udid)

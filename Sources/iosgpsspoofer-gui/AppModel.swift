@@ -322,6 +322,7 @@ final class AppModel {
         guard !holds.isEmpty else { return }
         let toldToRestart = "Your iPhone may still show a fake location. Restart it to be sure. That always clears it."
         guard let pmd, session == nil else {
+            ChildProcessRegistry.finishRestoring()
             appendLog(toldToRestart, level: .warning)
             return
         }
