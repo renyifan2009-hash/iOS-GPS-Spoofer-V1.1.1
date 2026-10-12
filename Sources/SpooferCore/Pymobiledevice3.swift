@@ -2,8 +2,15 @@ import Foundation
 
 public struct SpoofError: Error, CustomStringConvertible, LocalizedError {
     public let description: String
-    public init(_ description: String) { self.description = description }
-    public var errorDescription: String? { description }
+    /// For an error whose text starts with a long technical line (a command
+    /// line), the short plain reason a person should read instead. Nil when
+    /// `description` already reads that way.
+    public let reason: String?
+    public init(_ description: String, reason: String? = nil) {
+        self.description = description
+        self.reason = reason
+    }
+    public var errorDescription: String? { reason ?? description }
 }
 
 /// Thin wrapper around the `pymobiledevice3` executable.
@@ -180,7 +187,10 @@ public struct Pymobiledevice3: Sendable {
         let result = try ProcessRunner.run(executableURL, arguments: argPrefix + args, timeout: timeout,
                                            environment: Self.childEnvironment)
         guard result.status == 0 else {
-            throw SpoofError("`pymobiledevice3 \(args.joined(separator: " "))` failed (\(result.status))\n\(result.errorSummary)")
+            // The text keeps the command line (it helps in a bug report). What a
+            // person reads is `reason`: see `SpoofSession.firstLine(of:)`.
+            throw SpoofError("`pymobiledevice3 \(args.joined(separator: " "))` failed (\(result.status))\n\(result.errorSummary)",
+                             reason: result.errorReason ?? "pymobiledevice3 stopped with status \(result.status)")
         }
         return result.stdout
     }
@@ -208,18 +218,24 @@ public struct Pymobiledevice3: Sendable {
         process.arguments = argPrefix + args
         process.environment = Self.childEnvironment
 
+        var errorLines: LineSplitter?
         if let onOutput {
             let errPipe = Pipe()
             process.standardError = errPipe
             process.standardOutput = FileHandle.nullDevice
-            LineSplitter(onOutput).attach(to: errPipe.fileHandleForReading)
+            let splitter = LineSplitter(onOutput)
+            splitter.attach(to: errPipe.fileHandleForReading)
+            errorLines = splitter
         } else {
             process.standardOutput = FileHandle.standardError
             process.standardError = FileHandle.standardError
         }
         // Installed before launch so even an instant exit is reported.
-        process.terminationHandler = { p in
+        process.terminationHandler = { [errorLines] p in
             ChildProcessRegistry.shared.remove(p)
+            // The last thing a failing command prints is why it failed. Let it
+            // arrive before the exit is reported, or the reason can be missed.
+            errorLines?.waitUntilFinished(timeout: 1)
             onExit?(p)
         }
         try process.run()
@@ -234,12 +250,89 @@ public struct ProcessResult: Sendable {
     public let stdout: String
     public let stderr: String
 
+    public init(status: Int32, stdout: String, stderr: String) {
+        self.status = status
+        self.stdout = stdout
+        self.stderr = stderr
+    }
+
     /// The most useful part of stderr: error lines if any, else the tail.
+    /// Rich error boxes (how pymobiledevice3 prints a bad command line) are
+    /// read as the plain lines inside them.
     public var errorSummary: String {
-        let lines = stderr.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        let errors = lines.filter { $0.contains("ERROR") || $0.contains("Error") || $0.contains("error:") }
-        return (errors.isEmpty ? Array(lines.suffix(6)) : Array(errors.suffix(6))).joined(separator: "\n")
+        let reading = ToolStderr.read(stderr)
+        let errors = reading.lines.filter { reading.panel.contains($0) || ToolStderr.looksLikeError($0) }
+        return (errors.isEmpty ? Array(reading.lines.suffix(6)) : Array(errors.suffix(6))).joined(separator: "\n")
+    }
+
+    /// One plain line saying what went wrong, or nil when stderr says nothing.
+    /// A person can read it as it is: no command line, no log prefix.
+    public var errorReason: String? {
+        let reading = ToolStderr.read(stderr)
+        if !reading.panel.isEmpty { return reading.panel.joined(separator: " ") }
+        let line = reading.lines.last(where: { ToolStderr.looksLikeError($0) }) ?? reading.lines.last
+        guard let line else { return nil }
+        let cleaned = SpoofSession.cleanLogLine(line).trimmingCharacters(in: .whitespaces)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+}
+
+/// Reads what pymobiledevice3 prints on stderr.
+///
+/// Its command-line errors (`No such option: --bogus`) come as a Rich box:
+///
+///     ╭─ Error ─────────────────╮
+///     │ No such option: --bogus │
+///     ╰─────────────────────────╯
+///
+/// Those rows hold the reason but contain no word like "ERROR", so a plain
+/// keyword filter drops them. The same box is drawn with `+`, `-` and `|`
+/// when the terminal can't show the line-drawing characters.
+enum ToolStderr {
+    private static let boxTop: [Character] = ["╭", "┌", "┏", "╔"]
+    private static let boxBottom: [Character] = ["╰", "└", "┗", "╚"]
+    private static let boxSide: [Character] = ["│", "┃", "║", "|"]
+    private static let boxDrawing = CharacterSet(charactersIn: "─━│┃║╭╮╰╯┌┐└┘┏┓┗┛╔╗╚╝|+ \t\r")
+
+    /// - lines: every non-empty line, trimmed, with the rows of an error box
+    ///   turned into plain lines (other boxes, like help text, are skipped).
+    /// - panel: just the rows that came from an error box.
+    static func read(_ stderr: String) -> (lines: [String], panel: [String]) {
+        enum Box { case none, error, other }
+        var box = Box.none
+        var lines: [String] = []
+        var panel: [String] = []
+        for raw in stderr.split(whereSeparator: { $0 == "\n" }) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard let first = line.first else { continue }
+            if boxTop.contains(first) || (line.hasPrefix("+-") && box == .none) {
+                box = line.lowercased().contains("error") ? .error : .other
+                continue
+            }
+            if boxBottom.contains(first) || (line.hasPrefix("+-") && box != .none) {
+                box = .none
+                continue
+            }
+            if box != .none, boxSide.contains(first) {
+                let inner = line.trimmingCharacters(in: boxDrawing)
+                if box == .error, !inner.isEmpty {
+                    panel.append(inner)
+                    lines.append(inner)
+                }
+                continue
+            }
+            lines.append(line)
+        }
+        return (lines, panel)
+    }
+
+    static func looksLikeError(_ line: String) -> Bool {
+        line.contains("ERROR") || line.contains("Error") || line.contains("error:")
+    }
+
+    /// A line with any box-drawing characters at its ends removed.
+    static func stripBox(_ line: String) -> String {
+        line.trimmingCharacters(in: boxDrawing)
     }
 }
 
@@ -274,7 +367,9 @@ public enum ProcessRunner {
                 process.terminate()
                 if exited.wait(timeout: .now() + 2) == .timedOut { kill(process.processIdentifier, SIGKILL) }
             }
-            throw SpoofError("`\(executable.lastPathComponent) \(arguments.joined(separator: " "))` timed out after \(Int(timeout ?? 0))s")
+            let seconds = Int(timeout ?? 0)
+            throw SpoofError("`\(executable.lastPathComponent) \(arguments.joined(separator: " "))` timed out after \(seconds)s",
+                             reason: "\(executable.lastPathComponent) didn't answer within \(seconds == 1 ? "1 second" : "\(seconds) seconds")")
         }
         collector.waitForEOF(timeout: 3)
         let (stdout, stderr) = collector.strings()
@@ -369,6 +464,44 @@ public final class LineSplitter: @unchecked Sendable {
         done.signal()   // let later waiters through too
         return true
     }
+}
+
+/// A pymobiledevice3 version such as `11.25.0`.
+public struct ToolVersion: Comparable, Sendable, CustomStringConvertible {
+    public let parts: [Int]
+
+    /// Reads the first dotted number in `text` (so "pymobiledevice3 11.25.0\n"
+    /// works too). Nil when there isn't one.
+    public init?(_ text: String) {
+        for word in text.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }) {
+            let numbers = word.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
+            if numbers.count >= 2, numbers.allSatisfy({ $0 != nil }) {
+                parts = numbers.compactMap { $0 }
+                return
+            }
+        }
+        return nil
+    }
+
+    public var description: String { parts.map(String.init).joined(separator: ".") }
+
+    public static func < (a: ToolVersion, b: ToolVersion) -> Bool {
+        for i in 0..<max(a.parts.count, b.parts.count) {
+            let x = i < a.parts.count ? a.parts[i] : 0
+            let y = i < b.parts.count ? b.parts[i] : 0
+            if x != y { return x < y }
+        }
+        return false
+    }
+
+    public static func == (a: ToolVersion, b: ToolVersion) -> Bool { !(a < b) && !(b < a) }
+
+    /// The oldest release that has `--userspace` (its own tunnel, used for
+    /// iOS 17.4 and later).
+    public static let userspaceFloor = ToolVersion("9.30.0")!
+    /// The oldest release that has `--native` (Apple's tunnel, used for iOS
+    /// 17.0 to 17.3).
+    public static let nativeFloor = ToolVersion("11.0.0")!
 }
 
 /// `which`, without shelling out to a shell.

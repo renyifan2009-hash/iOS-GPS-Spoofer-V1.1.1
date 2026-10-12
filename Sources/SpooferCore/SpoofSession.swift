@@ -125,6 +125,13 @@ public final class SpoofSession: @unchecked Sendable {
     private var needsMount = true
     /// The device went missing and we've said so in the log.
     private var waitingForDevice = false
+    /// The device list could not be read this many times in a row, and the
+    /// reason last given (said once in the log, not at every try).
+    private var listFailures = 0
+    private var lastListFailure: String?
+    /// The iOS version, once a device list gave one for a phone whose version
+    /// was unknown when the session was made.
+    private var learnedVersion: String?
     private var failures = 0
     private var lastError: String?
     private var ownedFiles: [URL] = []
@@ -317,6 +324,8 @@ public final class SpoofSession: @unchecked Sendable {
         watchdogGeneration &+= 1
         plannedRestart = nil
         watchdogVerdict = nil
+        listFailures = 0
+        lastListFailure = nil
         pending = nil
         oneShotRunning = false
         failures = 0
@@ -328,7 +337,15 @@ public final class SpoofSession: @unchecked Sendable {
     private func launch(token: Int) {
         guard isCurrent(token) else { return }
 
-        guard pmd.isPresent(udid: device.udid) else {
+        let listed: Device?
+        do {
+            listed = try pmd.find(udid: device.udid)
+            locked { listFailures = 0; lastListFailure = nil }
+        } catch {
+            listingFailed(error, token: token)
+            return
+        }
+        guard let listed else {
             let firstMiss = locked { () -> Bool in
                 needsMount = true
                 defer { waitingForDevice = true }
@@ -338,8 +355,12 @@ public final class SpoofSession: @unchecked Sendable {
                 emit(.warning, "\(device.deviceName) isn't connected. Waiting for it: plug it in and unlock it.")
             }
             setState(.reconnecting("Waiting for \(device.deviceName) to reconnect…"))
-            ops.asyncAfter(deadline: .now() + 3) { [weak self] in self?.launch(token: token) }
+            ops.asyncAfter(deadline: .now() + options.timing.listRetry) { [weak self] in self?.launch(token: token) }
             return
+        }
+        // A phone that was locked when the list was first read had no version.
+        if device.majorVersion == 0, listed.majorVersion > 0 {
+            locked { learnedVersion = listed.productVersion }
         }
         if locked({ () -> Bool in defer { waitingForDevice = false }; return waitingForDevice }) {
             emit(.info, "\(device.deviceName) is back. Reconnecting…")
@@ -395,10 +416,15 @@ public final class SpoofSession: @unchecked Sendable {
 
         let outLines = LineSplitter { [weak self] line in self?.handleHelperLine(line, token: token) }
         outLines.attach(to: output.fileHandleForReading)
-        LineSplitter { [weak self] line in self?.handleToolOutput(line) }.attach(to: errors.fileHandleForReading)
+        let errorLines = LineSplitter { [weak self] line in self?.handleToolOutput(line) }
+        errorLines.attach(to: errors.fileHandleForReading)
 
         process.terminationHandler = { [weak self] p in
             ChildProcessRegistry.shared.remove(p)
+            // What it said last is why it stopped: take it in before deciding
+            // whether to try again, or the reason can arrive too late.
+            outLines.waitUntilFinished(timeout: 1)
+            errorLines.waitUntilFinished(timeout: 1)
             self?.childExited(status: p.terminationStatus, token: token, live: true)
         }
         // The channel's pieces are recorded before the helper starts, because
@@ -711,12 +737,15 @@ public final class SpoofSession: @unchecked Sendable {
                 }
                 guard isCurrent(token) else { return }
                 emit(.debug, "\(error)")
-                if pmd.isPresent(udid: device.udid) {
+                // If the list can't be read, take the phone as still there: the
+                // failure above is then counted and shown with its real reason.
+                let stillListed = (try? pmd.presence(udid: device.udid)) ?? true
+                if stillListed {
                     retryOrFail(failures: attempt, lastError: detail, problem: "setting the location failed", token: token)
                 } else {
                     locked { needsMount = true }
                     setState(.reconnecting("Waiting for \(device.deviceName) to reconnect…"))
-                    ops.asyncAfter(deadline: .now() + 3) { [weak self] in self?.launch(token: token) }
+                    ops.asyncAfter(deadline: .now() + options.timing.listRetry) { [weak self] in self?.launch(token: token) }
                 }
                 return
             }
@@ -807,6 +836,7 @@ public final class SpoofSession: @unchecked Sendable {
         if let lastError, let advice = Self.advice(for: lastError), advice.permanent {
             emit(.error, advice.message)
             setState(.failed(advice.message))
+            if lastError.contains(Self.rejectedCommandMarker) { reportToolVersion() }
             return
         }
         let delays = options.timing.retryDelays
@@ -825,9 +855,47 @@ public final class SpoofSession: @unchecked Sendable {
         ops.asyncAfter(deadline: .now() + delay) { [weak self] in self?.launch(token: token) }
     }
 
+    /// The device list could not be read (as opposed to the phone not being in
+    /// it). Say why, once, and keep trying for a while. A hiccup in the USB
+    /// service after the Mac wakes usually passes.
+    private func listingFailed(_ error: Error, token: Int) {
+        let reason = Self.firstLine(of: error)
+        let (count, isNew) = locked { () -> (Int, Bool) in
+            listFailures += 1
+            let isNew = lastListFailure != reason
+            lastListFailure = reason
+            return (listFailures, isNew)
+        }
+        guard isCurrent(token) else { return }
+        if count > options.timing.listFailureLimit {
+            let message = "AnyWhere can't read the list of iPhones. \(reason)"
+            emit(.error, message)
+            setState(.failed(message))
+            return
+        }
+        if isNew { emit(.warning, "Couldn't read the list of iPhones: \(reason). Trying again.") }
+        setState(.reconnecting("Couldn't check for \(device.deviceName). Trying again…"))
+        ops.asyncAfter(deadline: .now() + options.timing.listRetry) { [weak self] in self?.launch(token: token) }
+    }
+
+    /// After pymobiledevice3 refused a command: say which version is installed
+    /// and which one this iPhone needs, so the log explains the advice.
+    private func reportToolVersion() {
+        ops.async { [self] in
+            guard let text = pmd.version(), let installed = ToolVersion(text) else { return }
+            let needed = tunnelTransport() == .native ? ToolVersion.nativeFloor : ToolVersion.userspaceFloor
+            if installed < needed {
+                emit(.warning, "pymobiledevice3 \(installed) is installed. \(device.deviceName) needs \(needed) or newer.")
+            } else {
+                emit(.info, "pymobiledevice3 \(installed) is installed.")
+            }
+        }
+    }
+
     /// The useful part of a failed pymobiledevice3 run: its error lines, not
     /// the command line that `Pymobiledevice3.run` puts first.
     static func toolErrorDetail(_ error: Error) -> String {
+        if let reason = (error as? SpoofError)?.reason { return cleanLogLine(reason) }
         let lines = "\(error)".split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         let detail = lines.count > 1 ? lines.dropFirst().last ?? lines[0] : (lines.first ?? "\(error)")
@@ -836,19 +904,30 @@ public final class SpoofSession: @unchecked Sendable {
 
     /// A plain-English reading of a pymobiledevice3 error, and whether retrying
     /// can help. Nil when the error isn't one we recognise.
+    ///
+    /// pymobiledevice3's command line prints plain sentences, not the names of
+    /// its exceptions ("User refused to trust this computer"), so both forms
+    /// are matched. The names still show up in what the live helper reports
+    /// once the channel is open.
     public static func advice(for error: String) -> (message: String, permanent: Bool)? {
         let e = error.lowercased()
+        // pymobiledevice3 turned the command down: an option or command this
+        // version doesn't have. Trying again can't change that.
+        if e.contains(Self.rejectedCommandMarker) || e.contains("no such option") || e.contains("no such command") {
+            return ("Your pymobiledevice3 is too old for AnyWhere. In Settings, find the pymobiledevice3 section and click Update. Then press Start again.", true)
+        }
         if e.contains("developermode") || e.contains("developer mode") {
             return ("Developer Mode is off on the iPhone. Turn it on in Settings ▸ Privacy & Security ▸ Developer Mode, then restart the phone.", true)
         }
-        if e.contains("userdeniedpairing") {
+        if e.contains("userdeniedpairing") || e.contains("refused to trust") {
             return ("The iPhone said Don't Trust. Unplug it, plug it back in and tap Trust, then press Start again.", true)
         }
         // These two the user can fix while we keep retrying.
         if e.contains("passwordrequired") || e.contains("password protected") || e.contains("device is locked") {
             return ("Unlock your iPhone to reconnect…", false)
         }
-        if e.contains("notpaired") || e.contains("pairingdialog") || (e.contains("trust") && e.contains("dialog")) {
+        if e.contains("notpaired") || e.contains("not paired") || e.contains("pairingdialog")
+            || e.contains("user dialog approval") || (e.contains("trust") && e.contains("dialog")) {
             return ("Tap Trust on your iPhone (and enter its passcode) to connect…", false)
         }
         if e.contains("no route to host") || e.contains("connectionterminated") || e.contains("terminated abruptly")
@@ -856,10 +935,25 @@ public final class SpoofSession: @unchecked Sendable {
             || e.contains("connection refused") {
             return ("The connection to the iPhone dropped. Reconnecting…", false)
         }
-        if e.contains("developerdiskimage") || e.contains("invalidservice") || e.contains("mount") {
+        if e.contains("developerdiskimage") || e.contains("invalidservice") || e.contains("mount")
+            || e.contains("failed to start service") {
             return ("Couldn't load Apple's developer support onto the iPhone. Keep it unlocked and online; retrying…", false)
         }
         return nil
+    }
+
+    /// Start of the message kept when pymobiledevice3 refuses a command line.
+    static let rejectedCommandMarker = "rejected the command"
+
+    /// Whether `line` says pymobiledevice3 turned the command line down because
+    /// an option or command doesn't exist in this version, and if so the
+    /// message to keep. Only those cases: a bad value is our bug, not an old tool.
+    static func commandRejection(in line: String) -> String? {
+        let plain = ToolStderr.stripBox(line)
+        let lower = plain.lowercased()
+        guard lower.contains("no such option") || lower.contains("no such command")
+            || lower.contains("unexpected extra argument") else { return nil }
+        return "pymobiledevice3 \(rejectedCommandMarker): \(plain)"
     }
 
     /// stderr of pymobiledevice3 (or the helper): surface errors, keep the rest
@@ -867,6 +961,13 @@ public final class SpoofSession: @unchecked Sendable {
     private func handleToolOutput(_ line: String) {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        // A command line pymobiledevice3 doesn't understand is printed as a
+        // box (`│ No such option: --userspace │`) with no "ERROR" in it.
+        if let rejection = Self.commandRejection(in: trimmed) {
+            locked { lastError = rejection }
+            emit(.error, rejection)
+            return
+        }
         if trimmed.contains(" ERROR ") || trimmed.hasPrefix("ERROR") || trimmed.contains("Traceback")
             || trimmed.contains("Exception:") || trimmed.contains("Error:") {
             let message = Self.cleanLogLine(trimmed)
@@ -938,20 +1039,40 @@ public final class SpoofSession: @unchecked Sendable {
             locked { _restoredOnLastStop = true }
             emit(.success, "real location restored")
         } catch {
-            emit(.error, "could not clear the simulated location: \(Self.firstLine(of: error)). Restarting the iPhone always clears it.")
+            emit(.error, "Couldn't put the real location back: \(Self.firstLine(of: error)). Restarting the iPhone always clears it.")
         }
     }
 
     // MARK: - Arguments
 
-    private var transportLabel: String { device.isLegacy ? "lockdown" : transport.resolved(for: device).label }
+    private var transportLabel: String { device.isLegacy ? "lockdown" : tunnelTransport().label }
+
+    /// The iPhone as the tunnel choice sees it. A phone that was locked when
+    /// the list was read reports no iOS version. Once a later list gives one,
+    /// it is used here.
+    private var tunnelDevice: Device {
+        guard device.majorVersion == 0, let learned = locked({ learnedVersion }) else { return device }
+        return Device(deviceName: device.deviceName, identifier: device.identifier,
+                      connectionType: device.connectionType, productType: device.productType,
+                      productVersion: learned)
+    }
+
+    /// The tunnel for this iPhone. "Automatic" goes by iOS version. When the
+    /// version is still unknown it takes the newer tunnel, because a phone
+    /// that old (iOS 17.0 to 17.3) is far less likely than a current one, and
+    /// Apple's own tunnel keeps being knocked off by macOS.
+    private func tunnelTransport() -> Transport {
+        let phone = tunnelDevice
+        if transport == .automatic, phone.majorVersion == 0 { return .userspace }
+        return transport.resolved(for: phone)
+    }
 
     private func setArguments(_ p: GeoPoint) -> [String] {
         if device.isLegacy {
             return ["developer", "simulate-location", "set", "--udid", device.udid, "--",
                     String(p.latitude), String(p.longitude)]
         }
-        return ["developer", "dvt", "simulate-location", "set"] + transport.flags(for: device)
+        return ["developer", "dvt", "simulate-location", "set"] + tunnelTransport().flags(udid: device.udid)
             + ["--udid", device.udid, "--", String(p.latitude), String(p.longitude)]
     }
 
@@ -959,12 +1080,12 @@ public final class SpoofSession: @unchecked Sendable {
         if device.isLegacy {
             return ["developer", "simulate-location", "clear", "--udid", device.udid]
         }
-        return ["developer", "dvt", "simulate-location", "clear"] + transport.flags(for: device)
+        return ["developer", "dvt", "simulate-location", "clear"] + tunnelTransport().flags(udid: device.udid)
             + ["--udid", device.udid]
     }
 
     private func replayArguments(_ path: String) -> [String] {
-        ["developer", "dvt", "simulate-location", "play"] + transport.flags(for: device)
+        ["developer", "dvt", "simulate-location", "play"] + tunnelTransport().flags(udid: device.udid)
             + ["--udid", device.udid, path]
     }
 
@@ -1012,7 +1133,11 @@ public final class SpoofSession: @unchecked Sendable {
         return !process.isRunning
     }
 
+    /// What to show a person about `error`: the reason a pymobiledevice3 run
+    /// failed (not the command line that `Pymobiledevice3.run` puts first), or
+    /// the first line of any other error.
     public static func firstLine(of error: Error) -> String {
+        if let reason = (error as? SpoofError)?.reason { return reason }
         let text = "\(error)"
         return text.split(separator: "\n").first.map(String.init) ?? text
     }

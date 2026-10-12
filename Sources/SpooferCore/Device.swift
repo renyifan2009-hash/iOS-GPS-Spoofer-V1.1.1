@@ -97,11 +97,20 @@ public enum ConnectionFilter: String, CaseIterable, Sendable {
 extension Pymobiledevice3 {
     /// All currently reachable paired devices, de-duplicated by UDID (a device
     /// paired over both USB and Wi-Fi is listed once, preferring the USB link).
+    ///
+    /// `usbmux list` opens a connection to every device usbmuxd knows, and one
+    /// that can't be reached (a Wi-Fi iPhone that is asleep, say) makes the
+    /// whole command fail. When that happens the list is read again for
+    /// cable-connected devices only, which are the ones that can be spoofed
+    /// reliably anyway. The first error is kept if that fails too.
     public func listDevices() throws -> [Device] {
-        let json = try run(["usbmux", "list"], timeout: 20)
-        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { return [] }
-        let raw = try JSONDecoder().decode([Device].self, from: data)
+        let raw: [Device]
+        do {
+            raw = try Self.decodeDevices(run(["usbmux", "list"], timeout: 20))
+        } catch {
+            guard let usbOnly = try? Self.decodeDevices(run(["usbmux", "list", "--usb"], timeout: 15)) else { throw error }
+            raw = usbOnly
+        }
 
         var byUDID: [String: Device] = [:]
         for device in raw {
@@ -117,6 +126,12 @@ extension Pymobiledevice3 {
             guard seen.insert(d.udid).inserted else { return nil }
             return byUDID[d.udid]
         }
+    }
+
+    private static func decodeDevices(_ json: String) throws -> [Device] {
+        let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { return [] }
+        return try JSONDecoder().decode([Device].self, from: data)
     }
 
     public func listDevicesAsync() async throws -> [Device] {
@@ -231,9 +246,56 @@ extension Pymobiledevice3 {
     }
 
     /// Is a device with this UDID currently reachable?
+    ///
+    /// False also when the list can't be read at all. Callers that want to
+    /// tell "not plugged in" from "couldn't look" use `presence`.
     public func isPresent(udid: String, connection: ConnectionFilter = .any) -> Bool {
-        guard let devices = try? listDevices() else { return false }
-        return devices.contains { $0.udid == udid && connection.matches($0) }
+        (try? presence(udid: udid, connection: connection)) ?? false
+    }
+
+    /// Whether a device with this UDID is listed. Throws when the list can't
+    /// be read, so a broken tool isn't mistaken for an unplugged iPhone.
+    ///
+    /// If the full listing fails, the bare list of UDIDs (`usbmux list --simple`,
+    /// which never connects to a device) is tried before giving up, so one
+    /// stubborn device can't hide the others.
+    public func presence(udid: String, connection: ConnectionFilter = .any) throws -> Bool {
+        try find(udid: udid, connection: connection) != nil
+    }
+
+    /// The listed device with this UDID, with what the list says about it
+    /// (its iOS version, for one). Nil when it isn't listed. When only the bare
+    /// list of UDIDs can be read, the device is returned with no details.
+    public func find(udid: String, connection: ConnectionFilter = .any) throws -> Device? {
+        do {
+            return try listDevices().first { $0.udid == udid && connection.matches($0) }
+        } catch {
+            var flags: [String] = []
+            switch connection {
+            case .any: break
+            case .usb: flags = ["--usb"]
+            case .network: flags = ["--network"]
+            }
+            guard let output = try? run(["usbmux", "list", "--simple"] + flags, timeout: 15),
+                  let udids = Self.simpleUDIDs(output) else { throw error }
+            guard udids.contains(udid) else { return nil }
+            return Device(deviceName: "iOS device", identifier: udid, connectionType: connection == .network ? "Network" : "USB",
+                          productType: "unknown", productVersion: "0")
+        }
+    }
+
+    /// The UDIDs in `usbmux list --simple`: a JSON array of strings (or of
+    /// objects with an `Identifier` or `SerialNumber`).
+    static func simpleUDIDs(_ output: String) -> [String]? {
+        guard let data = output.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let array = (try? JSONSerialization.jsonObject(with: data)) as? [Any] else { return nil }
+        return array.compactMap { item in
+            if let udid = item as? String { return udid }
+            if let object = item as? [String: Any] {
+                return (object["Identifier"] ?? object["SerialNumber"]) as? String
+            }
+            return nil
+        }
     }
 
     /// The version of SpoofRemote (`com.iosgpsspoof.remote`) installed on the

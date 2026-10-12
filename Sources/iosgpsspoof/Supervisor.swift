@@ -47,8 +47,21 @@ struct Supervisor {
         ctx.preflight()
         log("target: \(ctx.device.summary)")
 
+        var lastListProblem: String?
         while !watcher.isRequested {
-            guard ctx.pmd.isPresent(udid: ctx.device.udid, connection: ctx.connection) else {
+            let present: Bool
+            do {
+                present = try ctx.pmd.presence(udid: ctx.device.udid, connection: ctx.connection)
+                lastListProblem = nil
+            } catch {
+                // The list could not be read: not the same as the phone being unplugged.
+                let reason = SpoofSession.firstLine(of: error)
+                if reason != lastListProblem { warn("can't read the list of devices: \(reason). Trying again…") }
+                lastListProblem = reason
+                sleepInterruptibly(retryInterval, watcher)
+                continue
+            }
+            guard present else {
                 log("device not connected — waiting…")
                 sleepInterruptibly(retryInterval, watcher)
                 continue
