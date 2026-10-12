@@ -35,6 +35,29 @@ final class SessionStopTests: XCTestCase {
         XCTAssertTrue(harness.session.restoredOnLastStop)
     }
 
+    /// A quit signal and Cmd-Q can arrive together. Whichever comes second must
+    /// not return while the first is still clearing.
+    func testTwoQuitsAtOnceBothWaitForTheRestore() throws {
+        harness = try SessionHarness(engine: .classic, iOS: "18.0", environment: ["FAKE_PMD_CLEAR_DELAY": "1.0"])
+        harness.session.start(at: start)
+        XCTAssertTrue(harness.waitForState { $0 == .active })
+
+        let first = DispatchQueue(label: "first quit")
+        let finished = DispatchSemaphore(value: 0)
+        first.async { [session = harness.session] in
+            session.stopBlocking()
+            finished.signal()
+        }
+        // The first one has sent its clear (the fake logs a command when it starts).
+        XCTAssertTrue(harness.wait { harness.lines(of: harness.pmdLog).contains { $0.contains("simulate-location clear") } })
+
+        harness.session.stopBlocking()   // the second
+        let log = harness.lines(of: harness.pmdLog)
+        XCTAssertTrue(log.contains { $0.hasPrefix("done") && $0.contains("simulate-location clear") },
+                      "the second quit returned before the clear finished:\n" + log.joined(separator: "\n"))
+        XCTAssertEqual(finished.wait(timeout: .now() + 10), .success)
+    }
+
     func testQuitWaitsOnlyOnceSoTheLastMomentCallIsQuick() throws {
         harness = try SessionHarness(engine: .classic, iOS: "18.0", environment: ["FAKE_PMD_CLEAR_DELAY": "0.5"])
         harness.session.start(at: start)

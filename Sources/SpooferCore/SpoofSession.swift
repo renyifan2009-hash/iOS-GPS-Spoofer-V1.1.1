@@ -313,8 +313,12 @@ public final class SpoofSession: @unchecked Sendable {
     /// would let the app quit in the middle of the restore and leave the
     /// iPhone on its fake location.
     public func stopBlocking() {
+        // This teardown counts too, so that a second caller at the same moment
+        // (a quit signal and Cmd-Q together) waits for it.
+        teardownGroup.enter()
         let teardownState = beginStop()
         guard teardownState.wasStarted else {
+            teardownGroup.leave()
             let firstCall = locked { () -> Bool in
                 let first = !waitedForTeardown
                 waitedForTeardown = true
@@ -323,6 +327,7 @@ public final class SpoofSession: @unchecked Sendable {
             if firstCall { _ = teardownGroup.wait(timeout: .now() + 15) }
             return
         }
+        defer { teardownGroup.leave() }
         finishStop(teardownState, clearLocation: true, helperWait: 3, clearTimeout: 15, drainTimeout: 5)
         locked { _state = .idle }
     }
