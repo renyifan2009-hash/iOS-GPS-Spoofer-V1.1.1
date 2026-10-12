@@ -47,7 +47,7 @@ struct PhoneOnlySetupView: View {
                             }
                             .padding(14)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .glassSurface(cornerRadius: 18, tint: Brand.warning)
+                            .glassSurface(cornerRadius: 18, tint: Brand.warning.opacity(0.45))
                             .transition(.rise)
                         }
                         footnote

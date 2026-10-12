@@ -50,7 +50,7 @@ struct PairingView: View {
                                 .font(.subheadline)
                                 .padding(14)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .glassSurface(cornerRadius: 18, tint: Brand.warning)
+                                .glassSurface(cornerRadius: 18, tint: Brand.warning.opacity(0.45))
                                 .transition(.rise)
                         }
                         helpCard
@@ -155,7 +155,7 @@ struct PairingView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .glassSurface(cornerRadius: 18, tint: Brand.warning)
+                    .glassSurface(cornerRadius: 18, tint: Brand.warning.opacity(0.45))
                     .transition(.rise)
             }
             if let server = connection.server {
@@ -247,7 +247,7 @@ struct PairingView: View {
                 .font(.headline)
             Text(MacConnectionText.blockedBody)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.9))
                 .fixedSize(horizontal: false, vertical: true)
             Button { openSettings() } label: {
                 Label("Open Settings", systemImage: "gearshape").frame(maxWidth: .infinity)
@@ -256,7 +256,7 @@ struct PairingView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassSurface(cornerRadius: 22, tint: Brand.warning)
+        .glassSurface(cornerRadius: 22, tint: Brand.warning.opacity(0.45))
         .transition(.rise)
     }
 
