@@ -1,4 +1,4 @@
-# Throwaway: finds why the launch self-test hangs on the macOS 15 runner. Delete after use.
+# Throwaway: finds why the launch self-test hangs for the packaged app on the macOS 15 runner. Delete after use.
 name: Diag
 on:
   workflow_dispatch:
@@ -8,54 +8,34 @@ on:
 permissions:
   contents: read
 jobs:
-  selftest-matrix:
+  matrix:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-      - run: swift --version && xcrun --show-sdk-version
       - name: Build release and package
         run: |
           swift build -c release
-          BIN_DIR="$(swift build -c release --show-bin-path)"
-          scripts/make-app.sh "$BIN_DIR" build
-          ls build
-      - name: Install a real pymobiledevice3 in .venv (as the failing jobs have)
+          scripts/make-app.sh "$(swift build -c release --show-bin-path)" build
+      - name: Variants (each prints RESULT PASS or RESULT FAIL)
         run: |
-          python3 -m venv .venv
-          .venv/bin/pip install --quiet pymobiledevice3
-          .venv/bin/pymobiledevice3 version
-      - name: "F. packaged app, fresh preferences, real pymobiledevice3"
-        continue-on-error: true
-        run: |
-          defaults delete com.iosgpsspoofer.gui hasSeenWelcome || true
-          defaults delete com.iosgpsspoofer.gui showMenuBarExtra || true
-          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
-      - name: "G. raw release binary, real pymobiledevice3"
-        continue-on-error: true
-        run: scripts/self-test.sh "$(swift build -c release --show-bin-path)/iosgpsspoofer-gui" 40
-      - name: "A. raw release binary, fresh preferences"
-        continue-on-error: true
-        run: scripts/self-test.sh "$(swift build -c release --show-bin-path)/iosgpsspoofer-gui" 40
-      - name: "B. packaged app, Welcome already seen"
-        continue-on-error: true
-        run: |
-          defaults write com.iosgpsspoofer.gui hasSeenWelcome -bool true
-          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
-      - name: "C. packaged app, fresh preferences (Welcome shows)"
-        continue-on-error: true
-        run: |
-          defaults delete com.iosgpsspoofer.gui hasSeenWelcome || true
-          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
-      - name: "D. packaged app, Welcome seen, menu bar item off"
-        continue-on-error: true
-        run: |
-          defaults write com.iosgpsspoofer.gui hasSeenWelcome -bool true
-          defaults write com.iosgpsspoofer.gui showMenuBarExtra -bool false
-          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
-      - name: "E. packaged app, fresh preferences, menu bar item off"
-        continue-on-error: true
-        run: |
-          defaults delete com.iosgpsspoofer.gui hasSeenWelcome || true
-          defaults write com.iosgpsspoofer.gui showMenuBarExtra -bool false
-          scripts/self-test.sh "build/AnyWhere.app/Contents/MacOS/AnyWhere" 40
+          try() {   # try <name> <app>
+            if scripts/self-test.sh "$2/Contents/MacOS/AnyWhere" 25 >"$RUNNER_TEMP/out-$1.txt" 2>&1; then echo "RESULT $1: PASS"; else echo "RESULT $1: FAIL"; fi
+          }
+          variant() {  # variant <name> <plist edits...>
+            name="$1"; shift
+            rm -rf "$RUNNER_TEMP/v-$name"; mkdir -p "$RUNNER_TEMP/v-$name"
+            ditto build/AnyWhere.app "$RUNNER_TEMP/v-$name/AnyWhere.app"
+            for edit in "$@"; do /usr/libexec/PlistBuddy -c "$edit" "$RUNNER_TEMP/v-$name/AnyWhere.app/Contents/Info.plist" || true; done
+            codesign --force --deep --sign - "$RUNNER_TEMP/v-$name/AnyWhere.app" >/dev/null 2>&1
+            try "$name" "$RUNNER_TEMP/v-$name/AnyWhere.app"
+          }
+          try P0-packaged-as-built build/AnyWhere.app
+          variant P1-no-bonjour-or-localnetwork "Delete :NSBonjourServices" "Delete :NSLocalNetworkUsageDescription"
+          variant P2-no-icon "Delete :CFBundleIconFile"
+          variant P3-no-launchservices-keys "Delete :LSMinimumSystemVersion" "Delete :LSApplicationCategoryType" "Delete :NSHighResolutionCapable"
+          variant P4-no-spoofer-keys "Delete :SpooferGitCommit" "Delete :SpooferRepository" "Delete :SpooferBuildDate" "Delete :SpooferChannel"
+          variant P5-other-bundle-id "Set :CFBundleIdentifier com.example.diag"
+          variant P6-minimal "Delete :NSBonjourServices" "Delete :NSLocalNetworkUsageDescription" "Delete :CFBundleIconFile" "Delete :LSMinimumSystemVersion" "Delete :LSApplicationCategoryType" "Delete :NSHighResolutionCapable" "Delete :SpooferGitCommit" "Delete :SpooferRepository" "Delete :SpooferBuildDate" "Delete :SpooferChannel"
+          echo "--- sample from the baseline ---"
+          sed -n '1,90p' "$RUNNER_TEMP/out-P0-packaged-as-built.txt" || true

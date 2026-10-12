@@ -22,7 +22,13 @@ while kill -0 "$pid" 2>/dev/null; do
   if [ "$waited" -ge "$limit" ]; then
     echo "self-test: still running after ${limit}s, so it is stuck. Where it is stuck:" >&2
     if command -v sample >/dev/null 2>&1; then
-      sample "$pid" 3 -mayDie 2>&1 | sed -n '1,120p' >&2 || true
+      file="$(mktemp "${TMPDIR:-/tmp}/anywhere-sample.XXXXXX")"
+      sample "$pid" 3 -mayDie -file "$file" >/dev/null 2>&1 || true
+      # The call graph's top, then what the busiest frames are (the summary at the end).
+      sed -n '1,70p' "$file" >&2
+      echo "..." >&2
+      sed -n '/^Sort by top of stack/,/^Binary Images/p' "$file" | sed -n '1,40p' >&2
+      rm -f "$file"
     fi
     kill -KILL "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
