@@ -128,6 +128,9 @@ final class AppModel {
     var deviceSpeed: Double = 0
     var devicePlaceName: String?
     var sessionStartedAt: Date?
+    /// When Auto-stop will put the real location back; nil when it is off.
+    var killswitchDeadline: Date?
+    @ObservationIgnored var killswitchTask: Task<Void, Never>?
 
     // MARK: Route
     var waypoints: [Waypoint] = [] {
@@ -551,6 +554,7 @@ final class AppModel {
         session = s
         sessionEngine = s.engine
         sessionStartedAt = Date()
+        armKillswitch()
         // Long routes run for hours: no App Nap (it would slow the motion
         // timer) and no idle sleep until the session ends. The display may
         // still sleep.
@@ -670,6 +674,7 @@ final class AppModel {
     }
 
     private func endSession() {
+        disarmKillswitch()
         if let sessionActivity { ProcessInfo.processInfo.endActivity(sessionActivity) }
         sessionActivity = nil
         lastDeviceGeocode = nil
@@ -876,7 +881,7 @@ final class AppModel {
     var logText: String {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss"
-        return log.map { "[\(f.string(from: $0.date))] \($0.text)" }.joined(separator: "\n")
+        return DiagnosticsRedactor.redact(log.map { "[\(f.string(from: $0.date))] \($0.text)" }.joined(separator: "\n"))
     }
 
     // MARK: - Geocoding

@@ -209,7 +209,16 @@ activity log.
   clears the location by itself, and the next launch cleans up stray
   processes.
 - **Help ▸ Copy Diagnostics** copies versions, setup, device status and the
-  recent log for a bug report.
+  recent log for a bug report. `DiagnosticsRedactor` (SpooferCore, tested) removes
+  UDIDs, key blocks, long encoded data, tokens, email addresses and the Mac
+  user name first. Places and coordinates stay on purpose.
+- **Auto-stop** (`Killswitch` in SpooferCore holds the rules and tests;
+  `AppModel+Killswitch.swift` runs it). The preference `autoStopMinutes` (0 = never) is armed
+  when a session is created and counts from then; changing it mid-session counts from
+  the change. A task naps for at most a minute at a time and checks the real clock, so a
+  changed clock or a sleeping Mac still ends the session. It calls the ordinary `stop()`.
+  The card shows the countdown outside the `ViewThatFits` (a clock inside it froze the
+  app once).
 - **Updates.** An installed app knows its commit and repository (Info.plist
   keys `SpooferGitCommit` and `SpooferRepository`). Every six hours it reads
   the newest commit on `main` from git's ref listing

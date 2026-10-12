@@ -32,10 +32,16 @@ struct HUDView: View {
                         .lineLimit(status.live ? 1 : 2)
                         .fixedSize(horizontal: false, vertical: true)
                         .contentTransition(.opacity)
-                    Text(secondaryLine)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    HStack(spacing: 8) {
+                        Text(secondaryLine)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        // Outside the ViewThatFits above: a clock inside it is built once per candidate layout.
+                        if let deadline = model.killswitchDeadline {
+                            AutoStopChip(deadline: deadline, since: model.sessionStartedAt ?? .distantPast)
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 controls
@@ -164,7 +170,7 @@ struct HUDView: View {
     /// invalidating each other and froze the app.
     private var statsRow: some View {
         TimelineView(.periodic(from: model.sessionStartedAt ?? .distantPast, by: 1)) { context in
-            let elapsed = StatTile(label: "Elapsed", value: elapsed(at: context.date), symbol: "clock")
+            let elapsed = clockTile(at: context.date)
             ViewThatFits(in: .horizontal) {
                 EqualColumns(spacing: 14) {
                     speedTile
@@ -181,6 +187,15 @@ struct HUDView: View {
             }
         }
         .padding(.top, 2)
+    }
+
+    /// How long it has been going, or, with Auto-stop on, how long until the real location comes back.
+    private func clockTile(at date: Date) -> StatTile {
+        if let deadline = model.killswitchDeadline {
+            return StatTile(label: "Stops in", value: Killswitch.countdown(Killswitch.remaining(until: deadline, now: date)),
+                            symbol: "timer")
+        }
+        return StatTile(label: "Elapsed", value: elapsed(at: date), symbol: "clock")
     }
 
     private var headingTile: some View {
@@ -468,5 +483,30 @@ struct JoystickPad: View {
         let o = knobOffset
         guard o != .zero else { return .zero }
         return .radians(Double(atan2(o.width, -o.height)))
+    }
+}
+
+/// "Stops in 14:59": beside the coordinates while Auto-stop is on. One clock, on a fixed schedule.
+struct AutoStopChip: View {
+    let deadline: Date
+    let since: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: since, by: 1)) { context in
+            let left = Killswitch.countdown(Killswitch.remaining(until: deadline, now: context.date))
+            HStack(spacing: 3) {
+                Image(systemName: "timer")
+                Text(left).monospacedDigit()
+            }
+            .font(.system(size: 9.5, weight: .bold, design: .rounded))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Brand.accent.opacity(0.14), in: Capsule())
+            .foregroundStyle(Brand.accent)
+            .fixedSize()
+            .help("Auto-stop: the real location comes back when this reaches 0:00. Change it in the Location menu.")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Stops automatically in \(left)")
+        }
     }
 }

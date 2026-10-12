@@ -98,6 +98,22 @@ No crash report from the tester exists, so this is what could be proven:
 5. Still the strongest theory for the tester's own crash (alongside 4): an app compiled locally on a toolchain/SDK mismatch, and the
    in-app Update rebuilding from source. Both are now gated by the self-test (and the release channel avoids the rebuild).
 
+## Added after the first summary (from the `Welcome file.md` prompt)
+
+The prompt (written with ChatGPT, kept in `~/Downloads`) is a spec for a larger, phone-first product. Read on 2026-10-12. Sorted:
+
+- **Already done in this run:** the pairing assistant and the first-party install assistant; a Mac distribution pipeline
+  as far as it can go without a paid Apple account.
+- **Built now (Mac/USB path, tested):** the killswitch ("Stop spoofing after 15 min … 4 h, or custom": Location menu,
+  Settings, a countdown on the card) and redaction of UDIDs, keys, tokens, Apple IDs and the Mac user name from
+  Help ▸ Copy Diagnostics.
+- **Not done, same boundary as before:** research into how Vanish works, the cellular off/on experiments, and moving the
+  developer session so it survives with the Mac off (the prompt's phases 1 to 3). That is the iOS 26.4+ on-device route
+  the project already decided not to pursue, and it cannot be tested without a real iPhone.
+- **Not built, needs the owner's decisions and accounts:** subscriptions (Free/Plus/Pro/Lifetime), the 45-minute free timer,
+  a billing server and website pages, Developer ID signing and notarization (a paid Apple Developer account), and
+  the iPhone-side route builder, joystick, history and scheduling screens (a large simulator-testable build).
+
 ## Blocked / needs a real device or the owner
 
 - Everything on a real iPhone: `docs/DEVICE-TESTING.md` is the checklist (pairing file over AirDrop, installing through a

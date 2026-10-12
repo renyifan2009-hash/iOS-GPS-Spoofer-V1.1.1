@@ -111,6 +111,11 @@ struct LocationMenuItems: View {
         Button(model.isPaused ? "Resume Route" : "Pause Route") { model.togglePause() }
             .keyboardShortcut("p", modifiers: [.command, .shift])
             .disabled(!model.canPauseRoute)
+        Menu("Stop Automatically After") {
+            AutoStopPicker().pickerStyle(.inline)
+            Divider()
+            Button("Custom…") { model.chooseCustomAutoStop() }
+        }
         Divider()
         Button("Teleport Mode") { model.mode = .teleport }
             .keyboardShortcut("1")

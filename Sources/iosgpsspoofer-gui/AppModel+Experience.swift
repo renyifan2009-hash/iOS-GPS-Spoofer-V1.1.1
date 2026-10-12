@@ -216,7 +216,8 @@ extension AppModel {
         let time = DateFormatter()
         time.dateFormat = "HH:mm:ss"
         lines += log.suffix(150).map { "[\(time.string(from: $0.date))] \($0.text)" }
-        return lines.joined(separator: "\n")
+        // Nothing that identifies the iPhone or acts as it (UDID, keys, tokens, an Apple ID) goes into a report.
+        return DiagnosticsRedactor.redact(lines.joined(separator: "\n"))
     }
 
     func copyDiagnostics() {

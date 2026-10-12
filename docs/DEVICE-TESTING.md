@@ -23,6 +23,7 @@ for the first pass. It is the file CI builds and starts.
 | A8 | Teleport somewhere and leave it held. Close the Mac's lid for a minute, then open it. | Within about 15 seconds the app says it woke and re-applies the location. The iPhone is still at the place. | |
 | A9 | While held, unplug the cable and plug it back in. | The app notices and reconnects (a few seconds). It never says "iOS 0", and never loops forever. | |
 | A10 | While held, force-quit the app (Activity Monitor ▸ Quit ▸ Force Quit), then open it again. | On launch it says it cleaned up and puts the real location back (or tells you to restart the iPhone if it couldn't). | |
+| A11 | Location ▸ Stop Automatically After ▸ 15 minutes, then teleport somewhere and leave it. | A timer chip on the card counts down. At 0:00 the iPhone's blue dot goes back to the real place and a note says so. | |
 
 ## B. The pairing file (the tester's problem)
 

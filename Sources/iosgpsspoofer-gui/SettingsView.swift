@@ -54,6 +54,14 @@ private struct GeneralSettings: View {
             Toggle("Follow the iPhone on the map when spoofing starts", isOn: $prefs.followDevice)
             Toggle("Show in the menu bar", isOn: $prefs.showMenuBarExtra)
             Toggle("Remember recent locations", isOn: $prefs.recordRecents)
+            LabeledContent("Stop spoofing automatically after") {
+                HStack {
+                    AutoStopPicker().labelsHidden()
+                    Button("Custom…") { model.chooseCustomAutoStop() }
+                }
+            }
+            Text("A safety net: when the time is up, the iPhone gets its real location back, even if you have walked away.")
+                .font(.caption).foregroundStyle(.secondary)
             LabeledContent("Scan for devices every") {
                 Stepper("\(Int(prefs.autoRefreshInterval)) s", value: $prefs.autoRefreshInterval, in: 2...30, step: 1)
             }

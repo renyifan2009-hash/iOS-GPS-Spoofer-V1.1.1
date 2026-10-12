@@ -112,6 +112,11 @@ The app shows a checklist. Each step gets a green tick when it's done.
   **W A S D** or the arrow keys. Hold **Shift** to go faster.
 - **Stop:** click **Stop** to get your real location back. Quitting the app does
   it too.
+- **Stop by itself:** choose **Location ▸ Stop Automatically After** and pick 15
+  minutes, 30 minutes, 1, 2 or 4 hours, or **Custom…**. A small timer on the
+  card counts down, and when it reaches 0:00 your real location comes back.
+  It is a safety net for when you walk away. The same choice is in
+  **Settings ▸ General**. It starts counting when you start spoofing.
 
 The map follows your iPhone's blue dot. Drag the map to look around. Click
 **Re-center** to go back to the dot.
@@ -209,7 +214,9 @@ brings back the real location.
 
 **Something else?**
 In the app, choose **Help ▸ Copy Diagnostics**. Paste that into a message to
-the developer.
+the developer. It leaves out your iPhone's ID, keys, tokens and Apple ID, and
+your Mac user name in paths. Places you teleported to stay in, so the problem
+can be repeated.
 
 ## Uninstall
 
