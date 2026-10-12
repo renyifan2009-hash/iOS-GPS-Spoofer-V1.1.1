@@ -188,6 +188,106 @@ class ProtocolLoopTests(unittest.TestCase):
         self.assertEqual(replies, ["READY 10.0 20.0", "BYE"])
 
 
+class StalledChannelTests(unittest.TestCase):
+    """A `set` the iPhone never answers must end the helper, not wedge it."""
+
+    def setUp(self):
+        self.helper = load_helper()
+        self.exits = []
+        self.helper.EXIT_NOW = self.exits.append
+        self.helper.SET_TIMEOUT = 0.3
+
+    def run_service(self, lines, set_delay_after_first):
+        calls = []
+        sets = []
+
+        class FakeAsyncService:
+            async def set(self, latitude, longitude):
+                sets.append((latitude, longitude))
+                if len(sets) > 1:
+                    await asyncio.sleep(set_delay_after_first)
+                calls.append(("set", latitude, longitude))
+
+            async def clear(self):
+                calls.append(("clear",))
+
+        feeder = Feeder()
+        FakeAsyncService.set = self.helper.make_live_set(FakeAsyncService.set, feeder.stream)
+        feeder.send(*lines, close=False, delay=0.05)
+        out = io.StringIO()
+        error = None
+        with contextlib.redirect_stdout(out):
+            try:
+                asyncio.run(asyncio.wait_for(FakeAsyncService().set(10.0, 20.0), timeout=10))
+            except asyncio.TimeoutError as caught:
+                error = caught
+        return calls, protocol_lines(out.getvalue()), error
+
+    def test_a_set_that_never_returns_is_reported_and_ends_the_helper(self):
+        calls, replies, error = self.run_service(["set 1 2", "ping"], set_delay_after_first=3600)
+        self.assertIsNotNone(error)
+        self.assertEqual(self.exits, [1])
+        self.assertEqual(replies[0], "READY 10.0 20.0")
+        self.assertTrue(any(r.startswith("ERROR timed out") for r in replies), replies)
+        self.assertNotIn("OK 1.0 2.0", replies)
+        self.assertNotIn("PONG", replies)
+
+    def test_a_slow_set_that_still_finishes_is_fine(self):
+        calls, replies, error = self.run_service(["set 1 2", "quit"], set_delay_after_first=0.1)
+        self.assertIsNone(error)
+        self.assertEqual(self.exits, [])
+        self.assertIn("OK 1.0 2.0", replies)
+        self.assertEqual(replies[-1], "BYE")
+
+    def test_the_helper_really_exits_when_the_channel_stalls(self):
+        # A hanging close can't be allowed to keep the helper alive, so the exit
+        # is the process's own. Run it for real and check the status and the time.
+        driver = os.path.join(WORKDIR, "stalled_driver.py")
+        with open(driver, "w", encoding="utf-8") as handle:
+            handle.write(textwrap.dedent(
+                """
+                import asyncio, sys
+                sys.path.insert(0, %r)
+                import live_helper
+                live_helper.SET_TIMEOUT = 0.3
+
+                class Service:
+                    calls = 0
+                    async def set(self, latitude, longitude):
+                        Service.calls += 1
+                        if Service.calls > 1:
+                            await asyncio.sleep(3600)
+                    async def clear(self):
+                        pass
+
+                Service.set = live_helper.make_live_set(Service.set)
+                try:
+                    asyncio.run(Service().set(1.0, 2.0))
+                finally:
+                    # Reaching this means the exit did not happen at once.
+                    import time
+                    time.sleep(30)
+                """ % WORKDIR))
+        started = time.time()
+        process = subprocess.Popen([sys.executable, "-u", driver], stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            process.stdin.write("set 3 4\n")
+            process.stdin.flush()
+            status = process.wait(timeout=15)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+        out = process.stdout.read()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            with contextlib.suppress(Exception):
+                stream.close()
+        self.assertEqual(status, 1)
+        self.assertLess(time.time() - started, 12)
+        self.assertTrue(any(r.startswith("ERROR timed out") for r in protocol_lines(out)), out)
+
+
 @unittest.skipUnless(have_pymobiledevice3(), "pymobiledevice3 is not installed")
 class InstalledPymobiledevice3Tests(unittest.TestCase):
     def test_patch_targets_exist(self):

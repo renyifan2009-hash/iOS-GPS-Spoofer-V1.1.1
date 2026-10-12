@@ -84,6 +84,7 @@ public final class SpoofSession: @unchecked Sendable {
     private let transport: Transport
     private let python: URL?
     private let callbackQueue: DispatchQueue
+    private let options: Options
     private let ops = DispatchQueue(label: "SpoofSession.ops", qos: .userInitiated)
     private let teardown = DispatchQueue(label: "SpoofSession.teardown", qos: .userInitiated)
     private let io = DispatchQueue(label: "SpoofSession.io", qos: .userInitiated)
@@ -94,12 +95,28 @@ public final class SpoofSession: @unchecked Sendable {
     private var desired: GeoPoint?
     private var replayJob: ReplayJob?
     private var child: Process?
-    private var childStartedAt = Date.distantPast
     private var helperInput: FileHandle?
     private var helperOutput: LineSplitter?
     private var helperReady = false
     private var sawCleared = false
     private var inFlightSince: Date?
+    /// When the oldest `set` that nothing has answered yet was sent.
+    private var unackedSince: Date?
+    /// When the live channel last answered (or opened).
+    private var lastOKAt = Date.distantPast
+    /// When the current channel or hold started working. A run that stays up
+    /// for `healthyRun` clears the failure count when it ends.
+    private var healthySince: Date?
+    /// Changes whenever the channel being watched changes, so a watchdog
+    /// belonging to an earlier channel stops itself.
+    private var watchdogGeneration = 0
+    private var sleepProbe = SleepProbe()
+    /// Set when we end the channel on purpose to open a fresh one (the Mac
+    /// woke from sleep). That exit is not a failure.
+    private var plannedRestart: String?
+    /// Set when the watchdog ended a channel that stopped answering. It is the
+    /// reason to remember for that exit, whatever the dying helper then prints.
+    private var watchdogVerdict: String?
     private var pending: GeoPoint?
     private var oneShotRunning = false
     private var stopping = false
@@ -117,17 +134,54 @@ public final class SpoofSession: @unchecked Sendable {
         let summary: String
     }
 
+    /// How long the session waits before it decides something is wrong. The
+    /// defaults are what the app uses. Tests make them short.
+    struct Timing: Sendable {
+        /// How often a live channel (or a classic hold) is looked at.
+        var tick: TimeInterval = 5
+        /// A live channel that has been quiet this long is asked for an answer.
+        var idleHeartbeat: TimeInterval = 15
+        /// Something was sent and nothing answered for this long: the channel is dead.
+        var answerTimeout: TimeInterval = 15
+        /// A run that stayed up this long counts as healthy, so a later drop starts the
+        /// failure count again.
+        var healthyRun: TimeInterval = 30
+        /// The Mac slept if the wall clock ran ahead of the awake clock by this much.
+        var sleepGap: TimeInterval = 10
+        /// Pauses between tries after a failure. More failures than this give up.
+        var retryDelays: [TimeInterval] = [1, 2, 3, 5, 8, 12, 20, 30, 30]
+        /// The pause between looks at the device list.
+        var listRetry: TimeInterval = 3
+        /// How many unreadable device lists in a row before giving up.
+        var listFailureLimit = 20
+    }
+
+    /// What a test can change. The app uses the defaults.
+    struct Options {
+        var timing = Timing()
+        /// Where the live helper script is. The default writes it into the
+        /// app's support folder.
+        var helperScript: @Sendable () throws -> URL = { try LiveHelper.installedScriptURL() }
+    }
+
     /// - Parameters:
     ///   - engine: `.live` requires `python` (see `Pymobiledevice3.pythonInterpreter`);
     ///     without it the session silently uses `.classic`.
-    public init(pmd: Pymobiledevice3, device: Device, transport: Transport = .automatic,
-                engine: EngineKind = .classic, python: URL? = nil, callbackQueue: DispatchQueue = .main) {
+    public convenience init(pmd: Pymobiledevice3, device: Device, transport: Transport = .automatic,
+                            engine: EngineKind = .classic, python: URL? = nil, callbackQueue: DispatchQueue = .main) {
+        self.init(pmd: pmd, device: device, transport: transport, engine: engine, python: python,
+                  callbackQueue: callbackQueue, options: Options())
+    }
+
+    init(pmd: Pymobiledevice3, device: Device, transport: Transport, engine: EngineKind, python: URL?,
+         callbackQueue: DispatchQueue, options: Options) {
         self.pmd = pmd
         self.device = device
         self.transport = transport
         self.python = python
         self._engine = (engine == .live && python != nil) ? .live : .classic
         self.callbackQueue = callbackQueue
+        self.options = options
         signal(SIGPIPE, SIG_IGN)   // a helper dying mid-write must not kill us
     }
 
@@ -258,6 +312,11 @@ public final class SpoofSession: @unchecked Sendable {
         helperOutput = nil
         helperReady = false
         inFlightSince = nil
+        unackedSince = nil
+        healthySince = nil
+        watchdogGeneration &+= 1
+        plannedRestart = nil
+        watchdogVerdict = nil
         pending = nil
         oneShotRunning = false
         failures = 0
@@ -319,10 +378,11 @@ public final class SpoofSession: @unchecked Sendable {
     private func launchHelper(at point: GeoPoint, token: Int) {
         guard let python else { switchToClassic(reason: "no Python interpreter found", token: token); return }
         let script: URL
-        do { script = try LiveHelper.installedScriptURL() } catch {
+        do { script = try options.helperScript() } catch {
             switchToClassic(reason: "\(error)", token: token)
             return
         }
+        let channelLabel = transportLabel
 
         let process = Process()
         process.executableURL = python
@@ -341,30 +401,36 @@ public final class SpoofSession: @unchecked Sendable {
             ChildProcessRegistry.shared.remove(p)
             self?.childExited(status: p.terminationStatus, token: token, live: true)
         }
-        do {
-            try process.run()
-        } catch {
-            setState(.failed("could not start Python (\(python.path)): \(error.localizedDescription)"))
-            return
-        }
-        ChildProcessRegistry.shared.add(process)
-
+        // The channel's pieces are recorded before the helper starts, because
+        // the helper can say READY within a few milliseconds of starting.
         lock.lock()
         guard runToken == token, !stopping else {
             lock.unlock()
             try? input.fileHandleForWriting.close()
-            Self.terminate(process, grace: 2)
             return
         }
         child = process
-        childStartedAt = Date()
         helperInput = input.fileHandleForWriting
         helperOutput = outLines
-        helperReady = false
+        // Said before the helper starts, so it can never come after the helper's
+        // own "channel open".
+        let connecting = SessionState.connecting("Opening the location channel…")
+        _state = connecting
+        callbackQueue.async { [onStateChange] in onStateChange?(connecting) }
+        emit(.info, "opening a live channel to \(device.deviceName) (\(channelLabel))…")
+        do {
+            ChildProcessRegistry.shared.add(process)
+            try process.run()
+        } catch {
+            ChildProcessRegistry.shared.remove(process)
+            child = nil
+            helperInput = nil
+            helperOutput = nil
+            lock.unlock()
+            setState(.failed("could not start Python (\(python.path)): \(error.localizedDescription)"))
+            return
+        }
         lock.unlock()
-
-        setState(.connecting("Opening the location channel…"))
-        emit(.info, "opening a live channel to \(device.deviceName) (\(transportLabel))…")
     }
 
     private func handleHelperLine(_ line: String, token: Int) {
@@ -378,19 +444,27 @@ public final class SpoofSession: @unchecked Sendable {
             guard runToken == token, !stopping else { lock.unlock(); return }
             helperReady = true
             inFlightSince = nil
-            failures = 0
+            unackedSince = nil
+            lastOKAt = Date()
+            // Not `failures = 0` here: a channel that opens and drops again within
+            // seconds, over and over, is not recovering. The count is cleared when a
+            // channel has stayed up for a while (see `childExited`).
+            healthySince = Date()
             lastError = nil
             let wanted = desired
             lock.unlock()
             setState(.active)
             emit(.success, "● live channel open — device at \(Format.coordinate(point))")
             deliver(point)
+            startWatchdog(token: token)
             if let wanted, !wanted.isClose(to: point) { send(wanted) }
 
         case let .ok(point):
             lock.lock()
             guard runToken == token else { lock.unlock(); return }
             inFlightSince = nil
+            unackedSince = nil
+            lastOKAt = Date()
             let next = pending
             pending = nil
             lock.unlock()
@@ -420,11 +494,151 @@ public final class SpoofSession: @unchecked Sendable {
             lock.unlock()
             return
         }
-        inFlightSince = Date()
+        let now = Date()
+        inFlightSince = now
+        // The oldest message nothing has answered yet. `inFlightSince` moves on
+        // each time a newer message goes out. This one doesn't, so a helper that
+        // never answers is noticed however often the position changes.
+        if unackedSince == nil { unackedSince = now }
         pending = nil
         lock.unlock()
         let data = Data(LiveHelper.setCommand(point).utf8)
         io.async { try? input.write(contentsOf: data) }
+    }
+
+    // MARK: Watching the channel
+
+    /// What the watchdog decides at each look.
+    enum WatchdogAction: Equatable {
+        case none
+        /// Ask the live channel for an answer now by sending the current spot again.
+        case heartbeat
+        /// The live channel did not answer in time.
+        case dead(String)
+        /// The Mac slept while a classic hold or route was running.
+        case restartAfterSleep
+    }
+
+    /// Decide what to do about a channel, from what is known about it. Pure, so
+    /// it can be tested without a phone or a clock.
+    ///
+    /// - A live channel answers every `set` with OK. If one was sent and no OK
+    ///   came within `answerTimeout`, the channel is dead (a cable pulled, a
+    ///   tunnel that went away, a helper that is stuck).
+    /// - A quiet live channel is asked for an answer every `idleHeartbeat`, by
+    ///   sending the current spot again, which uses the same path as a move. (A
+    ///   bare `ping` would only prove the helper's loop is alive.) After the Mac
+    ///   slept, it is asked at once.
+    /// - A classic hold or route can't be asked anything, so the only thing known
+    ///   is that the Mac slept, which breaks its tunnel.
+    static func watchdogAction(engine: EngineKind, now: Date, unackedSince: Date?, lastOKAt: Date,
+                               sleptSinceLastLook: Bool, timing: Timing) -> WatchdogAction {
+        switch engine {
+        case .live:
+            if let unackedSince, now.timeIntervalSince(unackedSince) > timing.answerTimeout {
+                return .dead("Timed out: the iPhone didn't answer for \(Int(timing.answerTimeout.rounded())) seconds")
+            }
+            guard unackedSince == nil else { return .none }
+            if sleptSinceLastLook || now.timeIntervalSince(lastOKAt) > timing.idleHeartbeat { return .heartbeat }
+            return .none
+        case .classic:
+            return sleptSinceLastLook ? .restartAfterSleep : .none
+        }
+    }
+
+    /// Watches the channel or hold that is running now, until it ends.
+    private func startWatchdog(token: Int) {
+        let generation = locked { () -> Int in
+            watchdogGeneration &+= 1
+            sleepProbe = SleepProbe()
+            return watchdogGeneration
+        }
+        scheduleWatchdog(token: token, generation: generation)
+    }
+
+    private func scheduleWatchdog(token: Int, generation: Int) {
+        ops.asyncAfter(deadline: .now() + options.timing.tick) { [weak self] in
+            self?.watchdogTick(token: token, generation: generation)
+        }
+    }
+
+    private func watchdogTick(token: Int, generation: Int) {
+        let now = Date()
+        let look = locked { () -> (EngineKind, Date?, Date, Bool)? in
+            guard runToken == token, !stopping, watchdogGeneration == generation, child != nil else { return nil }
+            let slept = sleepProbe.sleptSinceLastLook(now: now, awake: ProcessInfo.processInfo.systemUptime,
+                                                      gap: options.timing.sleepGap)
+            return (_engine, unackedSince, lastOKAt, slept)
+        }
+        guard let (engine, unacked, lastOK, slept) = look else { return }
+        switch Self.watchdogAction(engine: engine, now: now, unackedSince: unacked, lastOKAt: lastOK,
+                                   sleptSinceLastLook: slept, timing: options.timing) {
+        case .none:
+            break
+        case .heartbeat:
+            if slept { emit(.info, "The Mac woke up. Checking the connection to \(device.deviceName)…") }
+            sendCurrentSpot()
+        case let .dead(why):
+            emit(.warning, "The location channel stopped answering. Reconnecting…")
+            let process = locked { () -> Process? in
+                guard runToken == token, !stopping, watchdogGeneration == generation else { return nil }
+                lastError = why
+                watchdogVerdict = why
+                watchdogGeneration &+= 1   // this watchdog is done: the exit starts the retry
+                return child
+            }
+            // The exit goes through `childExited`, like any other, and from there
+            // through the usual retries.
+            if let process { Self.terminate(process, grace: 3) }
+            return
+        case .restartAfterSleep:
+            restartChannel(reason: "The Mac woke up. Re-applying the location on \(device.deviceName)…", token: token)
+            return
+        }
+        scheduleWatchdog(token: token, generation: generation)
+    }
+
+    /// Send the spot the iPhone should be at (again).
+    private func sendCurrentSpot() {
+        guard let point = locked({ desired }) else { return }
+        send(point)
+    }
+
+    /// End the running channel or hold on purpose and open a new one at the
+    /// current spot. Not counted as a failure.
+    private func restartChannel(reason: String, token: Int) {
+        let process = locked { () -> Process? in
+            guard runToken == token, !stopping, let running = child else { return nil }
+            plannedRestart = reason
+            watchdogGeneration &+= 1
+            return running
+        }
+        guard let process else { return }
+        emit(.info, reason)
+        Self.terminate(process, grace: 3)
+    }
+
+    /// Tell the session its connection to the iPhone may have gone stale: the
+    /// Mac woke from sleep, or the iPhone was unplugged and plugged back in.
+    ///
+    /// A live channel is checked at once (it is asked to answer, and is
+    /// replaced if it doesn't). A classic hold or route is restarted, because
+    /// it has no way to tell. Does nothing when no channel is open.
+    public func channelMayBeStale() {
+        let current = locked { () -> (Int, EngineKind)? in
+            guard started, !stopping, child != nil else { return nil }
+            return (runToken, _engine)
+        }
+        guard let (token, engine) = current else { return }
+        ops.async { [self] in
+            switch engine {
+            case .live:
+                sendCurrentSpot()
+            case .classic:
+                restartChannel(reason: "The connection to \(device.deviceName) may have been interrupted. Re-applying the location…",
+                               token: token)
+            }
+        }
     }
 
     private func switchToClassic(reason: String, token: Int) {
@@ -526,8 +740,11 @@ public final class SpoofSession: @unchecked Sendable {
             return false
         }
         child = process
-        childStartedAt = Date()
+        healthySince = Date()
         lock.unlock()
+        // There is nothing to ask a classic hold or route, but the Mac sleeping
+        // under one can be told.
+        startWatchdog(token: token)
         return true
     }
 
@@ -540,13 +757,35 @@ public final class SpoofSession: @unchecked Sendable {
         helperInput = nil
         helperReady = false
         inFlightSince = nil
-        // A long, healthy run resets the failure streak.
-        if Date().timeIntervalSince(childStartedAt) > 30 { failures = 0 }
-        failures += 1
+        unackedSince = nil
+        watchdogGeneration &+= 1
+        let planned = plannedRestart
+        plannedRestart = nil
+        // The dying helper may print a traceback of its own. The reason we ended
+        // it is the one worth keeping.
+        if let verdict = watchdogVerdict {
+            lastError = verdict
+            watchdogVerdict = nil
+        }
+        // A channel that stayed up for a while was healthy, so the next drop is a
+        // first one. (Measured from when it started working, not from when it
+        // was started: opening it can take a long time.)
+        if planned == nil, let since = healthySince, Date().timeIntervalSince(since) > options.timing.healthyRun {
+            failures = 0
+        }
+        healthySince = nil
+        if planned == nil { failures += 1 }
         let failures = self.failures
         let lastError = self.lastError
         let isReplay = replayJob != nil
         lock.unlock()
+
+        if planned != nil {
+            // We ended it ourselves to open a fresh one: not a failure.
+            setState(.reconnecting("Reconnecting to \(device.deviceName)…"))
+            ops.asyncAfter(deadline: .now() + 1) { [weak self] in self?.launch(token: token) }
+            return
+        }
 
         if live && status == LiveHelper.incompatibleExitStatus {
             switchToClassic(reason: lastError ?? "the helper could not patch pymobiledevice3", token: token)
@@ -570,7 +809,7 @@ public final class SpoofSession: @unchecked Sendable {
             setState(.failed(advice.message))
             return
         }
-        let delays = [1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 20.0, 30.0, 30.0]
+        let delays = options.timing.retryDelays
         if failures > delays.count {
             let message = "Lost the connection to \(device.deviceName). Unplug it, plug it back in and unlock it, then press Start again."
             emit(.error, "\(message) (last error: \(lastError ?? problem))")
@@ -659,6 +898,9 @@ public final class SpoofSession: @unchecked Sendable {
         stopping = true
         started = false
         runToken &+= 1
+        watchdogGeneration &+= 1
+        plannedRestart = nil
+        watchdogVerdict = nil
         child = nil
         helperInput = nil
         helperOutput = nil
@@ -781,5 +1023,27 @@ public final class SpoofSession: @unchecked Sendable {
             if let r = line.range(of: level) { return String(line[r.upperBound...]) }
         }
         return line
+    }
+}
+
+/// Tells whether the Mac slept between two looks. The wall clock keeps running
+/// while the Mac sleeps and the awake clock (`systemUptime`) doesn't, so a gap
+/// between how far each moved is time spent asleep.
+struct SleepProbe {
+    private var wall: Date
+    private var awake: TimeInterval
+
+    init(now: Date = Date(), awake: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        wall = now
+        self.awake = awake
+    }
+
+    /// True when more than `gap` seconds of sleep passed since the last look.
+    mutating func sleptSinceLastLook(now: Date, awake nowAwake: TimeInterval, gap: TimeInterval) -> Bool {
+        let wallElapsed = now.timeIntervalSince(wall)
+        let awakeElapsed = nowAwake - awake
+        wall = now
+        awake = nowAwake
+        return wallElapsed - awakeElapsed > gap
     }
 }
