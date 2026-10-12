@@ -46,14 +46,14 @@ public struct Pymobiledevice3: Sendable {
 
         if let explicit, !explicit.isEmpty {
             let path = (explicit as NSString).expandingTildeInPath
-            guard fm.isExecutableFile(atPath: path) else {
+            guard isRunnableFile(path) else {
                 throw SpoofError("not an executable file: \(explicit)")
             }
             return fromExecutable(URL(fileURLWithPath: path))
         }
 
         if let env = ProcessInfo.processInfo.environment["PYMOBILEDEVICE3"],
-           fm.isExecutableFile(atPath: env) {
+           isRunnableFile(env) {
             return fromExecutable(URL(fileURLWithPath: env))
         }
 
@@ -106,6 +106,15 @@ public struct Pymobiledevice3: Sendable {
             """)
     }
 
+    /// A file (not a folder: folders carry the "executable" bit too) that can be run.
+    static func isRunnableFile(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return false
+        }
+        return FileManager.default.isExecutableFile(atPath: path)
+    }
+
     /// Whether `venv` (a Python virtual environment) has pymobiledevice3 installed.
     static func hasPymobiledevice3(venv: URL) -> Bool {
         let fm = FileManager.default
@@ -146,11 +155,17 @@ public struct Pymobiledevice3: Sendable {
         // `pip install --user` → ~/Library/Python/3.x/bin
         let userPython = home.appendingPathComponent("Library/Python")
         if let versions = try? FileManager.default.contentsOfDirectory(atPath: userPython.path) {
-            for v in versions.sorted(by: >) {
+            for v in newestFirst(versions) {
                 urls.append(userPython.appendingPathComponent(v).appendingPathComponent("bin/pymobiledevice3"))
             }
         }
         return urls
+    }
+
+    /// Python version folder names ("3.9", "3.13") newest first. Plain string
+    /// order would put "3.9" above "3.13".
+    static func newestFirst(_ versions: [String]) -> [String] {
+        versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
     }
 
     /// The Python interpreter that runs this pymobiledevice3, needed by the
@@ -168,7 +183,7 @@ public struct Pymobiledevice3: Sendable {
         }
         guard let handle = try? FileHandle(forReadingFrom: script) else { return nil }
         defer { try? handle.close() }
-        let head: Data? = try? handle.read(upToCount: 512)
+        let head: Data? = try? handle.read(upToCount: 1024)
         guard let head, let text = String(data: head, encoding: .utf8),
               text.hasPrefix("#!"), let firstLine = text.split(separator: "\n").first else { return nil }
         let parts = firstLine.dropFirst(2).split(separator: " ").map(String.init)
@@ -176,7 +191,31 @@ public struct Pymobiledevice3: Sendable {
         if interpreter.hasSuffix("/env"), parts.count > 1, let resolved = which(parts[1]) {
             return URL(fileURLWithPath: resolved)
         }
+        if Self.shells.contains(URL(fileURLWithPath: interpreter).lastPathComponent) {
+            // pip writes `#!/bin/sh` for an environment whose path has a space
+            // in it, and has the real Python started on the next line. A shell
+            // is never the answer: running the helper with it would fail.
+            return Self.interpreter(fromShellScript: text)
+        }
         return fm.isExecutableFile(atPath: interpreter) ? URL(fileURLWithPath: interpreter) : nil
+    }
+
+    private static let shells: Set<String> = ["sh", "bash", "zsh", "dash", "ksh"]
+
+    /// The Python named by the second line of a pip console script that starts
+    /// with a shell line: `'''exec' "/path with spaces/python3" "$0" "$@"`.
+    static func interpreter(fromShellScript text: String) -> URL? {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count > 1 else { return nil }
+        let marker = "'''exec' \""
+        let second = lines[1].trimmingCharacters(in: .whitespaces)
+        guard second.hasPrefix(marker) else { return nil }
+        let rest = second.dropFirst(marker.count)
+        guard let end = rest.firstIndex(of: "\"") else { return nil }
+        let path = String(rest[rest.startIndex..<end])
+        guard !shells.contains(URL(fileURLWithPath: path).lastPathComponent),
+              FileManager.default.isExecutableFile(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
     }
 
     // MARK: - Running
