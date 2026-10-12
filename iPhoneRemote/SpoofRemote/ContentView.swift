@@ -78,7 +78,11 @@ struct ContentView: View {
         .onAppear {
             // (A pairing file that was opened first has already shown the setup screen.)
             if !hasSeenIntro, !showPhoneSetup { showIntro = true }
-            connection.startBrowsing()
+            // Looking for Macs makes iOS ask for Local Network access. Not before
+            // the person asked to find a Mac: the first launch would have the
+            // question appear over the Welcome page. A Mac already paired is
+            // looked for again by its name in case its address changed.
+            if connection.isPaired { connection.startBrowsing() }
             connection.startPolling()
             updates.checkIfDue()
             #if DEBUG
@@ -104,7 +108,9 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
-                connection.startBrowsing()
+                // The pairing screen asks for it itself, and starts over when the
+                // person comes back from Settings.
+                if connection.isPaired || showPairing { connection.startBrowsing() }
                 connection.startPolling()
                 updates.checkIfDue()
                 if source == .thisPhone, phone.isSetUp, !phone.isSpoofing {
@@ -229,6 +235,7 @@ struct ContentView: View {
     private var bottomCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             sourcePicker
+            otherSourceHoldingNotice
             UpdateNoticeView()
             if source == .thisPhone {
                 phoneCard
@@ -244,6 +251,8 @@ struct ContentView: View {
         .animation(Brand.spring, value: isSpoofing)
         .animation(Brand.spring, value: locations.selection)
         .animation(Brand.spring, value: connection.lastError)
+        .animation(Brand.spring, value: connection.unpairedNotice)
+        .animation(Brand.spring, value: connection.link)
         .animation(Brand.spring, value: phone.lastError)
         .animation(Brand.spring, value: phone.importError)
         .animation(Brand.spring, value: connection.status?.connected)
@@ -256,8 +265,39 @@ struct ContentView: View {
             Text("This iPhone").tag(LocationSource.thisPhone)
         }
         .pickerStyle(.segmented)
-        // One at a time: stop the current location before switching.
-        .disabled(isSpoofing)
+        // One at a time: stop the current location before switching. (And not
+        // in the middle of a start or stop either.)
+        .disabled(isSpoofing || phone.isWorking || connection.isWorking)
+    }
+
+    /// The picker is locked while a location is held. When it is the other
+    /// source that holds it (the Mac started one, and the app opened on "This
+    /// iPhone"), the Stop for it isn't on this card, so it is offered here.
+    @ViewBuilder
+    private var otherSourceHoldingNotice: some View {
+        if source == .thisPhone, connection.isSpoofing {
+            holdingRow("The Mac is holding a location.") { _ = await connection.stop() }
+                .transition(.rise)
+        } else if source == .mac, phone.isSpoofing {
+            holdingRow("This iPhone is holding a location.") { await phone.stop() }
+                .transition(.rise)
+        }
+    }
+
+    private func holdingRow(_ text: String, stop: @escaping () async -> Void) -> some View {
+        HStack(spacing: 10) {
+            Label(text, systemImage: "location.fill")
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button {
+                Task { await stop() }
+            } label: {
+                Text("Stop").fixedSize()
+            }
+            .glassButton()
+            .fixedSize()
+        }
     }
 
     @ViewBuilder
@@ -291,6 +331,14 @@ struct ContentView: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote)
                     .foregroundStyle(Brand.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.rise)
+            } else if case .offline(let reason) = connection.link {
+                // The pill only says "offline". This says why, and what to try.
+                Label(reason, systemImage: "wifi.exclamationmark")
+                    .font(.footnote)
+                    .foregroundStyle(Brand.warning)
+                    .fixedSize(horizontal: false, vertical: true)
                     .transition(.rise)
             }
         }
@@ -442,6 +490,14 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+            if let notice = connection.unpairedNotice {
+                // It was paired, and the Mac dropped it. Without this it just looks lost.
+                Label(notice, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Brand.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.rise)
             }
             Button {
                 showPairing = true

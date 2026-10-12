@@ -2,6 +2,7 @@ import Foundation
 @preconcurrency import Network
 import Observation
 import os
+import PhoneOnlyCore
 import RemoteAPI
 import UIKit
 
@@ -59,12 +60,20 @@ final class ConnectionManager {
     private(set) var status: RemoteStatus?
     private(set) var isWorking = false
     var lastError: String?
+    /// iOS is not letting this app look for Macs: the person said no to Local
+    /// Network, or never answered. Nothing else tells them, because the
+    /// search just sits there looking.
+    private(set) var localNetworkBlocked = false
+    /// Why the Mac dropped this iPhone's pairing (a 401), for the screens that
+    /// ask to pair again. Kept until the next successful pairing, so it
+    /// survives the screen's own reset of `lastError`.
+    private(set) var unpairedNotice: String?
 
     @ObservationIgnored private var browser: NWBrowser?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let clientID: String
-    @ObservationIgnored private var failures = 0
+    @ObservationIgnored private var outage = OutageCounter()
 
     private static let serverKey = "pairedServer"
     private static let clientIDKey = "clientID"
@@ -99,23 +108,43 @@ final class ConnectionManager {
     // MARK: - Discovery
 
     func startBrowsing() {
-        guard browser == nil else { return }
+        if browser != nil {
+            // Stuck on Local Network: start over, since the person may have
+            // just turned it on in Settings.
+            guard localNetworkBlocked else { return }
+            stopBrowsing()
+        }
         let parameters = NWParameters()
         parameters.includePeerToPeer = false
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: RemoteAPI.serviceType, domain: nil), using: parameters)
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             // Started on the main queue below.
             MainActor.assumeIsolated {
-                self?.discovered = results.compactMap { Self.mac(from: $0) }
+                guard let self else { return }
+                self.discovered = results.compactMap { Self.mac(from: $0) }
                     .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+                if !self.discovered.isEmpty { self.localNetworkBlocked = false }
             }
         }
         browser.stateUpdateHandler = { [weak self] state in
             MainActor.assumeIsolated {
-                if case .failed(let error) = state {
-                    self?.lastError = "Couldn't look for Macs: \(error.localizedDescription)"
-                    self?.browser?.cancel()
-                    self?.browser = nil
+                guard let self else { return }
+                switch state {
+                case .ready:
+                    self.localNetworkBlocked = false
+                case .waiting(let error):
+                    // With Local Network off, iOS doesn't fail the search. It waits.
+                    if Self.isLocalNetworkDenied(error) { self.localNetworkBlocked = true }
+                case .failed(let error):
+                    if Self.isLocalNetworkDenied(error) {
+                        self.localNetworkBlocked = true
+                    } else {
+                        self.lastError = "Couldn't look for Macs: \(error.localizedDescription)"
+                    }
+                    self.browser?.cancel()
+                    self.browser = nil
+                default:
+                    break
                 }
             }
         }
@@ -126,6 +155,12 @@ final class ConnectionManager {
     func stopBrowsing() {
         browser?.cancel()
         browser = nil
+        localNetworkBlocked = false
+    }
+
+    nonisolated private static func isLocalNetworkDenied(_ error: NWError) -> Bool {
+        if case .dns(let code) = error { return MacConnectionText.isLocalNetworkDenied(dnsErrorCode: code) }
+        return false
     }
 
     private static func mac(from result: NWBrowser.Result) -> DiscoveredMac? {
@@ -216,7 +251,8 @@ final class ConnectionManager {
         defer { isWorking = false }
         lastError = nil
         guard let target = await resolve(mac) else {
-            lastError = "Couldn't reach \(mac.displayName). Make sure the iPhone and the Mac are on the same network."
+            lastError = "Couldn't reach \(mac.displayName). Make sure the iPhone and the Mac are on the same network. "
+                + MacConnectionText.localNetworkHint
             return false
         }
         return await pair(host: target.host, port: target.port, code: code)
@@ -239,7 +275,8 @@ final class ConnectionManager {
             server = paired
             persist(paired)
             link = .connecting
-            failures = 0
+            outage.reset()
+            unpairedNotice = nil
             startPolling()
             return true
         } catch {
@@ -248,11 +285,30 @@ final class ConnectionManager {
         }
     }
 
-    func unpair() async {
-        if server != nil {
-            _ = try? await send("POST", RemoteAPI.Path.unpair)
+    /// Tell the Mac to forget this iPhone, then forget the Mac here. Returns
+    /// whether the Mac was told. When it wasn't (asleep, off the network), the
+    /// pairing is gone from this iPhone all the same, and `lastError` says
+    /// the Mac may still list it.
+    @discardableResult
+    func unpair() async -> Bool {
+        var told = true
+        // No more status checks meanwhile: once the Mac has forgotten this
+        // iPhone, one would come back 401 and look like the Mac's doing.
+        stopPolling()
+        if let id = server?.serverID {
+            do {
+                // The Mac asleep would otherwise hold the button for the full 8 seconds.
+                _ = try await send("POST", RemoteAPI.Path.unpair, timeout: 3)
+            } catch {
+                told = false
+            }
+            // Gone, or replaced, while waiting: that has already been dealt with.
+            guard server?.serverID == id else { return told }
         }
+        unpairedNotice = nil          // the person's own choice, nothing to explain
         forget()
+        lastError = told ? nil : "Removed from this iPhone. The Mac may still list it. Remove it in Settings ▸ iPhone Remote on the Mac."
+        return told
     }
 
     private func forget() {
@@ -260,6 +316,7 @@ final class ConnectionManager {
         server = nil
         status = nil
         link = .unpaired
+        outage.reset()
         UserDefaults.standard.removeObject(forKey: Self.serverKey)
         stopPolling()
     }
@@ -291,24 +348,37 @@ final class ConnectionManager {
     }
 
     func refresh() async {
-        guard server != nil else { return }
+        guard let id = server?.serverID else { return }
         do {
             let data = try await send("GET", RemoteAPI.Path.status)
             let fresh = try RemoteAPI.makeDecoder().decode(RemoteStatus.self, from: data)
+            // The answer may arrive after Unpair: it is about a Mac that is gone.
+            guard server?.serverID == id else { return }
             if fresh != status { status = fresh }
             if link != .online {
                 link = .online
                 lastError = nil
             }
-            failures = 0
+            outage.reset()
         } catch ClientError.http(401, let message) {
-            lastError = message
-            forget()
+            guard server?.serverID == id else { return }
+            dropPairing(because: message)
         } catch {
-            failures += 1
-            if failures >= 2 { link = .offline(Self.describe(error)) }
-            if failures == 2 || failures % 5 == 0 { await rediscover() }
+            // Stopped on purpose (backgrounded, unpaired): not an outage.
+            guard outage.record(OutageCounter.Outcome(error: error)) else { return }
+            // Unpaired meanwhile: the Mac is no longer this app's business.
+            guard server?.serverID == id else { return }
+            if outage.isOffline { link = .offline(Self.describe(error)) }
+            if outage.shouldLookAgain { await rediscover() }
         }
+    }
+
+    /// The Mac says it doesn't know this iPhone: forget it here, and keep
+    /// the Mac's words for the screen that asks to pair again.
+    private func dropPairing(because serverMessage: String) {
+        unpairedNotice = MacConnectionText.unpairedNotice(fromServerMessage: serverMessage)
+        lastError = nil
+        forget()
     }
 
     /// The Mac's address changed (new DHCP lease, hotspot): find it again by
@@ -317,8 +387,9 @@ final class ConnectionManager {
         guard let current = server,
               let mac = discovered.first(where: { $0.serverID == current.serverID }),
               let target = await resolve(mac),
-              target.host != current.host || target.port != current.port else { return }
-        var updated = current
+              target.host != current.host || target.port != current.port,
+              // Forgotten while looking: don't bring it back.
+              var updated = server, updated.serverID == current.serverID else { return }
         updated.host = target.host
         updated.port = target.port
         server = updated
@@ -345,19 +416,27 @@ final class ConnectionManager {
     private func command(_ path: String, _ location: LocationRequest?) async -> Bool {
         isWorking = true
         defer { isWorking = false }
+        let id = server?.serverID
         do {
             let body = try location.map { try RemoteAPI.makeEncoder().encode($0) }
             let data = try await send("POST", path, body: body)
-            status = try RemoteAPI.makeDecoder().decode(RemoteStatus.self, from: data)
+            let fresh = try RemoteAPI.makeDecoder().decode(RemoteStatus.self, from: data)
+            // Unpaired while waiting: the answer is about a Mac that is gone.
+            // (The Mac did what was asked, so this still counts as done.)
+            guard server?.serverID == id else { return true }
+            status = fresh
             link = .online
-            failures = 0
+            outage.reset()
             lastError = nil
             return true
         } catch ClientError.http(401, let message) {
-            lastError = message
-            forget()
+            guard server?.serverID == id else { return false }
+            dropPairing(because: message)
             return false
         } catch {
+            // Cancelled with the screen that asked: nothing went wrong.
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return false }
+            guard server?.serverID == id else { return false }
             lastError = Self.describe(error)
             return false
         }
@@ -366,7 +445,8 @@ final class ConnectionManager {
     // MARK: - HTTP
 
     private func send(_ method: String, _ path: String, body: Data? = nil,
-                      host: String? = nil, port: UInt16? = nil, authorized: Bool = true) async throws -> Data {
+                      host: String? = nil, port: UInt16? = nil, authorized: Bool = true,
+                      timeout: TimeInterval? = nil) async throws -> Data {
         guard let host = host ?? server?.host, let port = port ?? server?.port else {
             throw ClientError.notPaired
         }
@@ -374,6 +454,7 @@ final class ConnectionManager {
             throw ClientError.message("“\(host)” isn't a valid address.")
         }
         var request = URLRequest(url: url)
+        if let timeout { request.timeoutInterval = timeout }
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
@@ -400,13 +481,8 @@ final class ConnectionManager {
 
     private static func describe(_ error: Error) -> String {
         if let urlError = error as? URLError {
-            switch urlError.code {
-            case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost,
-                 .notConnectedToInternet, .dnsLookupFailed:
-                return "Can't reach the Mac. Check that the helper is running and both are on the same network."
-            default:
-                return urlError.localizedDescription
-            }
+            // Local Network being off looks like a Mac that can't be reached, so say so.
+            return MacConnectionText.message(forURLError: urlError.code) ?? urlError.localizedDescription
         }
         if let clientError = error as? ClientError {
             return clientError.errorDescription ?? "Something went wrong."
