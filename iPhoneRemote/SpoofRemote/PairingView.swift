@@ -275,7 +275,7 @@ struct PairingView: View {
         VStack(alignment: .leading, spacing: 10) {
             Label("On your Mac", systemImage: "info.circle.fill")
                 .font(.subheadline.weight(.semibold))
-            Text("Run `iosgpsspoof serve` in Terminal, or open **iOS GPS Spoofer ▸ Settings ▸ iPhone Remote** and turn it on. Connect the iPhone to the Mac with a cable once and tap Trust.")
+            Text("Run `iosgpsspoof serve` in Terminal, or open **AnyWhere ▸ Settings ▸ iPhone Remote** and turn it on. Connect the iPhone to the Mac with a cable once and tap Trust.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

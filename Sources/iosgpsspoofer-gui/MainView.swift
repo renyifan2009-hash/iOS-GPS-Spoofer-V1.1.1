@@ -206,7 +206,7 @@ struct MainView: View {
                     .help("Show or hide the inspector (⌥⌘I)")
                 }
             }
-            .navigationTitle(model.activeDevice?.deviceName ?? "iOS GPS Spoofer")
+            .navigationTitle(model.activeDevice?.deviceName ?? "AnyWhere")
             .navigationSubtitle(subtitle)
     }
 
@@ -537,10 +537,10 @@ struct Banners: View {
             }
             if let old = model.oldSpoofRemote {
                 banner(icon: "iphone.and.arrow.forward", colors: TileColors.orange,
-                       text: "\(old.deviceName) has an old SpoofRemote. Update it, or the iPhone-only mode can fail.") {
+                       text: "\(old.deviceName) has an old AnyWhere. Update it, or the iPhone-only mode can fail.") {
                     Button("Open Releases") { model.openSpoofRemoteReleases() }
                         .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
-                        .help("Open the releases page to reinstall the newest SpoofRemote on the iPhone")
+                        .help("Open the releases page to reinstall the newest AnyWhere on the iPhone")
                 }
             }
             switch Updater.shared.state {
@@ -688,7 +688,7 @@ struct SetupCard: View {
             DisclosureGroup("Use Terminal instead", isExpanded: $showTerminal) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Paste this into Terminal, then click Check Again:").font(.caption).foregroundStyle(.secondary)
-                    command("curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/main/install.sh | bash")
+                    command("curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3/main/install.sh | bash")
                     Button("Check Again") {
                         model.resolveTool()
                         Task { await model.refresh() }

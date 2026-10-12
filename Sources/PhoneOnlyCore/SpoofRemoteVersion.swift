@@ -4,7 +4,7 @@ import Foundation
 /// SpoofRemote all point at the same place for a newer version.
 public enum Repository {
     /// owner/name, as in every link in the docs.
-    public static let slug = "renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1"
+    public static let slug = "renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3"
     /// The page a person opens to download the newest release.
     public static let releasesLatestURL = "https://github.com/\(slug)/releases/latest"
     /// GitHub's answer for the newest published release (its `tag_name`).

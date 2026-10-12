@@ -210,7 +210,7 @@ extension AppModel {
         let chip = "Intel"
         #endif
         var lines = [
-            "iOS GPS Spoofer \(version) (commit \(commit), built \(built))",
+            "AnyWhere \(version) (commit \(commit), built \(built))",
             "macOS \(ProcessInfo.processInfo.operatingSystemVersionString), \(chip)",
             "pymobiledevice3: \(pymobiledevice3Version ?? "unknown version") at \(pmd?.displayPath ?? "not found")",
         ]

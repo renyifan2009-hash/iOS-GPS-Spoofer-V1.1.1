@@ -94,7 +94,7 @@ final class Updater {
     func installUpdate() {
         guard let repository, state != .updating else { return }
         let alert = NSAlert()
-        alert.messageText = "Update iOS GPS Spoofer?"
+        alert.messageText = "Update AnyWhere?"
         alert.informativeText = """
             This downloads the newest version and builds it on this Mac, which takes a few minutes. \
             The app then restarts by itself.\(AppModel.shared.session != nil ? " Your iPhone goes back to its real location while it restarts." : "")
@@ -104,7 +104,7 @@ final class Updater {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         let logs = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Logs/iOS GPS Spoofer", isDirectory: true)
+            .appendingPathComponent("Logs/AnyWhere", isDirectory: true)
         try? FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
         let logURL = logs.appendingPathComponent("update.log")
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
@@ -126,8 +126,8 @@ final class Updater {
                 // Still running after the installer finished: it failed
                 // before it got to replacing the app.
                 guard status != 0 else { return }
-                Updater.shared.state = .failed("The update stopped with an error. Details: ~/Library/Logs/iOS GPS Spoofer/update.log")
-                AppModel.shared.appendLog("The update failed. See ~/Library/Logs/iOS GPS Spoofer/update.log", level: .error)
+                Updater.shared.state = .failed("The update stopped with an error. Details: ~/Library/Logs/AnyWhere/update.log")
+                AppModel.shared.appendLog("The update failed. See ~/Library/Logs/AnyWhere/update.log", level: .error)
             }
         }
         do {
@@ -141,7 +141,7 @@ final class Updater {
 
     func revealLog() {
         let log = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("Logs/iOS GPS Spoofer/update.log")
+            .appendingPathComponent("Logs/AnyWhere/update.log")
         NSWorkspace.shared.activateFileViewerSelecting([log])
     }
 

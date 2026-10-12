@@ -157,7 +157,7 @@ struct SidebarFooter: View {
                 .resizable()
                 .frame(width: 22, height: 22)
             VStack(alignment: .leading, spacing: 0) {
-                Text("iOS GPS Spoofer").font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                Text("AnyWhere").font(.system(size: 11.5, weight: .semibold, design: .rounded))
                 EngineBadge(engine: model.sessionEngine, status: model.engineStatus)
             }
             Spacer()

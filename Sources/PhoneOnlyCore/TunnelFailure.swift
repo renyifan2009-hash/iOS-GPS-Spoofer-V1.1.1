@@ -134,7 +134,7 @@ public struct TunnelFailure: Error, Equatable, Sendable, LocalizedError {
             return "Developer Mode is off. Turn it on in Settings ▸ Privacy & Security ▸ Developer Mode."
         }
         if step == .instruments || step == .simulation || code == Code.imageNotMounted || text.contains("image") {
-            return "Apple's developer support isn't loaded. Connect this iPhone to your Mac once and open iOS GPS Spoofer."
+            return "Apple's developer support isn't loaded. Connect this iPhone to your Mac once and open AnyWhere."
         }
         if isUnreachable {
             return Self.unreachableExplanation
@@ -151,7 +151,7 @@ public struct TunnelFailure: Error, Equatable, Sendable, LocalizedError {
 
     /// Also the message when nothing answers before a connection is tried.
     public static let unreachableExplanation = "Can't reach this iPhone's developer services. Open LocalDevVPN and "
-        + "tap Connect. If it's on, allow SpoofRemote in Settings ▸ Privacy & Security ▸ Local Network."
+        + "tap Connect. If it's on, allow AnyWhere in Settings ▸ Privacy & Security ▸ Local Network."
 
     /// The small print: enough for a bug report to say exactly what failed,
     /// one line for each route tried.

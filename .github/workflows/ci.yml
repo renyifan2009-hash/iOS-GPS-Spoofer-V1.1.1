@@ -158,7 +158,7 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: iOS-GPS-Spoofer-dmg
+          name: AnyWhere-dmg
           path: dist/*.dmg
           if-no-files-found: error
           retention-days: 14
@@ -178,7 +178,7 @@ jobs:
 
       - name: The installed app is signed and finds its helper
         run: |
-          APP="$SPOOFER_APP_DIR/iOS GPS Spoofer.app"
+          APP="$SPOOFER_APP_DIR/AnyWhere.app"
           codesign --verify --deep --strict "$APP"
           /usr/libexec/PlistBuddy -c "Print :SpooferGitCommit" "$APP/Contents/Info.plist"
           # Like a Finder launch: no project folder, a bare PATH. No iPhone on
@@ -197,13 +197,13 @@ jobs:
           SPOOFER_REF: ${{ github.sha }}
         run: |
           curl -fsSL "https://raw.githubusercontent.com/${SPOOFER_REPO}/${SPOOFER_REF}/install.sh" | bash -s -- --no-open
-          /usr/libexec/PlistBuddy -c "Print :SpooferGitCommit" "$SPOOFER_APP_DIR/iOS GPS Spoofer.app/Contents/Info.plist" \
+          /usr/libexec/PlistBuddy -c "Print :SpooferGitCommit" "$SPOOFER_APP_DIR/AnyWhere.app/Contents/Info.plist" \
             | grep -qx "$SPOOFER_REF"
 
       - name: ./setup.sh --uninstall
         run: |
           ./setup.sh --uninstall
-          test ! -e "$SPOOFER_APP_DIR/iOS GPS Spoofer.app"
+          test ! -e "$SPOOFER_APP_DIR/AnyWhere.app"
 
   # The job above builds with Xcode 16 (macOS 15 SDK), so Liquid Glass compiles
   # out there. This one builds the Liquid Glass code path with the newest Xcode 26.

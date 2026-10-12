@@ -227,7 +227,7 @@ private struct RemoteSettings: View {
         @Bindable var host = RemoteHost.shared
         Form {
             Section {
-                Toggle("Let the SpoofRemote iPhone app control this Mac", isOn: $host.isEnabled)
+                Toggle("Let the AnyWhere iPhone app control this Mac", isOn: $host.isEnabled)
                 Text("""
                     Start, move and stop the simulated location from your iPhone, without touching \
                     the Mac. The iPhone finds this Mac over Bonjour on your Wi-Fi or its own Personal \
@@ -262,7 +262,7 @@ private struct RemoteSettings: View {
                                 .font(.system(size: 26, weight: .semibold, design: .monospaced))
                                 .contentTransition(.numericText())
                                 .textSelection(.enabled)
-                            Text("In SpoofRemote, pick “\(host.serverName)” and enter this code.")
+                            Text("In AnyWhere, pick “\(host.serverName)” and enter this code.")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -304,9 +304,9 @@ private struct RemoteSettings: View {
                 HStack(alignment: .center, spacing: 14) {
                     IconTile(symbol: "iphone.gen3.radiowaves.left.and.right", colors: TileColors.brand, size: 34)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Use SpoofRemote with no Mac nearby")
+                        Text("Use AnyWhere with no Mac nearby")
                         Text("""
-                            Save the plugged-in iPhone's pairing file and AirDrop it to that iPhone.                             SpoofRemote then changes the location by itself, even on cellular.
+                            Save the plugged-in iPhone's pairing file and AirDrop it to that iPhone.                             AnyWhere then changes the location by itself, even on cellular.
                             """)
                             .font(.caption).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -342,7 +342,7 @@ private struct AboutSettings: View {
                 .frame(width: 112, height: 112)
                 .shadow(color: Brand.indigo.opacity(0.35), radius: 14, y: 6)
             VStack(spacing: 4) {
-                Text("iOS GPS Spoofer").font(Brand.title(24))
+                Text("AnyWhere").font(Brand.title(24))
                 Text(versionLine)
                     .font(.callout)
                     .foregroundStyle(.secondary)

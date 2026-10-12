@@ -29,9 +29,9 @@ struct PhoneOnlySetupView: View {
                         pairingStep
                         vpnStep
                         step(done: nil, symbol: "hammer.fill", title: "Developer Mode on",
-                             detail: "Settings ▸ Privacy & Security ▸ Developer Mode. iOS GPS Spoofer on your Mac helps you turn it on.")
+                             detail: "Settings ▸ Privacy & Security ▸ Developer Mode. AnyWhere on your Mac helps you turn it on.")
                         step(done: nil, symbol: "arrow.clockwise", title: "After a restart",
-                             detail: "When this iPhone restarts, connect it to your Mac once and open iOS GPS Spoofer. It loads Apple's developer support again.")
+                             detail: "When this iPhone restarts, connect it to your Mac once and open AnyWhere. It loads Apple's developer support again.")
                         if let error = phone.lastError {
                             VStack(alignment: .leading, spacing: 8) {
                                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -133,10 +133,10 @@ struct PhoneOnlySetupView: View {
 
     private func pairingDetail(tooOld: Bool) -> String {
         if !phone.isSetUp {
-            return "Plug this iPhone into your Mac and open iOS GPS Spoofer. Choose File ▸ Save iPhone Pairing File…, then AirDrop it here and open it with SpoofRemote."
+            return "Plug this iPhone into your Mac and open AnyWhere. Choose File ▸ Save iPhone Pairing File…, then AirDrop it here and open it with AnyWhere."
         }
         if tooOld {
-            return "This iPhone's iOS needs a newer kind of pairing file. On your Mac, update iOS GPS Spoofer, plug this iPhone in and choose File ▸ Save iPhone Pairing File… again. Then AirDrop it here."
+            return "This iPhone's iOS needs a newer kind of pairing file. On your Mac, update AnyWhere, plug this iPhone in and choose File ▸ Save iPhone Pairing File… again. Then AirDrop it here."
         }
         return "It's in this iPhone's Keychain. It lets this app talk to the iPhone like your Mac does."
     }
@@ -200,7 +200,7 @@ struct PhoneOnlySetupView: View {
     }
 
     private var footnote: some View {
-        Text("The location stays while SpoofRemote runs; the blue pill in the status bar shows it's holding one. Stop, or restart the iPhone, to get the real location back. The pairing file never leaves this iPhone.")
+        Text("The location stays while AnyWhere runs; the blue pill in the status bar shows it's holding one. Stop, or restart the iPhone, to get the real location back. The pairing file never leaves this iPhone.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)

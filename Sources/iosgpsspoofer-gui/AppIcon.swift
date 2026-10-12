@@ -1,12 +1,23 @@
 import AppKit
 
-/// Draws the app icon: a gradient tile with a faint globe grid, a dotted route
-/// and a glowing location pin. One source of truth for the Dock icon at
-/// runtime and for the `.icns` that `package-dmg.sh` builds
-/// (`iosgpsspoofer-gui --render-icon <dir>`).
+/// The app icon in code. The real icon is the AnyWhere logo (brand/make-icons.py cuts it from
+/// the supplied artwork; `scripts/make-app.sh` turns it into the `.icns`). This file serves the
+/// logo to the sidebar and to unpackaged runs, and keeps the original drawn icon (a gradient
+/// tile with a globe grid, a dotted route and a pin) as a fallback that
+/// `iosgpsspoofer-gui --render-icon <dir>` can still write.
 enum AppIconRenderer {
-    /// The icon as an image, rendered at `size`×`size` pixels.
+    /// The AnyWhere logo as an image, `size` points square. Uses the logo embedded in
+    /// `BrandLogoData`; if that ever fails to decode, draws the old icon instead.
     static func image(size: CGFloat = 512) -> NSImage {
+        if let data = BrandLogoData.png256, let logo = NSImage(data: data) {
+            logo.size = NSSize(width: size, height: size)
+            return logo
+        }
+        return drawnImage(size: size)
+    }
+
+    /// The icon drawn in code: the fallback, and what `--render-icon` writes.
+    static func drawnImage(size: CGFloat = 512) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size))
         if let rep = bitmap(pixels: Int(size)) { image.addRepresentation(rep) }
         return image

@@ -218,7 +218,7 @@ extension AppModel {
                     } else {
                         track = try RouteBuilder.timedTrack(path: path, speed: speed, loopMode: loop)
                     }
-                    let url = try RouteBuilder.writeGPX(track, name: routeName ?? "iOS GPS Spoofer route")
+                    let url = try RouteBuilder.writeGPX(track, name: routeName ?? "AnyWhere route")
                     playback = started
                     replayTrack = prefs.realisticTrips ? track : nil
                     replaySpeed = speed

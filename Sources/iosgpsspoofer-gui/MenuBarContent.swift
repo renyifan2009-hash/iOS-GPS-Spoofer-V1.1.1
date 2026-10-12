@@ -24,7 +24,7 @@ struct MenuBarContent: View {
                     .resizable()
                     .frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("iOS GPS Spoofer").font(Brand.title(14, weight: .semibold))
+                    Text("AnyWhere").font(Brand.title(14, weight: .semibold))
                     Text(model.activeDevice.map { "\($0.deviceName) · \($0.modelName)" } ?? "No iPhone connected")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
@@ -94,7 +94,7 @@ struct MenuBarContent: View {
 
             Divider()
             HStack {
-                Button("Open iOS GPS Spoofer") {
+                Button("Open AnyWhere") {
                     openWindow(id: "main")
                     NSApp.activate()
                 }

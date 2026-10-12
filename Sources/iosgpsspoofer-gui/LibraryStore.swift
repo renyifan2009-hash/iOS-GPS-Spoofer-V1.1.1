@@ -4,7 +4,7 @@ import SpooferCore
 import SwiftUI   // Array.move(fromOffsets:toOffset:)
 
 /// Favorites, recent locations and saved routes, persisted to
-/// `~/Library/Application Support/iOS GPS Spoofer/library.json` (shared with the
+/// `~/Library/Application Support/AnyWhere/library.json` (shared with the
 /// CLI, which understands `@Favorite` names).
 @MainActor
 @Observable

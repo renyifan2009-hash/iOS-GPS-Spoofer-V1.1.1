@@ -206,8 +206,8 @@ final class OnDeviceController {
             if moving, error is OnDeviceEngine.TimedOut {
                 // The call that's stuck still has the connection, and the
                 // location with it, until it returns.
-                lastError = "Moving took too long, so SpoofRemote stopped. This iPhone may keep the last location "
-                    + "for a while. If it stays, close SpoofRemote and open it again."
+                lastError = "Moving took too long, so AnyWhere stopped. This iPhone may keep the last location "
+                    + "for a while. If it stays, close AnyWhere and open it again."
             }
             return giveUp(nil)
         }
@@ -305,7 +305,7 @@ final class OnDeviceEngine: @unchecked Sendable {
     struct TimedOut: LocalizedError {
         var errorDescription: String? {
             "Connecting took too long. Check that LocalDevVPN is connected, then try again. "
-                + "If this iPhone asks whether to trust SpoofRemote, tap Trust."
+                + "If this iPhone asks whether to trust AnyWhere, tap Trust."
         }
     }
 

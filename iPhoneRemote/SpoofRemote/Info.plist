@@ -4,7 +4,7 @@
 <dict>
 	<!-- Merged with the keys Xcode generates (GENERATE_INFOPLIST_FILE = YES). -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>SpoofRemote finds your Mac on this network, and in the iPhone-only mode reaches this iPhone's own developer services.</string>
+	<string>AnyWhere finds your Mac on this network, and in the iPhone-only mode reaches this iPhone's own developer services.</string>
 	<!-- The Mac helper, and (the iPhone-only mode) this iPhone's own remotepairingd,
 	     to look up its port when it isn't the usual one. -->
 	<key>NSBonjourServices</key>
@@ -18,7 +18,7 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Shows where iOS reports this iPhone to be, so you can check the simulated location. In the iPhone-only mode it also keeps SpoofRemote running while it holds a location.</string>
+	<string>Shows where iOS reports this iPhone to be, so you can check the simulated location. In the iPhone-only mode it also keeps AnyWhere running while it holds a location.</string>
 	<!-- The iPhone-only mode: the location lasts while the app runs, so a
 	     background location session keeps it running. -->
 	<key>UIBackgroundModes</key>

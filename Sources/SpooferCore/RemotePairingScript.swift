@@ -26,7 +26,7 @@ enum RemotePairingScript {
               let plist = Data(base64Encoded: String(line.dropFirst("IDENTITY ".count))),
               let record = try? PairingRecord(data: plist),
               let identity = record.remotePairing else {
-            return .failure(SpoofError("pymobiledevice3 gave an identity SpoofRemote can't use"))
+            return .failure(SpoofError("pymobiledevice3 gave an identity AnyWhere can't use"))
         }
         return .success(identity)
     }
@@ -37,7 +37,7 @@ enum RemotePairingScript {
 #   python -c <this script> <udid>
 #
 # Pairs this Mac with the iPhone's remotepairingd over the USB lockdown
-# connection and prints the identity for SpoofRemote's pairing file. USB is
+# connection and prints the identity for AnyWhere's pairing file. USB is
 # already trusted, so the iPhone asks nothing. If this Mac paired before,
 # pymobiledevice3's record is used again.
 #

@@ -252,7 +252,7 @@ extension Pymobiledevice3 {
             throw SpoofError("couldn't read the installed-apps list from the iPhone")
         }
         guard let app = apps[SpoofRemote.bundleID] as? [String: Any] else {
-            return nil  // SpoofRemote isn't installed: nothing to say.
+            return nil  // AnyWhere isn't installed: nothing to say.
         }
         let short = Self.appInfoString(app["CFBundleShortVersionString"])
         let build = Self.appInfoString(app["CFBundleVersion"])

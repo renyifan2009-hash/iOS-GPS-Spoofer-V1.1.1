@@ -193,7 +193,7 @@ extension Route {
         var features = RoadFeatures.none
         if onRoads {
             log("realistic: looking up traffic lights, signs and speed limits on OpenStreetMap…")
-            let loader = OverpassLoader(userAgent: "iosgpsspoof (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1)",
+            let loader = OverpassLoader(userAgent: "iosgpsspoof (+https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3)",
                                         cacheDirectory: AppSupport.directory.appendingPathComponent("osm-cache"))
             let roads = settings.profile.kind == .drive
             let result = Blocking.run { try await loader.features(along: played, roads: roads) }
@@ -325,7 +325,7 @@ struct ExportPairing: ParsableCommand {
         // not installed, or a failed read, says nothing.
         if let installed = try? ctx.pmd.installedSpoofRemoteVersion(udid: ctx.device.udid),
            installed < SpoofRemote.expected {
-            log("warning: \(ctx.device.deviceName) has an older SpoofRemote (\(installed.displayString)).")
+            log("warning: \(ctx.device.deviceName) has an older AnyWhere (\(installed.displayString)).")
             log("reinstall the newest one from \(SpoofRemote.releasesLatestURL), or the iPhone-only mode may fail.")
         }
     }
@@ -390,7 +390,7 @@ struct Doctor: ParsableCommand {
             }
         }
         print(problems == 0 ? "\nAll good." : "\n\(problems) problem(s) found. Fixes for common problems: "
-              + "https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1#something-not-working")
+              + "https://github.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3#something-not-working")
         if problems > 0 { throw ExitCode.failure }
     }
 }

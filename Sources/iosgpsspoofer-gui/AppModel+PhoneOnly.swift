@@ -33,8 +33,8 @@ extension AppModel {
         let panel = NSSavePanel()
         panel.title = "Save iPhone Pairing File"
         panel.message = """
-            Send this file to \(device.deviceName) and open it with SpoofRemote. \
-            It lets SpoofRemote act as this Mac towards that iPhone, so send it to no one else.
+            Send this file to \(device.deviceName) and open it with AnyWhere. \
+            It lets AnyWhere act as this Mac towards that iPhone, so send it to no one else.
             """
         panel.nameFieldStringValue = "\(device.deviceName.replacingOccurrences(of: "/", with: "-")).mobiledevicepairing"
         panel.allowedContentTypes = [UTType(filenameExtension: "mobiledevicepairing") ?? .data]
@@ -71,7 +71,7 @@ extension AppModel {
                                           subtitle: "The part newer iOS needs couldn't be added. Activity says why.",
                                           style: .warning), duration: 7)
                 } else {
-                    model.appendLog("Saved \(url.lastPathComponent). Open it on \(name) with SpoofRemote.", level: .success)
+                    model.appendLog("Saved \(url.lastPathComponent). Open it on \(name) with AnyWhere.", level: .success)
                 }
                 // AirDrop is the easy way across; Finder if it isn't available.
                 if let airDrop = NSSharingService(named: .sendViaAirDrop), airDrop.canPerform(withItems: [url]) {
@@ -113,12 +113,12 @@ extension AppModel {
                 guard model.selectedUDID == udid else { return }
                 if let failure {
                     // Stay quiet on screen; just note it for a bug report.
-                    model.appendLog("Couldn't check the SpoofRemote version on \(name): \(failure)", level: .debug)
+                    model.appendLog("Couldn't check the AnyWhere version on \(name): \(failure)", level: .debug)
                     return
                 }
                 if let version, version < SpoofRemote.expected {
                     model.oldSpoofRemote = OldSpoofRemote(deviceName: name, installed: version.displayString)
-                    model.appendLog("\(name) has an older SpoofRemote (\(version.displayString)). The newest is on the "
+                    model.appendLog("\(name) has an older AnyWhere (\(version.displayString)). The newest is on the "
                         + "releases page. The iPhone-only mode can fail until it's updated.", level: .warning)
                 } else {
                     // Current, or not installed: nothing to warn about.

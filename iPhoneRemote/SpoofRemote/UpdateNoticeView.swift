@@ -46,8 +46,8 @@ struct UpdateNoticeView: View {
 
     private var subtitle: String {
         if let version = updates.latestVersion {
-            return "Reinstall SpoofRemote \(version) from the release page."
+            return "Reinstall AnyWhere \(version) from the release page."
         }
-        return "Reinstall SpoofRemote from the release page."
+        return "Reinstall AnyWhere from the release page."
     }
 }

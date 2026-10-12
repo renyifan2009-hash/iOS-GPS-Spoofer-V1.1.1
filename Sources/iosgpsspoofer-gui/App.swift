@@ -7,7 +7,7 @@ struct SpooferGUIApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        Window("iOS GPS Spoofer", id: "main") {
+        Window("AnyWhere", id: "main") {
             ContentView()
                 .environment(AppModel.shared)
                 .environment(Preferences.shared)

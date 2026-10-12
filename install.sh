@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# One-line installer for iOS GPS Spoofer. Paste this into Terminal:
+# One-line installer for AnyWhere. Paste this into Terminal:
 #
-#   curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3/main/install.sh | bash
 #
 # It downloads the newest version of the app's source code, then setup.sh
-# builds the app on this Mac and puts "iOS GPS Spoofer" in your Applications
+# builds the app on this Mac and puts "AnyWhere" in your Applications
 # folder. Run it again any time to update. To pass options to setup.sh:
 #
 #   curl -fsSL …/install.sh | bash -s -- --uninstall
@@ -16,11 +16,11 @@
 # Everything runs inside main(), so a half-downloaded script does nothing.
 main() {
   set -euo pipefail
-  local repo="${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1}"
+  local repo="${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3}"
   local ref="${SPOOFER_REF:-main}"
   local sha
 
-  echo "iOS GPS Spoofer: downloading the newest version…"
+  echo "AnyWhere: downloading the newest version…"
 
   # Building needs Apple's Command Line Tools, so check before downloading.
   if ! xcode-select -p >/dev/null 2>&1; then

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Wrap a release build into "iOS GPS Spoofer.app": Info.plist, icon, the
+# Wrap a release build into "AnyWhere.app": Info.plist, icon, the
 # iosgpsspoof command-line tool next to the app, and an ad-hoc signature
 # (Apple silicon won't run unsigned code).
 #
@@ -22,7 +22,9 @@ BIN_DIR="${1:?$usage}"
 OUT_DIR="${2:?$usage}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-APP_NAME="iOS GPS Spoofer"
+APP_NAME="AnyWhere"
+# The bundle ID keeps its original value on purpose: preferences, permissions and the
+# update path of earlier versions are keyed by it.
 BUNDLE_ID="com.iosgpsspoofer.gui"
 VERSION="${VERSION:-$(tr -d '[:space:]' < "$ROOT/VERSION")}"
 # Only this project's own git history: a folder unzipped inside some other
@@ -31,7 +33,7 @@ COMMIT="${SPOOFER_COMMIT:-}"
 if [ -z "$COMMIT" ] && [ -e "$ROOT/.git" ]; then
   COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
 fi
-REPO="${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.1.1}"
+REPO="${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3}"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 BUILD_NUMBER="$(date -u +%Y%m%d.%H%M)"
 
@@ -66,8 +68,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSHumanReadableCopyright</key><string>Uses Apple developer location-simulation via pymobiledevice3.</string>
-  <key>NSLocalNetworkUsageDescription</key><string>The iPhone Remote setting lets the SpoofRemote app on your iPhone control this Mac over your local network.</string>
+  <key>NSHumanReadableCopyright</key><string>AnyWhere™. Uses Apple developer location-simulation via pymobiledevice3.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>The iPhone Remote setting lets the AnyWhere app on your iPhone control this Mac over your local network.</string>
   <key>NSBonjourServices</key><array><string>_iosgpsspoof._tcp</string></array>
   <key>SpooferGitCommit</key><string>$COMMIT</string>
   <key>SpooferRepository</key><string>$REPO</string>
@@ -75,11 +77,29 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 
-# The app draws its own icon (AppIcon.swift), so the icon has a single source.
+# The icon comes from the supplied logo (brand/make-icons.py cut it), scaled into an
+# iconset. If that PNG is ever missing, fall back to the icon the app draws itself
+# (AppIcon.swift).
 ICON_TMP="$(mktemp -d)"
-if "$GUI" --render-icon "$ICON_TMP/AppIcon.iconset" >/dev/null 2>&1 \
+ICON_PNG="$ROOT/brand/AnyWhere-mac-1024.png"
+make_iconset() {
+  local set="$ICON_TMP/AppIcon.iconset" points scale px name
+  mkdir -p "$set"
+  for points in 16 32 128 256 512; do
+    for scale in 1 2; do
+      px=$((points * scale))
+      name="icon_${points}x${points}.png"
+      [ "$scale" = 2 ] && name="icon_${points}x${points}@2x.png"
+      sips -z "$px" "$px" "$ICON_PNG" --out "$set/$name" >/dev/null || return 1
+    done
+  done
+}
+if [ -f "$ICON_PNG" ] && make_iconset \
    && iconutil -c icns "$ICON_TMP/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null; then
   :
+elif "$GUI" --render-icon "$ICON_TMP/Fallback.iconset" >/dev/null 2>&1 \
+   && iconutil -c icns "$ICON_TMP/Fallback.iconset" -o "$APP/Contents/Resources/AppIcon.icns" 2>/dev/null; then
+  echo "make-app: used the built-in fallback icon." >&2
 else
   echo "make-app: icon generation failed; the app will use the default icon." >&2
   /usr/libexec/PlistBuddy -c "Delete :CFBundleIconFile" "$APP/Contents/Info.plist" 2>/dev/null || true

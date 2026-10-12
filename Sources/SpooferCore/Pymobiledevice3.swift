@@ -59,6 +59,8 @@ public struct Pymobiledevice3: Sendable {
             environments.append(resources.appendingPathComponent("venv"))
         }
         environments.append(AppSupport.helperEnvironment)
+        // An earlier version's environment, under the product's old name.
+        environments.append(AppSupport.legacyHelperEnvironment)
         for venv in environments {
             let py = venv.appendingPathComponent("bin/python3")
             if fm.isExecutableFile(atPath: py.path), hasPymobiledevice3(venv: venv) {

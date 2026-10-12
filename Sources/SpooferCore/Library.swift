@@ -123,7 +123,7 @@ public struct LibraryData: Codable, Sendable, Equatable {
 }
 
 public enum LibraryFile {
-    /// `~/Library/Application Support/iOS GPS Spoofer/library.json`
+    /// `~/Library/Application Support/AnyWhere/library.json`
     public static var defaultURL: URL {
         AppSupport.directory.appendingPathComponent("library.json")
     }
@@ -153,16 +153,70 @@ public enum LibraryFile {
 }
 
 public enum AppSupport {
-    /// The app's support directory (created on demand by writers).
-    public static var directory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+    /// The folder inside Application Support, named after the product.
+    public static let folderName = "AnyWhere"
+    /// What the folder was called before the product became AnyWhere.
+    public static let legacyFolderName = "iOS GPS Spoofer"
+
+    private static var base: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return base.appendingPathComponent("iOS GPS Spoofer", isDirectory: true)
+    }
+
+    /// The app's support directory (created on demand by writers). The first time anything
+    /// asks for it, saved places and routes from the old folder are copied in.
+    public static var directory: URL {
+        _ = migrationDone
+        return base.appendingPathComponent(folderName, isDirectory: true)
+    }
+
+    /// The old folder. Read-only from here: nothing is ever deleted from it.
+    public static var legacyDirectory: URL {
+        base.appendingPathComponent(legacyFolderName, isDirectory: true)
     }
 
     /// The Python environment holding pymobiledevice3, as installed by
     /// `setup.sh` (and by the app's own installer).
     public static var helperEnvironment: URL {
         directory.appendingPathComponent("venv", isDirectory: true)
+    }
+
+    /// The environment an earlier version installed under the old folder's name. Still
+    /// usable (and tried after the new one), so updating the app never leaves it without
+    /// its helper.
+    public static var legacyHelperEnvironment: URL {
+        legacyDirectory.appendingPathComponent("venv", isDirectory: true)
+    }
+
+    private static let migrationDone: Void = {
+        _ = migrateLegacyData(from: legacyDirectory, to: base.appendingPathComponent(folderName, isDirectory: true))
+    }()
+
+    /// Items that are rebuilt rather than copied: a Python environment keeps absolute paths
+    /// to where it was made, so a copied one would not work.
+    static let notMigrated: Set<String> = ["venv", "helpers"]
+
+    /// Copy what the old folder holds (saved places, routes, the remote's pairing) into the
+    /// new one. Copies only what is missing, never overwrites, never deletes, and never
+    /// throws: a file that can't be copied is skipped. Returns the names it copied.
+    @discardableResult
+    static func migrateLegacyData(from legacy: URL, to new: URL, fileManager fm: FileManager = .default) -> [String] {
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: legacy.path, isDirectory: &isDirectory), isDirectory.boolValue,
+              let names = try? fm.contentsOfDirectory(atPath: legacy.path) else { return [] }
+        var copied: [String] = []
+        for name in names.sorted() where !notMigrated.contains(name) {
+            let source = legacy.appendingPathComponent(name)
+            let destination = new.appendingPathComponent(name)
+            guard !fm.fileExists(atPath: destination.path) else { continue }
+            do {
+                try fm.createDirectory(at: new, withIntermediateDirectories: true)
+                try fm.copyItem(at: source, to: destination)
+                copied.append(name)
+            } catch {
+                continue
+            }
+        }
+        return copied
     }
 }

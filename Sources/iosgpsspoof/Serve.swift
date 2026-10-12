@@ -9,9 +9,9 @@ extension EnginePreference: ExpressibleByArgument {}
 /// `iosgpsspoof serve`: the Mac helper the SpoofRemote iPhone app talks to.
 struct Serve: ParsableCommand {
     static let configuration = CommandConfiguration(
-        abstract: "Let the SpoofRemote iPhone app control the location over your local network.",
+        abstract: "Let the AnyWhere iPhone app control the location over your local network.",
         discussion: """
-            Starts a small server that the SpoofRemote app on your iPhone finds over \
+            Starts a small server that the AnyWhere app on your iPhone finds over \
             Bonjour. Pair once with the 6-digit code printed below; after that the iPhone \
             can start, move and stop the simulated location without you touching the Mac. \
             The Mac keeps the developer connection to the iPhone (USB or Wi-Fi) open and \
@@ -159,10 +159,10 @@ struct Serve: ParsableCommand {
         let addresses = BonjourService.localIPv4Addresses()
         var lines = [
             "",
-            "  iOS GPS Spoofer remote is ready.",
+            "  AnyWhere remote is ready.",
             "",
             "    This Mac:       \(name)",
-            "    Pairing code:   \(code)        (enter it in the SpoofRemote app)",
+            "    Pairing code:   \(code)        (enter it in the AnyWhere app)",
             "    Port:           \(port)",
         ]
         if addresses.isEmpty {

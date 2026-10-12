@@ -20,7 +20,7 @@ public enum BonjourService {
     /// name) and the Mac's IPv4 addresses as a fallback.
     public static func service(name: String, serverID: String, port: UInt16) -> NWListener.Service {
         // Bonjour instance names are limited to 63 bytes of UTF-8.
-        var serviceName = name.isEmpty ? "iOS GPS Spoofer" : name
+        var serviceName = name.isEmpty ? "AnyWhere" : name
         while serviceName.utf8.count > 63 { serviceName.removeLast() }
         let addresses = localIPv4Addresses().prefix(4).map(\.address).joined(separator: ",")
         let txt = NWTXTRecord([

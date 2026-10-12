@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Build "iOS GPS Spoofer.app" and wrap it in a drag-to-install DMG.
+# Build "AnyWhere.app" and wrap it in a drag-to-install DMG.
 #
-#   ./package-dmg.sh             # → dist/iOS-GPS-Spoofer-<version>.dmg
+#   ./package-dmg.sh             # → dist/AnyWhere-<version>.dmg
 #
 # The DMG holds just the app. The app looks for pymobiledevice3 where
 # ./setup.sh installs it, and also finds pipx and Homebrew installs.
@@ -19,7 +19,7 @@ for arg in "$@"; do
   esac
 done
 
-APP_NAME="iOS GPS Spoofer"
+APP_NAME="AnyWhere"
 export VERSION="${VERSION:-$(tr -d '[:space:]' < VERSION)}"
 
 echo "==> swift build -c release"

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# iOS GPS Spoofer installer.
+# AnyWhere installer.
 #
 # Installs the iPhone helper the app needs (pymobiledevice3), builds the app
-# from this folder and puts "iOS GPS Spoofer" in your Applications folder.
+# from this folder and puts "AnyWhere" in your Applications folder.
 # Run it again any time: that's also how you update.
 #
 #   ./setup.sh               install or update, then open the app
@@ -14,16 +14,20 @@
 #   SPOOFER_APP_DIR     install the app here (default: /Applications, or
 #                       ~/Applications when /Applications isn't writable)
 #   SPOOFER_HELPER_DIR  put the pymobiledevice3 helper here (default:
-#                       ~/Library/Application Support/iOS GPS Spoofer/venv)
+#                       ~/Library/Application Support/AnyWhere/venv)
 #   SPOOFER_COMMIT      the git commit being built (shown in Settings ▸ About)
 
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$(pwd)"
 
-APP_NAME="iOS GPS Spoofer"
+APP_NAME="AnyWhere"
+# The product was called "iOS GPS Spoofer" before. The bundle ID stayed the same on purpose
+# (preferences and permissions are keyed by it); the names below are cleaned up on install.
+LEGACY_APP_NAME="iOS GPS Spoofer"
 BUNDLE_ID="com.iosgpsspoofer.gui"
 SUPPORT_DIR="$HOME/Library/Application Support/$APP_NAME"
+LEGACY_SUPPORT_DIR="$HOME/Library/Application Support/$LEGACY_APP_NAME"
 HELPER_DIR="${SPOOFER_HELPER_DIR:-$SUPPORT_DIR/venv}"
 LOG_DIR="$HOME/Library/Logs/$APP_NAME"
 LOG="$LOG_DIR/install.log"
@@ -226,19 +230,50 @@ build_app() {
   ok "Built with Swift ${SWIFT_VERSION:-(unknown version)}"
 }
 
+# Is a copy running, under this name or the old one?
+app_running() {
+  local name
+  for name in "$APP_NAME" "$LEGACY_APP_NAME"; do
+    pgrep -f "/$name.app/Contents/MacOS/$name" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
 # Quit a running copy (it restores the iPhone's real location as it quits).
 quit_running_app() {
-  local pattern="/$APP_NAME.app/Contents/MacOS/$APP_NAME" i=0
-  pgrep -f "$pattern" >/dev/null 2>&1 || return 0
+  local name i=0
+  app_running || return 0
   note "Closing the copy of the app that's running (your iPhone goes back to its real location)…"
+  # Both names share one bundle ID, so one request quits either.
   osascript -e "if application id \"$BUNDLE_ID\" is running then tell application id \"$BUNDLE_ID\" to quit" \
     >/dev/null 2>&1 || true
-  while [ "$i" -lt 40 ] && pgrep -f "$pattern" >/dev/null 2>&1; do
+  while [ "$i" -lt 40 ] && app_running; do
     sleep 0.5
     i=$((i + 1))
   done
-  pkill -TERM -f "$pattern" >/dev/null 2>&1 || true
+  for name in "$APP_NAME" "$LEGACY_APP_NAME"; do
+    pkill -TERM -f "/$name.app/Contents/MacOS/$name" >/dev/null 2>&1 || true
+  done
   sleep 1
+}
+
+# Saved places, routes and the remote's pairing live in Application Support. They moved from
+# the old name's folder to this one: copy them over (never delete them) the first time.
+# The Python environment is not copied: moved environments keep stale absolute paths, and
+# install_helper builds a fresh one.
+migrate_legacy_data() {
+  [ -d "$LEGACY_SUPPORT_DIR" ] || return 0
+  mkdir -p "$SUPPORT_DIR"
+  local item name moved=0
+  for item in "$LEGACY_SUPPORT_DIR"/* "$LEGACY_SUPPORT_DIR"/.[!.]*; do
+    [ -e "$item" ] || continue
+    name="$(basename "$item")"
+    case "$name" in venv|helpers) continue ;; esac
+    if [ ! -e "$SUPPORT_DIR/$name" ]; then
+      cp -R "$item" "$SUPPORT_DIR/$name" && moved=$((moved + 1))
+    fi
+  done
+  [ "$moved" -eq 0 ] || ok "Copied your saved places and routes from the old folder"
 }
 
 install_app() {
@@ -257,12 +292,21 @@ install_app() {
   quit_running_app
   rm -rf "$DEST"
   ditto "$built" "$DEST" || fail "Couldn't copy the app into $app_dir."
-  # One copy only: remove one left in the other standard place by an older install.
+  # One copy only: remove one left in the other standard place by an older install, and
+  # any copy that still has the old name (it shares this app's bundle ID, so keeping it
+  # makes macOS pick between the two when something opens "the app").
   if [ -z "${SPOOFER_APP_DIR:-}" ]; then
     for other in "/Applications/$APP_NAME.app" "$HOME/Applications/$APP_NAME.app"; do
       if [ "$other" != "$DEST" ] && [ -d "$other" ]; then rm -rf "$other"; fi
     done
   fi
+  for other in "/Applications/$LEGACY_APP_NAME.app" "$HOME/Applications/$LEGACY_APP_NAME.app" \
+               "$app_dir/$LEGACY_APP_NAME.app"; do
+    if [ -d "$other" ]; then
+      rm -rf "$other"
+      ok "Removed the old \"$LEGACY_APP_NAME\" app (this one replaces it)"
+    fi
+  done
   # Let Spotlight and Launchpad find it straight away.
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
     -f "$DEST" >/dev/null 2>&1 || true
@@ -272,15 +316,18 @@ install_app() {
 uninstall() {
   local dir removed=0
   quit_running_app
+  local name
   for dir in /Applications "$HOME/Applications" "${SPOOFER_APP_DIR:-/Applications}"; do
-    if [ -d "$dir/$APP_NAME.app" ]; then
-      rm -rf "$dir/$APP_NAME.app"
-      ok "Removed $dir/$APP_NAME.app"
-      removed=1
-    fi
+    for name in "$APP_NAME" "$LEGACY_APP_NAME"; do
+      if [ -d "$dir/$name.app" ]; then
+        rm -rf "$dir/$name.app"
+        ok "Removed $dir/$name.app"
+        removed=1
+      fi
+    done
   done
   [ "$removed" = 1 ] || note "The app wasn't in Applications."
-  rm -rf "$HELPER_DIR" "$SUPPORT_DIR/helpers"
+  rm -rf "$HELPER_DIR" "$SUPPORT_DIR/helpers" "$LEGACY_SUPPORT_DIR/venv" "$LEGACY_SUPPORT_DIR/helpers"
   ok "Removed the iPhone helper (pymobiledevice3)"
   note "Your favorites and saved routes are still in:"
   note "  $SUPPORT_DIR"
@@ -310,7 +357,10 @@ main() {
   step "Checking Apple's developer tools"
   check_developer_tools
   step "Installing the iPhone helper (pymobiledevice3)"
+  migrate_legacy_data
   install_helper
+  # The old name's Python environment is no longer used.
+  rm -rf "$LEGACY_SUPPORT_DIR/venv" "$LEGACY_SUPPORT_DIR/helpers" 2>/dev/null || true
   step "Building the app"
   build_app
   step "Installing the app"

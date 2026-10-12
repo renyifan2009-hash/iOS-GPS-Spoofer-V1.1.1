@@ -20,7 +20,7 @@ struct PairingFile: Equatable, Sendable {
             case .unreadable:
                 "Couldn't open that file."
             case .notAPairingFile:
-                "That isn't a pairing file. On your Mac, use File ▸ Save iPhone Pairing File… in iOS GPS Spoofer."
+                "That isn't a pairing file. On your Mac, use File ▸ Save iPhone Pairing File… in AnyWhere."
             }
         }
     }
