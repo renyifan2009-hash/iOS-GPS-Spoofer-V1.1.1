@@ -1,5 +1,6 @@
 import MapKit
 import Observation
+import PhoneOnlyCore
 import SwiftUI
 
 /// Search sheet: autocomplete as you type (MKLocalSearchCompleter), a full
@@ -219,12 +220,15 @@ final class PlaceSearch {
         }
     }
 
-    /// "37.3349, -122.0090" typed into the field.
+    /// "37.3349, -122.0090" typed into the field. Only text that is nothing
+    /// but a latitude and a longitude: an address with two numbers in it is
+    /// still an address (`CoordinateText` has the forms).
     var typedCoordinate: CLLocationCoordinate2D? {
-        let parts = query.split(whereSeparator: { $0 == "," || $0 == " " }).compactMap { Double($0) }
-        guard parts.count == 2, (-90...90).contains(parts[0]), (-180...180).contains(parts[1]) else { return nil }
-        return CLLocationCoordinate2D(latitude: parts[0], longitude: parts[1])
+        guard let point = CoordinateText.parse(query) else { return nil }
+        return CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)
     }
+
+    static let searchFailedMessage = "Search failed. Check your connection and try again."
 
     func bias(to center: CLLocationCoordinate2D) {
         let region = MKCoordinateRegion(center: center, latitudinalMeters: 50_000, longitudinalMeters: 50_000)
@@ -254,32 +258,37 @@ final class PlaceSearch {
         let found = await Self.places(for: MKLocalSearch(request: request))
         isSearching = false
         guard text == query.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-        results = found
-        message = found.isEmpty ? "No places found for “\(text)”." : nil
+        results = found.places
+        // A search that failed (offline, throttled) is not a place that doesn't exist.
+        message = found.failed ? Self.searchFailedMessage : (found.places.isEmpty ? "No places found for “\(text)”." : nil)
     }
 
     func resolve(_ suggestion: Suggestion) async -> Place? {
         isSearching = true
         defer { isSearching = false }
-        let places = await Self.places(for: MKLocalSearch(request: MKLocalSearch.Request(completion: suggestion.completion)))
-        guard var place = places.first else {
-            message = "Couldn't find “\(suggestion.title)”."
+        let found = await Self.places(for: MKLocalSearch(request: MKLocalSearch.Request(completion: suggestion.completion)))
+        guard var place = found.places.first else {
+            message = found.failed ? Self.searchFailedMessage : "Couldn't find “\(suggestion.title)”."
             return nil
         }
         if place.subtitle?.isEmpty ?? true { place.subtitle = suggestion.subtitle }
         return place
     }
 
-    private static func places(for search: MKLocalSearch) async -> [Place] {
-        await withCheckedContinuation { (continuation: CheckedContinuation<[Place], Never>) in
-            search.start { response, _ in
+    /// What a search found, and whether it failed. MapKit reports a search
+    /// with no match as `placemarkNotFound`, and that is a real answer. Any
+    /// other error (no connection, throttled, a server problem) is a failure.
+    private static func places(for search: MKLocalSearch) async -> (places: [Place], failed: Bool) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<(places: [Place], failed: Bool), Never>) in
+            search.start { response, error in
                 let places = (response?.mapItems ?? []).prefix(15).map { item -> Place in
                     let mark = item.placemark
                     let subtitle = [mark.thoroughfare, mark.locality, mark.country].compactMap { $0 }.joined(separator: ", ")
                     return Place(name: item.name ?? "Unnamed Place", subtitle: subtitle,
                                  latitude: mark.coordinate.latitude, longitude: mark.coordinate.longitude)
                 }
-                continuation.resume(returning: Array(places))
+                let failed = error != nil && (error as? MKError)?.code != .placemarkNotFound
+                continuation.resume(returning: (Array(places), failed))
             }
         }
     }

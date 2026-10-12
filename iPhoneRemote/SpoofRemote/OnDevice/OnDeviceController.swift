@@ -28,6 +28,17 @@ final class OnDeviceController {
     /// The small print under `lastError`: the step, the route and idevice's
     /// own words, for a bug report. Nil when there's nothing to add.
     private(set) var lastErrorDetail: String?
+    /// Why the last pairing file was turned down, in plain words. The setup
+    /// screen shows it right beside the Choose File button. It is kept apart
+    /// from `lastError`, which every connection attempt writes over.
+    private(set) var importError: String?
+    /// How many files have been turned down. The screen gives a cue each time,
+    /// even when the same message comes up again.
+    private(set) var importFailures = 0
+    /// The name and day of the stored pairing file, when known. A file stored
+    /// by an older version has none. A reinstall keeps the Keychain item, so
+    /// this is what tells the person which file they still have.
+    private(set) var pairingSource: PairingFileSource? = PairingFile.loadSource()
 
     var isSetUp: Bool { pairing != nil }
     var isSpoofing: Bool { phase == .active }
@@ -65,24 +76,53 @@ final class OnDeviceController {
 
     // MARK: Pairing file
 
-    /// Import a pairing file from Files, AirDrop or "Open in".
+    /// Import a pairing file from Files, AirDrop or "Open in". On success the
+    /// file is in the Keychain and the copy iOS made for this app is deleted.
+    /// On failure `importError` says why.
     @discardableResult
     func importPairingFile(from url: URL) -> Bool {
+        importError = nil
+        let file: PairingFile
         do {
-            let file = try PairingFile(contentsOf: url)
-            guard file.save() else {
-                show("Couldn't keep the pairing file in the Keychain. Try again.")
-                return false
-            }
-            // A renewal of the file this one replaces has nothing to add.
-            _ = engine.takeRenewedPairing()
-            pairing = file
-            clearError()
-            return true
+            file = try PairingFile(contentsOf: url)
         } catch {
-            show(error.localizedDescription)
+            let problem = error as? PairingFile.Problem
+            // A file that was read and turned down is no use in the Inbox.
+            if problem?.rejectsTheFile == true { Self.discardInboxCopy(of: url) }
+            failImport(error.localizedDescription)
             return false
         }
+        let source = PairingFileSource(fileName: url.lastPathComponent, importedAt: Date())
+        guard file.save(source: source) else {
+            // Kept in the Inbox, so that trying again has a file to use.
+            failImport("Couldn't keep the pairing file in the Keychain. Try again.")
+            return false
+        }
+        // The Keychain has it now. The copy in the Inbox holds the same
+        // private keys in plain view, in a folder that is backed up.
+        Self.discardInboxCopy(of: url)
+        // A renewal of the file this one replaces has nothing to add.
+        _ = engine.takeRenewedPairing()
+        pairing = file
+        pairingSource = source
+        clearError()
+        return true
+    }
+
+    /// The file picker failed before there was a file to read.
+    func reportImportFailure(_ error: Error) {
+        // Closing the picker without choosing is not a failure.
+        if (error as? CocoaError)?.code == .userCancelled { return }
+        failImport("Couldn't open that file: \(error.localizedDescription)")
+    }
+
+    func clearImportError() {
+        importError = nil
+    }
+
+    private func failImport(_ message: String) {
+        importError = message
+        importFailures += 1
     }
 
     func removePairingFile() {
@@ -91,7 +131,35 @@ final class OnDeviceController {
             _ = engine.takeRenewedPairing()
             PairingFile.delete()
             pairing = nil
+            pairingSource = nil
+            importError = nil
+            // Copies left by earlier imports go with it.
+            Self.discardInboxCopies()
         }
+    }
+
+    /// Delete the pairing files left in the Inbox, when the Keychain holds one.
+    /// Copies from before this version, or from an import that was stopped,
+    /// can be there. Called when the app goes to the background, never at
+    /// launch: a file opened from AirDrop arrives at launch, and is still
+    /// being read.
+    func sweepInbox() {
+        guard isSetUp, importError == nil else { return }
+        Self.discardInboxCopies()
+    }
+
+    private static var documents: URL? {
+        try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+    }
+
+    private static func discardInboxCopy(of url: URL) {
+        guard let documents else { return }
+        InboxCopy.discard(url, documents: documents)
+    }
+
+    private static func discardInboxCopies() {
+        guard let documents else { return }
+        InboxCopy.discardPairingFiles(documents: documents)
     }
 
     /// While connecting, the iPhone asked to pair again and idevice did: the

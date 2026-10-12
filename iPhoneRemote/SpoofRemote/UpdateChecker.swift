@@ -5,7 +5,9 @@ import PhoneOnlyCore
 /// Tells the person when a newer version of iOS GPS Spoofer is out, so they
 /// can reinstall SpoofRemote from the release page (SpoofRemote doesn't update
 /// itself). Once a day at most it asks GitHub for the newest release and
-/// compares its tag with the VERSION this app was built from.
+/// compares its tag with the VERSION this app was built from. (A check that
+/// never got through, with no signal say, is tried again within the hour: see
+/// `UpdateSchedule`.) Where it asks is `Repository.slug`.
 ///
 /// It sends nothing about the person or the iPhone. No network, a GitHub
 /// limit, or an odd answer shows nothing, never an error. The notice can be
@@ -27,6 +29,7 @@ final class UpdateChecker {
     let releaseURL = URL(string: Repository.releasesLatestURL)!
 
     private static let lastCheckKey = "update.lastCheck"
+    private static let lastOutcomeKey = "update.lastOutcome"
     private static let lastLatestKey = "update.lastLatestTag"
     private static let dismissedKey = "update.dismissedRelease"
 
@@ -58,18 +61,31 @@ final class UpdateChecker {
         if case .available = state { return }  // keep a pretended notice
         #endif
         applyStored()
-        let last = UserDefaults.standard.object(forKey: Self.lastCheckKey) as? Date ?? .distantPast
-        guard Date().timeIntervalSince(last) > 24 * 3600 else { return }
+        let defaults = UserDefaults.standard
+        let last = defaults.object(forKey: Self.lastCheckKey) as? Date
+        let outcome = defaults.string(forKey: Self.lastOutcomeKey).flatMap(UpdateSchedule.Outcome.init(rawValue:))
+        // A day after GitHub answered, but only an hour after a check that never got through.
+        guard UpdateSchedule.isDue(lastCheck: last, outcome: outcome, now: Date()) else { return }
         Task { await check() }
     }
 
     /// Ask GitHub now and update the notice.
     func check() async {
-        let latest = await Self.latestReleaseTag()
-        UserDefaults.standard.set(Date(), forKey: Self.lastCheckKey)
-        guard let latest else { return }  // no answer: leave what we had, say nothing new
-        UserDefaults.standard.set(latest, forKey: Self.lastLatestKey)
-        applyStored()
+        let answer = await Self.latestRelease()
+        let defaults = UserDefaults.standard
+        defaults.set(Date(), forKey: Self.lastCheckKey)
+        switch answer {
+        case .noConnection:
+            // It says nothing about releases, so it must not use up the day.
+            defaults.set(UpdateSchedule.Outcome.noConnection.rawValue, forKey: Self.lastOutcomeKey)
+        case .nothing:
+            // GitHub answered without a release: leave what we had, say nothing new.
+            defaults.set(UpdateSchedule.Outcome.answered.rawValue, forKey: Self.lastOutcomeKey)
+        case .tag(let latest):
+            defaults.set(UpdateSchedule.Outcome.answered.rawValue, forKey: Self.lastOutcomeKey)
+            defaults.set(latest, forKey: Self.lastLatestKey)
+            applyStored()
+        }
     }
 
     /// Hide the notice and remember this release, so it only comes back for a
@@ -96,17 +112,32 @@ final class UpdateChecker {
         ReleaseVersion(tag).map(String.init(describing:)) ?? tag
     }
 
-    /// GitHub's newest published release tag, or nil on any failure. Sends only
-    /// a generic User-Agent (GitHub requires one); nothing about the person.
-    private static func latestReleaseTag() async -> String? {
-        guard let url = URL(string: Repository.latestReleaseAPI) else { return nil }
+    private enum Answer {
+        /// The newest published release's tag.
+        case tag(String)
+        /// GitHub answered, but not with a release: none yet (404), a limit (403), or something odd.
+        case nothing
+        /// No answer at all: offline, or the request failed on the way.
+        case noConnection
+    }
+
+    /// GitHub's newest published release. Sends only a generic User-Agent
+    /// (GitHub requires one); nothing about the person.
+    private static func latestRelease() async -> Answer {
+        guard let url = URL(string: Repository.latestReleaseAPI) else { return .nothing }
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("SpoofRemote", forHTTPHeaderField: "User-Agent")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
-              (response as? HTTPURLResponse)?.statusCode == 200,
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            return .noConnection
+        }
+        guard (response as? HTTPURLResponse)?.statusCode == 200,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = object["tag_name"] as? String, !tag.isEmpty else { return nil }
-        return tag
+              let tag = object["tag_name"] as? String, !tag.isEmpty else { return .nothing }
+        return .tag(tag)
     }
 }

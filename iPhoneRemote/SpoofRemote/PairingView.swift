@@ -1,3 +1,4 @@
+import PhoneOnlyCore
 import RemoteAPI
 import SwiftUI
 
@@ -6,6 +7,8 @@ import SwiftUI
 struct PairingView: View {
     @Environment(ConnectionManager.self) private var connection
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum Step: Equatable {
         case list
@@ -19,6 +22,10 @@ struct PairingView: View {
     @State private var port = String(RemoteAPI.defaultPort)
     @State private var shakes = 0
     @State private var paired = false
+    @State private var confirmUnpair = false
+    @State private var unpairing = false
+    /// No Mac has shown up for a while.
+    @State private var searchedLong = false
 
     var body: some View {
         NavigationStack {
@@ -43,7 +50,7 @@ struct PairingView: View {
                                 .font(.subheadline)
                                 .padding(14)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .glassSurface(cornerRadius: 18, tint: Brand.warning)
+                                .glassSurface(cornerRadius: 18, tint: Brand.warning.opacity(0.45))
                                 .transition(.rise)
                         }
                         helpCard
@@ -72,8 +79,23 @@ struct PairingView: View {
             }
             .sensoryFeedback(.error, trigger: shakes)
             .sensoryFeedback(.success, trigger: paired)
+            .confirmationDialog(unpairTitle, isPresented: $confirmUnpair, titleVisibility: .visible) {
+                if connection.isSpoofing {
+                    Button("Stop and Unpair", role: .destructive) { unpair(stoppingFirst: true) }
+                    Button("Unpair Only", role: .destructive) { unpair(stoppingFirst: false) }
+                } else {
+                    Button("Unpair", role: .destructive) { unpair(stoppingFirst: false) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(connection.isSpoofing
+                     ? "The Mac is still holding a fake location. Stop it first, or it keeps going until you stop it on the Mac."
+                     : "This iPhone forgets the Mac. To connect again, it needs a new code.")
+            }
         }
         .environment(\.colorScheme, .dark)
+        // The accent is the dark indigo of the app. On this always-dark sheet the buttons need a light one.
+        .tint(Brand.sky)
         .onAppear {
             connection.lastError = nil
             connection.startBrowsing()
@@ -90,7 +112,8 @@ struct PairingView: View {
                 Image(systemName: "laptopcomputer.and.iphone")
                     .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(.white)
-                    .symbolEffect(.pulse, options: .repeating, isActive: step == .list && connection.discovered.isEmpty)
+                    .symbolEffect(.pulse, options: .repeating,
+                                  isActive: !reduceMotion && step == .list && connection.discovered.isEmpty)
             }
             Text(title)
                 .font(Brand.rounded(.title2))
@@ -125,6 +148,16 @@ struct PairingView: View {
     @ViewBuilder
     private var macList: some View {
         VStack(spacing: 12) {
+            if let notice = connection.unpairedNotice, !connection.isPaired {
+                // Why this is asking to pair again, when it was paired before.
+                Label(notice, systemImage: "exclamationmark.triangle.fill")
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .glassSurface(cornerRadius: 18, tint: Brand.warning.opacity(0.45))
+                    .transition(.rise)
+            }
             if let server = connection.server {
                 currentServer(server)
             }
@@ -150,14 +183,11 @@ struct PairingView: View {
                 .transition(.rise)
             }
             if connection.discovered.isEmpty {
-                HStack(spacing: 12) {
-                    ProgressView()
-                    Text("Looking for Macs on this network…")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    Spacer()
+                if connection.localNetworkBlocked {
+                    localNetworkCard
+                } else {
+                    searchingRow
                 }
-                .padding(16)
-                .glassSurface(cornerRadius: 22)
             }
             Button {
                 connection.lastError = nil
@@ -169,6 +199,65 @@ struct PairingView: View {
             .glassButton()
         }
         .animation(Brand.spring, value: connection.discovered)
+        .animation(Brand.spring, value: connection.localNetworkBlocked)
+        .animation(Brand.spring, value: searchedLong)
+        .task(id: connection.discovered.isEmpty) {
+            searchedLong = false
+            guard connection.discovered.isEmpty else { return }
+            try? await Task.sleep(for: .seconds(10))
+            if !Task.isCancelled { searchedLong = true }
+        }
+    }
+
+    private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+    }
+
+    /// "Looking for Macs…", and after a while some things to check.
+    private var searchingRow: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                ProgressView()
+                Text("Looking for Macs on this network…")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+            }
+            if searchedLong {
+                Text("Not finding it? Check that iPhone Remote is turned on at the Mac and that both are on the same Wi-Fi. "
+                     + "AnyWhere also needs Local Network turned on in Settings.")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { openSettings() } label: {
+                    Label("Open Settings", systemImage: "gearshape").frame(maxWidth: .infinity)
+                }
+                .glassButton()
+                .transition(.rise)
+            }
+        }
+        .padding(16)
+        .glassSurface(cornerRadius: 22)
+    }
+
+    /// iOS is blocking the search. Without this, it would look the same as
+    /// a Mac that isn't there.
+    private var localNetworkCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(MacConnectionText.blockedTitle, systemImage: "wifi.exclamationmark")
+                .font(.headline)
+            Text(MacConnectionText.blockedBody)
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.9))
+                .fixedSize(horizontal: false, vertical: true)
+            Button { openSettings() } label: {
+                Label("Open Settings", systemImage: "gearshape").frame(maxWidth: .infinity)
+            }
+            .glassButton()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassSurface(cornerRadius: 22, tint: Brand.warning.opacity(0.45))
+        .transition(.rise)
     }
 
     private func currentServer(_ server: ConnectionManager.Server) -> some View {
@@ -183,12 +272,28 @@ struct PairingView: View {
                 Spacer()
                 linkBadge
             }
+            if case .offline(let reason) = connection.link {
+                // Why it says Offline: the Mac asleep, another network, or Local Network off.
+                Text(reason)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             Button(role: .destructive) {
-                Task { await connection.unpair() }
+                confirmUnpair = true
             } label: {
-                Text("Unpair").frame(maxWidth: .infinity)
+                if unpairing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Unpairing…")
+                    }
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Text("Unpair").frame(maxWidth: .infinity)
+                }
             }
             .glassButton()
+            .disabled(unpairing)
         }
         .padding(16)
         .glassSurface(cornerRadius: 24)
@@ -202,9 +307,27 @@ struct PairingView: View {
         case .connecting:
             Label("Connecting", systemImage: "circle.dotted").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
         case .offline:
-            Label("Offline", systemImage: "circle").font(.caption.weight(.semibold)).foregroundStyle(Brand.warning)
+            Label("Offline", systemImage: "circle").font(.caption.weight(.semibold)).foregroundStyle(Brand.warningText)
         case .unpaired:
             EmptyView()
+        }
+    }
+
+    private var unpairTitle: String {
+        "Unpair from \(connection.server?.name ?? "this Mac")?"
+    }
+
+    /// Unpair, after the person confirmed. With a location held, the Mac is
+    /// told to stop it first, because once unpaired nothing here can.
+    private func unpair(stoppingFirst: Bool) {
+        guard !unpairing else { return }
+        unpairing = true
+        Task {
+            // A Mac that can't be reached can't be stopped. Unpair anyway:
+            // the person must not be stuck paired.
+            if stoppingFirst { await connection.stop() }
+            await connection.unpair()
+            unpairing = false
         }
     }
 
@@ -249,7 +372,15 @@ struct PairingView: View {
             }
             .padding(16)
             .glassSurface(cornerRadius: 20)
-            CodeField(code: $code, autoFocus: false) { submit(mac: nil) }
+            if let problem = manualProblem {
+                Text(PairingInput.message(for: problem))
+                    .font(.footnote)
+                    .foregroundStyle(Brand.warningText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // A code pasted first is kept until there is an address to send it to.
+            CodeField(code: $code, autoFocus: false) { if manualAddress != nil { submit(mac: nil) } }
                 .keyframeAnimator(initialValue: 0.0, trigger: shakes) { content, offset in
                     content.offset(x: offset)
                 } keyframes: { _ in
@@ -266,16 +397,29 @@ struct PairingView: View {
                 Text(connection.isWorking ? "Connecting…" : "Connect & Pair").frame(maxWidth: .infinity)
             }
             .prominentButton()
-            .disabled(host.trimmingCharacters(in: .whitespaces).isEmpty
-                      || code.count < RemoteAPI.pairingCodeLength || connection.isWorking)
+            .disabled(manualAddress == nil || code.count < RemoteAPI.pairingCodeLength || connection.isWorking)
         }
+    }
+
+    /// What was typed as the Mac's address and port, if it can be used.
+    private var manualAddress: PairingInput.Address? {
+        try? PairingInput.address(host: host, port: port, defaultPort: RemoteAPI.defaultPort).get()
+    }
+
+    /// What is wrong with the port, said while it is being typed. (An empty
+    /// address isn't an error yet: nothing has been typed.)
+    private var manualProblem: PairingInput.AddressProblem? {
+        guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              case .failure(let problem) = PairingInput.address(host: host, port: port, defaultPort: RemoteAPI.defaultPort)
+        else { return nil }
+        return problem
     }
 
     private var helpCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("On your Mac", systemImage: "info.circle.fill")
                 .font(.subheadline.weight(.semibold))
-            Text("Run `iosgpsspoof serve` in Terminal, or open **AnyWhere ▸ Settings ▸ iPhone Remote** and turn it on. Connect the iPhone to the Mac with a cable once and tap Trust.")
+            Text("Open **AnyWhere ▸ Settings ▸ iPhone Remote** on the Mac and turn it on. Connect the iPhone to the Mac with a cable once and tap Trust.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -305,8 +449,15 @@ struct PairingView: View {
             if let mac {
                 ok = await connection.pair(with: mac, code: code)
             } else {
-                let address = host.trimmingCharacters(in: .whitespaces)
-                ok = await connection.pair(host: address, port: UInt16(port) ?? RemoteAPI.defaultPort, code: code)
+                switch PairingInput.address(host: host, port: port, defaultPort: RemoteAPI.defaultPort) {
+                case .success(let address):
+                    ok = await connection.pair(host: address.host, port: address.port, code: code)
+                case .failure(let problem):
+                    // Say what's wrong. The code stays, there is nothing wrong with it.
+                    connection.lastError = PairingInput.message(for: problem)
+                    shakes += 1
+                    return
+                }
             }
             if ok {
                 withAnimation(Brand.spring) { paired = true }
@@ -335,8 +486,13 @@ struct CodeField: View {
                 .textContentType(.oneTimeCode)
                 .focused($focused)
                 .opacity(0.02)
+                // The field is what VoiceOver finds: the boxes over it are only a picture of it.
+                // (No accessibilityValue: that would hide the digits being typed.)
+                .accessibilityLabel("Pairing code")
+                .accessibilityHint("Type the \(RemoteAPI.pairingCodeLength) digits shown on your Mac.")
                 .onChange(of: code) { _, newValue in
-                    let digits = String(newValue.filter(\.isNumber).prefix(RemoteAPI.pairingCodeLength))
+                    // Only ASCII digits are ever sent: the Mac's code is ASCII.
+                    let digits = PairingInput.code(from: newValue, length: RemoteAPI.pairingCodeLength)
                     if digits != newValue {
                         code = digits      // onChange runs again with the cleaned value
                     } else if digits.count == RemoteAPI.pairingCodeLength {
@@ -366,6 +522,7 @@ struct CodeField: View {
             .animation(Brand.snappy, value: code)
             .contentShape(Rectangle())
             .onTapGesture { focused = true }
+            .accessibilityHidden(true)
         }
         .onAppear { if autoFocus { focused = true } }
     }

@@ -9,37 +9,55 @@ struct UpdateNoticeView: View {
 
     var body: some View {
         if updates.updateAvailable {
-            HStack(spacing: 12) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Brand.sky)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("A newer version is out")
-                        .font(Brand.rounded(.subheadline))
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Brand.skyText)
+                        .padding(.top, 2)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("A newer version is out")
+                            .font(Brand.rounded(.subheadline))
+                        Text(subtitle)
+                            .font(.caption)
+                            // Lighter than "secondary": that is too faint on the deep blue.
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button {
+                        withAnimation(Brand.spring) { updates.dismiss() }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 30, height: 30)
+                            .glassCircle()
+                            // The circle stays small to look right. The part that answers a tap is 44 points.
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dismiss")
+                    .accessibilityHint("Hides this notice until a newer version comes out.")
+                    // The button is bigger than it looks. Pull it into the corner so the text keeps its width.
+                    .padding(.trailing, -8)
+                    .padding(.top, -8)
                 }
-                Spacer(minLength: 8)
-                Button("Get") { openURL(updates.releaseURL) }
-                    .glassButton()
-                    .fixedSize()
                 Button {
-                    withAnimation(Brand.spring) { updates.dismiss() }
+                    openURL(updates.releaseURL)
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 30, height: 30)
-                        .glassCircle()
+                    Text("Get").frame(maxWidth: .infinity).foregroundStyle(.white)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Dismiss")
+                .glassButton()
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassSurface(cornerRadius: 18, tint: Brand.indigo)
+            // The tint is a deep blue in light mode too, so the words are light on it.
+            .environment(\.colorScheme, .dark)
+            .tint(Brand.sky)
             .transition(.rise)
         }
     }
