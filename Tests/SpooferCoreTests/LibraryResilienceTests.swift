@@ -85,6 +85,21 @@ final class LibraryResilienceTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: backup, encoding: .utf8), original)
     }
 
+    func testEveryShapeOfUnreadableEntryIsSteppedPast() throws {
+        // null, a string, a list, a nested object, a boolean and a number too big for a Double each sit
+        // between two good entries. Loading must reach the second one (and must finish at all).
+        try write("""
+        {"favorites": [
+          {"name": "First", "latitude": 1, "longitude": 2},
+          null, "text", [1, [2, 3]], {"a": {"b": [null]}}, true, 1e999,
+          {"name": "Last", "latitude": 3, "longitude": 4}
+        ]}
+        """)
+        let (library, report) = LibraryFile.loadWithReport(from: url)
+        XCTAssertEqual(library.favorites.map(\.name), ["First", "Last"])
+        XCTAssertEqual(report.droppedEntries, 6)
+    }
+
     func testTheSameFileIsOnlyCopiedOnce() throws {
         try write(#"{"favorites": [{"name": "Home", "latitude": 1, "longitude": 2}, {"nope": true}]}"#)
         _ = LibraryFile.load(from: url)

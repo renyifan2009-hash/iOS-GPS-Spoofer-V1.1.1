@@ -218,7 +218,7 @@ activity log.
   newer, a banner offers **Update**. That runs the one-line installer in the
   background, which quits the app, replaces it and opens the new one. Output
   goes to `~/Library/Logs/AnyWhere/update.log`.
-- **An old AnyWhere.** AnyWhere doesn't update itself, so when an iPhone
+- **An old iPhone app.** The iPhone app (AnyWhere on the iPhone) doesn't update itself, unlike the Mac app, so when an iPhone
   is plugged in, and after File ▸ Pairing File for the iPhone App…, the Mac reads
   which AnyWhere (`com.iosgpsspoof.remote`) is on it with `apps list` (over
   lockdown, no tunnel) and, if it's older than this code expects, shows a

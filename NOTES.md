@@ -90,8 +90,9 @@ No crash report from the tester exists, so this is what could be proven:
   signing tool, the iPhone-only mode, update behavior).
 - The iPhone-only mode on iOS 26.4+ is Apple's change and is not worked around (see Boundaries).
 - GitHub repo rename, `main` merge, release tag and landing deploy: owner's call (A4, A5).
-- A prebuilt update channel (the in-app Update downloading the release DMG instead of rebuilding from source) is not built.
-  The self-test gate makes the source route safe; the DMG route would also remove the need for Command Line Tools.
+- The release-channel update (the in-app Update downloading the release DMG, checking it and swapping it in) is built (f30a7aa) but
+  cannot run until a release exists, because nothing is published overnight. Until then the in-app Update still rebuilds from
+  source, and the self-test gate is what keeps that safe.
 
 ## Ship it (when you are ready)
 

@@ -335,7 +335,9 @@ extension KeyedDecodingContainer {
                 items.append(item)
             } else {
                 log?.drop()
-                _ = try? list.decode(SkippedEntry.self)   // a failed decode doesn't move on by itself
+                // A failed decode doesn't move on by itself. If stepping past it fails too, stop: the
+                // loop would otherwise never reach the end of the list.
+                if (try? list.decode(SkippedEntry.self)) == nil { break }
             }
         }
         return items
