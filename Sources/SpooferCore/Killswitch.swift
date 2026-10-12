@@ -22,7 +22,9 @@ public enum Killswitch {
         // 1:30 = an hour and a half
         if t.contains(":") {
             let parts = t.split(separator: ":", omittingEmptySubsequences: false)
-            guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]), h >= 0, (0..<60).contains(m) else { return nil }
+            // Bound the hours before multiplying: a huge number must be refused, not overflow.
+            guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]),
+                  (0...(maxMinutes / 60)).contains(h), (0..<60).contains(m) else { return nil }
             return validated(h * 60 + m)
         }
         let digits = t.prefix { $0.isNumber || $0 == "." || $0 == "," }
@@ -34,6 +36,8 @@ public enum Killswitch {
         case "h", "hr", "hrs", "hour", "hours": minutes = value * 60
         default: return nil
         }
+        // Check the size while it is still a Double: Int() of a huge or non-finite one traps.
+        guard minutes.isFinite, minutes <= Double(maxMinutes) else { return nil }
         return validated(Int(minutes.rounded()))
     }
 

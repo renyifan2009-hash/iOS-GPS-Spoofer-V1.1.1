@@ -42,7 +42,11 @@ final class KillswitchTests: XCTestCase {
     }
 
     func testParsingRefusesWhatIsNotATime() {
-        for text in ["", "  ", "abc", "0", "-5", "0 min", "25h", "1441", "1:75", "1:2:3", ":30", "5 weeks", "nan", "inf", "1e9", "∞"] {
+        for text in ["", "  ", "abc", "0", "-5", "0 min", "25h", "1441", "1:75", "1:2:3", ":30", "5 weeks", "nan", "inf", "1e9", "∞",
+                     // Far too big: refused, never an overflow.
+                     "99999999999999999999", "99999999999999999999 minutes", "99999999999999999999 hours",
+                     "9223372036854775807", "9223372036854775807 h", "9223372036854775807:00",
+                     "92233720368547758:30", "1441.4", "24.1 h", String(repeating: "9", count: 400)] {
             XCTAssertNil(Killswitch.parse(text), "“\(text)”")
         }
     }
