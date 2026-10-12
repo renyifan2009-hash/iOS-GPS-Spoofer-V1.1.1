@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import PhoneOnlyCore
 
-/// Tells the person when a newer version of iOS GPS Spoofer is out, so they
+/// Tells the person when a newer version of AnyWhere is out, so they
 /// can reinstall SpoofRemote from the release page (SpoofRemote doesn't update
 /// itself). Once a day at most it asks GitHub for the newest release and
 /// compares its tag with the VERSION this app was built from. (A check that

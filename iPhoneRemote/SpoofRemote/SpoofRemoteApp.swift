@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// SpoofRemote: the iPhone app for iOS GPS Spoofer. Either the Mac holds the
+/// SpoofRemote: the iPhone app for AnyWhere. Either the Mac holds the
 /// simulated location (via Apple's developer location service) and this app
 /// tells it where to go, or, in the iPhone-only mode, this app sets the
 /// location itself.

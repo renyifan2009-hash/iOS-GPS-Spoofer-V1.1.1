@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A small notice that a newer version of iOS GPS Spoofer is out, with a
+/// A small notice that a newer version of AnyWhere is out, with a
 /// button to the release page and a way to dismiss it. Shown on the main
 /// screen and on the iPhone-only setup screen.
 struct UpdateNoticeView: View {
