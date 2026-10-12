@@ -170,19 +170,11 @@ extension AppModel {
     // MARK: - Playback
 
     func startRoute() {
-        guard routeGeometry.count >= 2 else {
-            appendLog("Add at least two waypoints — click the map to drop them.", level: .warning)
-            return
-        }
-        if directionsState == .computing {
-            appendLog("Still working out the road route — try again in a moment.", level: .info)
+        if let issue = startIssue(for: .route) {
+            explain(issue)
             return
         }
         let speed = effectiveRouteSpeed
-        guard speed > 0 else {
-            appendLog("Set a speed or duration above zero.", level: .warning)
-            return
-        }
         let path = routePath
         let loop = loopMode
         guard let start = path.start else { return }

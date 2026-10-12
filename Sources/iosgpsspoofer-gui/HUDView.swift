@@ -356,11 +356,25 @@ struct JoystickPanel: View {
                 }
                 .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
                 .disabled(model.isStarting || (model.session == nil && !model.canStart))
+                // Grey with no reason looks broken: say it next to the button.
+                if let reason = whyNotReady {
+                    Text(reason)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(14)
         .frame(width: 214)
         .glassPanel(cornerRadius: 20)
+    }
+
+    /// Why the button above is grey, or why pressing it would be refused.
+    private var whyNotReady: String? {
+        if model.session != nil { return model.joystickNeedsLiveEngine ? StartIssue.needsLiveEngine.hint : nil }
+        return model.startIssue(for: .joystick)?.hint
     }
 
     private var readout: String {

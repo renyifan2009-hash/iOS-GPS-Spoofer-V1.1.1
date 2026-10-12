@@ -220,10 +220,11 @@ extension AppModel {
     var joystickActive: Bool { activity == .joystick }
 
     func startJoystick() {
-        guard let start = devicePosition ?? target else {
-            appendLog("Pick a starting point: click the map or enter coordinates.", level: .warning)
+        if let issue = startIssue(for: .joystick) {
+            explain(issue)
             return
         }
+        guard let start = devicePosition ?? target else { return }
         Task {
             guard let obtained = await obtainSession(requireStreaming: true) else { return }
             playback = nil
@@ -245,7 +246,7 @@ extension AppModel {
     func takeJoystickControl() {
         guard let session else { startJoystick(); return }
         guard session.canStream else {
-            appendLog("The joystick needs the live engine (see Settings ▸ Engine).", level: .warning)
+            explain(.needsLiveEngine)
             return
         }
         playback = nil

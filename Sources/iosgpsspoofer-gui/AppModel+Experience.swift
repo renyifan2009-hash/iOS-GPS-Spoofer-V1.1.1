@@ -42,6 +42,11 @@ extension AppModel {
         }
     }
 
+    func dismissToast() {
+        toastTask?.cancel()
+        toast = nil
+    }
+
     func teleportToast(_ point: GeoPoint, name: String?) -> Toast {
         Toast(symbol: "location.fill", title: "Teleported",
               subtitle: name ?? Format.coordinate(point), style: .success)

@@ -663,17 +663,11 @@ struct JoystickSection: View {
                 }
             }
 
-            if !(model.session?.canStream ?? true) || isClassicOnly {
-                Label("The joystick needs the live engine. See Settings ▸ Engine.", systemImage: "exclamationmark.triangle.fill")
+            if model.joystickNeedsLiveEngine {
+                Label(StartIssue.needsLiveEngine.hint, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption).foregroundStyle(Brand.warning)
             }
         }
-    }
-
-    private var isClassicOnly: Bool {
-        if prefs.enginePreference == .classic { return !(model.activeDevice?.isLegacy ?? false) }
-        if case .classicOnly = model.engineStatus { return !(model.activeDevice?.isLegacy ?? false) }
-        return false
     }
 
     private typealias Key = (code: UInt16, label: String)
@@ -932,17 +926,9 @@ struct ActionBar: View {
         }
     }
 
+    /// Why the button can't start yet (the wording is in Logic/StartGuidance.swift).
     private var hint: String? {
         if model.hasSession { return nil }
-        if model.pmd == nil { return "pymobiledevice3 is needed — see the setup card." }
-        if model.selectedDevice == nil { return "Connect and select an iPhone to start." }
-        switch model.mode {
-        case .teleport, .joystick:
-            return model.target == nil ? "Pick a place on the map or enter coordinates." : nil
-        case .route:
-            if model.waypoints.count < 2 { return "Click the map to add at least two stops." }
-            if model.directionsState == .computing { return "Finding the road route…" }
-            return nil
-        }
+        return model.startIssue?.hint
     }
 }

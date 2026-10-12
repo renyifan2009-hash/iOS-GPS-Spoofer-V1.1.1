@@ -64,6 +64,8 @@ struct MenuBarContent: View {
                             Label("Stop", systemImage: "stop.fill")
                         }
                         .buttonStyle(BrandButtonStyle(kind: .danger, large: false))
+                        .disabled(model.sessionState == .stopping)
+                        .help("Stop and restore the real location")
                     }
                 }
                 .padding(12)

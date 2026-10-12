@@ -354,6 +354,9 @@ struct Toast: Identifiable, Equatable {
     let title: String
     var subtitle: String?
     var style: Style = .success
+    /// A button on the note, such as Undo. It runs once, then the note goes away.
+    var actionTitle: String?
+    var action: (@MainActor () -> Void)?
 
     var colors: [Color] {
         switch style {
@@ -363,10 +366,14 @@ struct Toast: Identifiable, Equatable {
         case .error: return TileColors.red
         }
     }
+
+    /// The same note, not the same words: a closure can't be compared.
+    static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }
 }
 
 struct ToastView: View {
     let toast: Toast
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         HStack(spacing: 10) {
@@ -374,13 +381,26 @@ struct ToastView: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(toast.title).font(.system(size: 13, weight: .semibold))
                 if let subtitle = toast.subtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    // Two lines: a reason is worth more than a neat note.
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if let actionTitle = toast.actionTitle, let action = toast.action {
+                Button(actionTitle) {
+                    model.dismissToast()
+                    action()
+                }
+                .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+            }
         }
+        .frame(maxWidth: 460, alignment: .leading)
         .padding(.leading, 8)
-        .padding(.trailing, 16)
+        .padding(.trailing, toast.actionTitle == nil ? 16 : 8)
         .padding(.vertical, 8)
         .glassPanel(cornerRadius: 22)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel([toast.title, toast.subtitle].compactMap { $0 }.joined(separator: ". "))
     }
 }

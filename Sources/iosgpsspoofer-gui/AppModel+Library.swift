@@ -61,9 +61,14 @@ extension AppModel {
 
     /// Paste a coordinate or a Google/Apple Maps link as the target (or a waypoint).
     func pasteFromClipboard() {
-        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        guard let text = NSPasteboard.general.string(forType: .string),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            warn("Nothing to paste", "Copy coordinates or a maps link first.")
+            return
+        }
         guard let point = Coordinate.parsePoint(text), point.isValid else {
-            appendLog("The clipboard doesn't contain coordinates or a maps link.", level: .warning)
+            warn("That isn't a place", "Paste coordinates like 37.33, -122.01 or a maps link.",
+                 log: "The clipboard doesn't contain coordinates or a maps link.")
             return
         }
         if mode == .route {
@@ -141,7 +146,8 @@ extension AppModel {
 
     func exportRouteWithPanel() {
         guard waypoints.count >= 2 else {
-            appendLog("Add at least two waypoints before exporting.", level: .warning)
+            warn("Add at least two stops first", "Then you can export the route.",
+                 log: "Add at least two waypoints before exporting.")
             return
         }
         // The track as played: a loop on roads includes the road back to the start.
@@ -168,7 +174,8 @@ extension AppModel {
 
     func saveRouteToLibrary() {
         guard waypoints.count >= 2 else {
-            appendLog("Add at least two waypoints before saving.", level: .warning)
+            warn("Add at least two stops first", "Then you can save the route.",
+                 log: "Add at least two waypoints before saving.")
             return
         }
         let suggestion = routeName ?? "Route \(library.routes.count + 1)"

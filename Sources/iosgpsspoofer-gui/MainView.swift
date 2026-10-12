@@ -49,6 +49,19 @@ extension AppModel {
     /// Show the Re-center button: there's a dot, and the map isn't on it.
     var canRecenter: Bool { session != nil && devicePosition != nil && !isFollowingDevice }
 
+    /// Right-click actions that can't run now, and why. The place comes from the click, so a
+    /// missing destination never blocks them.
+    var blockedMapActions: [MapContextAction: String] {
+        var blocked: [MapContextAction: String] = [:]
+        if let reason = startIssue(for: .teleport, hasDestination: true)?.menuReason {
+            blocked[.teleportHere] = reason
+        }
+        if let reason = startIssue(for: .joystick, hasDestination: true)?.menuReason {
+            blocked[.joystickHere] = reason
+        }
+        return blocked
+    }
+
     func pinDragged(_ id: UUID, to point: GeoPoint) {
         if id == Self.targetPinID {
             setTarget(point)
@@ -230,6 +243,7 @@ struct MainView: View {
             coveredInsets: NSEdgeInsets(top: 70, left: 0, bottom: bottomPanelsHeight, right: 0),
             roadMarkers: model.roadMarkers,
             contextActions: [.teleportHere, .setTarget, .addWaypoint, .joystickHere, .addFavorite, .copyCoordinates],
+            blockedContextActions: model.blockedMapActions,
             onClick: { model.mapClicked($0) },
             onDragPin: { id, point in model.pinDragged(id, to: point) },
             onContextAction: { action, point in model.performContextAction(action, at: point) },

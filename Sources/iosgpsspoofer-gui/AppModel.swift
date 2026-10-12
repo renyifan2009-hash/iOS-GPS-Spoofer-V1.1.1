@@ -461,7 +461,7 @@ final class AppModel {
     func obtainSession(requireStreaming: Bool) async -> (session: SpoofSession, isNew: Bool)? {
         if let session {
             if sessionState == .stopping {
-                appendLog("Still restoring the real location. Try again in a moment.", level: .info)
+                explain(.stillRestoring)
                 return nil
             }
             if requireStreaming && !session.canStream { warnStreamingUnavailable(); return nil }
@@ -471,11 +471,11 @@ final class AppModel {
         }
         guard !isStarting else { return nil }
         guard pmd != nil else {
-            appendLog("pymobiledevice3 wasn't found — see the setup instructions.", level: .error)
+            explain(.helperMissing)
             return nil
         }
         guard let device = selectedDevice else {
-            appendLog("Connect and select an iPhone first.", level: .warning)
+            explain(.noIphone)
             return nil
         }
         isStarting = true
@@ -516,8 +516,9 @@ final class AppModel {
         return (s, true)
     }
 
+    /// Only the joystick moves in real time, so this is the joystick being refused.
     private func warnStreamingUnavailable() {
-        appendLog("That needs the live engine, which isn't available with this pymobiledevice3. Check Settings ▸ Engine.", level: .warning)
+        explain(.needsLiveEngine)
     }
 
     private func makeSession(device: Device, engine: EngineKind) -> SpoofSession? {
@@ -606,7 +607,8 @@ final class AppModel {
             startRoute()
         case .joystick:
             activity = .holding
-            appendLog("Joystick control needs the live engine; holding the current position.", level: .warning)
+            warn("The joystick stopped", "It needs the live engine. Holding the current position.",
+                 log: "Joystick control needs the live engine; holding the current position.")
         default:
             break
         }
@@ -667,6 +669,8 @@ final class AppModel {
     /// The big button: start whatever the current mode does, or stop.
     func primaryAction() {
         if hasSession { stop(); return }
+        // The menu item and ⌘↩ stay on when the button is grey: say why instead of doing nothing.
+        if let issue = startIssue { explain(issue); return }
         switch mode {
         case .teleport: teleportToTarget()
         case .route: startRoute()
@@ -674,12 +678,10 @@ final class AppModel {
         }
     }
 
+    /// Whether the Start button is on. When it isn't, `startIssue` says why.
     var canStart: Bool {
-        guard pmd != nil, selectedDevice != nil, !isStarting else { return false }
-        switch mode {
-        case .teleport, .joystick: return target != nil || devicePosition != nil
-        case .route: return routeGeometry.count >= 2 && effectiveRouteSpeed > 0
-        }
+        guard !isStarting else { return false }
+        return startIssue?.disablesStart != true
     }
 
     // MARK: - Teleport
@@ -717,7 +719,7 @@ final class AppModel {
 
     func teleportToTarget() {
         guard let point = target else {
-            appendLog("Enter a valid latitude (−90…90) and longitude (−180…180).", level: .warning)
+            explain(startIssue(for: .teleport) ?? .noDestination)
             return
         }
         teleport(to: point, name: targetLabel)
@@ -730,7 +732,7 @@ final class AppModel {
         isPaused = false
         if let session {
             if sessionState == .stopping {
-                appendLog("Still restoring the real location. Try again in a moment.", level: .info)
+                explain(.stillRestoring)
                 return
             }
             if let from = devicePosition {

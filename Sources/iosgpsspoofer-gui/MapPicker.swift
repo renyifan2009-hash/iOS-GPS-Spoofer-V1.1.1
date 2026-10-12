@@ -62,6 +62,9 @@ struct MapPicker: NSViewRepresentable {
     /// Lights and signs along the route (realistic trips).
     var roadMarkers: [RoadMarker] = []
     var contextActions: [MapContextAction]
+    /// Actions that can't run right now, with the reason ("connect an iPhone"). They stay in the
+    /// menu, greyed out, with the reason after the name, instead of doing nothing when chosen.
+    var blockedContextActions: [MapContextAction: String] = [:]
     var onClick: (GeoPoint) -> Void
     var onDragPin: (UUID, GeoPoint) -> Void
     var onContextAction: (MapContextAction, GeoPoint) -> Void
@@ -205,6 +208,15 @@ struct MapPicker: NSViewRepresentable {
             menu.addItem(.separator())
             for action in parent.contextActions {
                 let (title, symbol) = Self.describe(action)
+                if let reason = parent.blockedContextActions[action] {
+                    // No action means AppKit greys it out.
+                    let item = NSMenuItem(title: StartGuidance.menuTitle(title, reason: reason),
+                                          action: nil, keyEquivalent: "")
+                    item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+                    item.isEnabled = false
+                    menu.addItem(item)
+                    continue
+                }
                 menu.addItem(ClosureMenuItem(title, symbol: symbol) { [weak self] in
                     self?.parent.onContextAction(action, point)
                 })
