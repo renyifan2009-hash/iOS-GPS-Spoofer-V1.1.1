@@ -311,8 +311,38 @@ final class AppModel {
     /// Called from `applicationDidFinishLaunching` once stray children are reaped.
     func completeStartupSweep(reaped: Int) {
         startupSweepDone = true
+        // What was holding a fake location (a classic hold, not the live helper,
+        // which clears by itself) was stopped, not asked to put the real location
+        // back. Say so, and put it back now.
+        let holds = ChildProcessRegistry.lastSweep.holds
         if reaped > 0 {
-            appendLog("Cleaned up \(reaped) leftover pymobiledevice3 process(es) from a previous run.", level: .info)
+            appendLog("Cleaned up \(reaped) leftover pymobiledevice3 process(es) from a previous run.",
+                      level: holds.isEmpty ? .info : .warning)
+        }
+        guard !holds.isEmpty else { return }
+        let toldToRestart = "Your iPhone may still show a fake location. Restart it to be sure. That always clears it."
+        guard let pmd, session == nil else {
+            appendLog(toldToRestart, level: .warning)
+            return
+        }
+        appendLog("The last run ended without putting your real location back. Putting it back now…", level: .warning)
+        Task.detached(priority: .utility) { [weak self] in
+            let outcome = ChildProcessRegistry.restoreLocations(of: holds, using: pmd)
+            await MainActor.run {
+                guard let self else { return }
+                if outcome.failed.isEmpty {
+                    self.appendLog("Your real location is back.", level: .success)
+                } else {
+                    for failure in outcome.failed {
+                        self.appendLog("Couldn't put the real location back: \(failure.reason)", level: .error)
+                    }
+                    self.appendLog(toldToRestart, level: .warning)
+                    self.showToast(Toast(symbol: "exclamationmark.triangle.fill",
+                                         title: "Your iPhone may still be on a fake location",
+                                         subtitle: "Restart it to be sure. That always clears it.", style: .warning),
+                                   duration: 8)
+                }
+            }
         }
     }
 
