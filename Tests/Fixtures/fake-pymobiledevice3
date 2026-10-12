@@ -12,8 +12,25 @@ Environment knobs:
   FAKE_PMD_NO_DEVICE=1     no iPhone connected
   FAKE_PMD_DEVMODE=false   Developer Mode is off
   FAKE_PMD_FAIL_SET=1      setting a location fails, as when the link drops
+  FAKE_PMD_FAIL_CLEAR=1    clearing the location fails: "Device is not connected"
+  FAKE_PMD_CLEAR_DELAY=<s> a clear takes this many seconds (and logs "done <args>" at the end)
+  FAKE_PMD_USAGE_ERROR=1   `set` is refused as a bad command line (a pymobiledevice3
+                           that is too old), printed as the Rich box it uses
+  FAKE_PMD_SET_DELAY=<s>   an iOS 16 `set` takes this many seconds. The log then
+                           also gets a "done <args>" line when it finishes, so the
+                           order the commands FINISH in can be read
+  FAKE_PMD_PLAY_DIE_ONCE=<file>  the first `play` ends with an error after a moment
+                           (and creates this file); later ones hold, as usual
+  FAKE_PMD_LIST_FAIL=wifi|lockdown|all
+                           `usbmux list` fails like a real one does when a device
+                           can't be reached: wifi = only the plain list fails
+                           (--usb and --simple work), lockdown = the plain list and
+                           --usb fail (--simple works), all = every form fails
   FAKE_PMD_IOS=17.5        the iOS version to report (default 16.7.10)
-  FAKE_PMD_NO_PAIR_RECORD=1  this Mac has no pairing record for the iPhone
+  FAKE_PMD_NO_VERSION=1    the iPhone reports no iOS version (a null), as when it is locked
+  FAKE_PMD_NO_PAIR_RECORD=1  this Mac has no pairing record for the iPhone: save-pair-record
+                           logs it and exits 1, like current pymobiledevice3.
+                           =legacy exits 0 instead, like old versions did
   FAKE_PMD_SPOOFREMOTE=current|old|none|fail  which SpoofRemote `apps list`
                              reports: the current build, an old one, none
                              installed, or a failed read (default none)
@@ -30,6 +47,22 @@ args = sys.argv[1:]
 if os.environ.get("FAKE_PMD_LOG"):
     with open(os.environ["FAKE_PMD_LOG"], "a") as log:
         log.write(" ".join(args) + "\n")
+        if args[:2] == ["lockdown", "save-pair-record"] and len(args) > 2:
+            # Where the record is written, and who can open that folder.
+            mode = oct(os.stat(os.path.dirname(os.path.abspath(args[2]))).st_mode & 0o777)[2:]
+            log.write("save-pair-record folder-mode %s\n" % mode)
+
+
+def log_done():
+    if os.environ.get("FAKE_PMD_LOG"):
+        with open(os.environ["FAKE_PMD_LOG"], "a") as log:
+            log.write("done " + " ".join(args) + "\n")
+
+
+def error(message, status=1):
+    print("2026-10-12 01:02:03 fake-host pymobiledevice3[1] ERROR " + message, file=sys.stderr)
+    sys.exit(status)
+
 
 DEVICE = {
     "DeviceName": os.environ.get("FAKE_PMD_NAME", "Demo iPhone"),
@@ -38,19 +71,44 @@ DEVICE = {
     "ProductType": "iPhone15,3",
     "ProductVersion": os.environ.get("FAKE_PMD_IOS", "16.7.10"),
 }
+if os.environ.get("FAKE_PMD_NO_VERSION") == "1":
+    DEVICE["ProductVersion"] = None
+
+SIMULATE = "simulate-location" in args
+IS_SET = SIMULATE and "set" in args
 
 if args[:1] == ["version"]:
     print("11.25.0")
 elif args[:2] == ["usbmux", "list"]:
-    print(json.dumps([DEVICE] if os.environ.get("FAKE_PMD_NO_DEVICE") != "1" else []))
+    mode = os.environ.get("FAKE_PMD_LIST_FAIL", "")
+    simple = "--simple" in args
+    usb = "--usb" in args
+    if mode == "all" or (mode == "lockdown" and not simple) or (mode == "wifi" and not simple and not usb):
+        error("Device 00008110-0000WIFI0000WIFI is not reachable")
+    devices = [DEVICE] if os.environ.get("FAKE_PMD_NO_DEVICE") != "1" else []
+    print(json.dumps([d["Identifier"] for d in devices] if simple else devices))
 elif args[:2] == ["amfi", "developer-mode-status"]:
     print(os.environ.get("FAKE_PMD_DEVMODE", "true"))
-elif "simulate-location" in args and "set" in args and os.environ.get("FAKE_PMD_FAIL_SET") == "1":
+elif IS_SET and os.environ.get("FAKE_PMD_USAGE_ERROR") == "1":
+    sys.stderr.write("Usage: pymobiledevice3 developer dvt simulate-location set [OPTIONS] LATITUDE LONGITUDE\n")
+    sys.stderr.write("Try 'pymobiledevice3 developer dvt simulate-location set -h' for help.\n")
+    sys.stderr.write("╭─ Error ──────────────────────────────────────────────╮\n")
+    sys.stderr.write("│ No such option: --userspace                          │\n")
+    sys.stderr.write("╰──────────────────────────────────────────────────────╯\n")
+    sys.exit(2)
+elif IS_SET and os.environ.get("FAKE_PMD_FAIL_SET") == "1":
     print("ERROR ConnectionTerminatedError: Connection closed", file=sys.stderr)
     sys.exit(1)
-elif args[:2] == ["lockdown", "save-pair-record"] and len(args) > 2 and os.environ.get("FAKE_PMD_NO_PAIR_RECORD") == "1":
-    # Like the real one: it logs this and exits 0, writing nothing.
-    print("ERROR no pairing record was found", file=sys.stderr)
+elif SIMULATE and "clear" in args and os.environ.get("FAKE_PMD_FAIL_CLEAR") == "1":
+    error("Device is not connected")
+elif SIMULATE and "clear" in args and os.environ.get("FAKE_PMD_CLEAR_DELAY"):
+    # A clear that takes a while, like one that has to open a new tunnel first.
+    time.sleep(float(os.environ["FAKE_PMD_CLEAR_DELAY"]))
+    log_done()
+elif args[:2] == ["lockdown", "save-pair-record"] and len(args) > 2 and os.environ.get("FAKE_PMD_NO_PAIR_RECORD"):
+    # Like the real one: it logs this. Current versions then exit 1, old ones exited 0.
+    print("2026-10-12 01:02:03 fake-host pymobiledevice3[1] ERROR no pairing record was found", file=sys.stderr)
+    sys.exit(0 if os.environ["FAKE_PMD_NO_PAIR_RECORD"] == "legacy" else 1)
 elif args[:2] == ["lockdown", "save-pair-record"] and len(args) > 2:
     # A pairing record with the keys a real one has (the values are not real).
     import plistlib
@@ -81,7 +139,16 @@ elif args[:3] == ["developer", "dvt", "simulate-location"] and args[3:4] != ["cl
     # iOS 17+ `set` / `play`: hold the location until interrupted.
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: sys.exit(0))
+    marker = os.environ.get("FAKE_PMD_PLAY_DIE_ONCE")
+    if marker and args[3:4] == ["play"] and not os.path.exists(marker):
+        open(marker, "w").close()
+        time.sleep(0.3)
+        error("Connection was terminated abruptly")
     while True:
         time.sleep(1)
+elif args[:2] == ["developer", "simulate-location"] and args[2:3] == ["set"] and os.environ.get("FAKE_PMD_SET_DELAY"):
+    # iOS 16 `set` that takes a while to finish.
+    time.sleep(float(os.environ["FAKE_PMD_SET_DELAY"]))
+    log_done()
 # Everything else (mounter auto-mount, iOS 16 set/clear, amfi reveal,
 # lockdown wifi-connections…) succeeds at once.
