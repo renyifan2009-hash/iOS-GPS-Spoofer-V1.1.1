@@ -30,6 +30,18 @@ final class PairingFilePlanTests: XCTestCase {
         XCTAssertTrue(state.instruction.contains("Trust"))
     }
 
+    func testAnUntrustedIPhoneIsAskedToTrustNotCalledIOS0() {
+        // What `usbmux list` reports before Trust is tapped: little more than the UDID.
+        let untrusted = Device(deviceName: "iOS device", identifier: "00008140-001", connectionType: "USB",
+                               productType: "unknown", productVersion: "0")
+        XCTAssertFalse(untrusted.isTrusted)
+        let state = PairingFileReadiness.evaluate(helperAvailable: true, device: untrusted)
+        XCTAssertEqual(state, .needsTrust(deviceName: "iOS device"))
+        XCTAssertFalse(state.title.contains("iOS 0"))
+        XCTAssertTrue(state.instruction.contains("Trust"))
+        XCTAssertTrue(device().isTrusted)
+    }
+
     func testTooOldIOSNamesTheVersionAndTheFix() {
         for version in ["16.7.2", "17.3", "15.0"] {
             let state = PairingFileReadiness.evaluate(helperAvailable: true, device: device(version: version))

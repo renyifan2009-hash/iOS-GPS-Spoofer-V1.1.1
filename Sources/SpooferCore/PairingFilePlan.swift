@@ -6,11 +6,14 @@ public enum PairingFileReadiness: Equatable, Sendable {
     case ready(deviceName: String)
     case helperMissing
     case noDevice
+    /// Plugged in, but the person hasn't tapped Trust on the iPhone yet.
+    case needsTrust(deviceName: String)
     case iosTooOld(deviceName: String, version: String)
 
     public static func evaluate(helperAvailable: Bool, device: Device?) -> PairingFileReadiness {
         guard helperAvailable else { return .helperMissing }
         guard let device else { return .noDevice }
+        guard device.isTrusted else { return .needsTrust(deviceName: device.deviceName) }
         guard device.supportsUserspaceTunnel else {
             return .iosTooOld(deviceName: device.deviceName, version: device.productVersion)
         }
@@ -28,6 +31,7 @@ public enum PairingFileReadiness: Equatable, Sendable {
         case .ready(let name): return "\(name) is ready"
         case .helperMissing: return "The iPhone helper isn't installed"
         case .noDevice: return "No iPhone is connected"
+        case .needsTrust(let name): return "\(name) hasn't been trusted yet"
         case .iosTooOld(let name, let version): return "\(name) has iOS \(version)"
         }
     }
@@ -41,6 +45,8 @@ public enum PairingFileReadiness: Equatable, Sendable {
             return "Open the setup checklist (Help ▸ Welcome & Setup Checklist) and click Install next to “Helper tool installed”."
         case .noDevice:
             return "Plug your iPhone into this Mac with a USB cable, unlock it, and tap Trust if it asks."
+        case .needsTrust:
+            return "Unlock the iPhone and tap Trust when it asks “Trust This Computer?”, then enter its passcode."
         case .iosTooOld:
             return "This needs iOS 17.4 or later. Update the iPhone in Settings ▸ General ▸ Software Update."
         }

@@ -67,7 +67,11 @@ extension AppModel {
                                      state: .failed, fix: .installHelper))
         }
 
-        if let device = selectedDevice {
+        if let device = selectedDevice, !device.isTrusted {
+            checks.append(SetupCheck(id: "device", title: "iPhone connected & trusted",
+                                     detail: "An iPhone is plugged in, but it hasn't been trusted yet. Unlock it and tap Trust, then enter its passcode.",
+                                     state: .warning, fix: .connectionHelp))
+        } else if let device = selectedDevice {
             checks.append(SetupCheck(id: "device", title: "iPhone connected & trusted",
                                      detail: "\(device.deviceName) · \(device.modelName) · iOS \(device.productVersion)",
                                      state: .ok))
@@ -117,7 +121,17 @@ extension AppModel {
         switch fix {
         case .installHelper: HelperInstaller.shared.install()
         case .revealDeveloperMode: revealDeveloperMode()
-        case .connectionHelp: showConnectionHelp = true
+        case .connectionHelp:
+            // A sheet can't open on top of the Welcome sheet: close that first.
+            if showWelcome {
+                showWelcome = false
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(450))
+                    AppModel.shared.showConnectionHelp = true
+                }
+            } else {
+                showConnectionHelp = true
+            }
         }
     }
 

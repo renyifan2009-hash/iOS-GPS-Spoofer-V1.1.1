@@ -1,3 +1,4 @@
+import AppKit
 import SpooferCore
 import SwiftUI
 
@@ -11,6 +12,8 @@ struct WelcomeView: View {
     var body: some View {
         VStack(spacing: 0) {
             WelcomeHero(shown: shown)
+            // The middle scrolls, so the buttons below stay on screen on a 13-inch Mac.
+            ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(spacing: 10) {
                     feature(symbol: "mappin.and.ellipse", colors: TileColors.red, title: "Teleport",
@@ -47,6 +50,7 @@ struct WelcomeView: View {
                 .stagger(shown, order: 8)
             }
             .padding(24)
+            }
 
             Divider()
             HStack(spacing: 10) {
@@ -73,11 +77,16 @@ struct WelcomeView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 16)
         }
-        .frame(width: 720)
+        .frame(width: 720, height: Self.sheetHeight)
         .task {
             if model.developerModeEnabled == nil { model.checkDeveloperMode() }
         }
         .onAppear { shown = true }
+    }
+
+    /// Tall enough for everything on a big screen; shorter on a small one, where the middle scrolls.
+    private static var sheetHeight: CGFloat {
+        min(790, (NSScreen.main?.visibleFrame.height ?? 900) - 90)
     }
 
     private func feature(symbol: String, colors: [Color], title: String, text: String) -> some View {

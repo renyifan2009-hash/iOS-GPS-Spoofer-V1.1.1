@@ -49,6 +49,10 @@ public struct Device: Codable, Identifiable, Hashable, Sendable {
     /// `com.apple.dt.simulatelocation` service instead of the CoreDevice tunnel.
     public var isLegacy: Bool { majorVersion > 0 && majorVersion < 17 }
 
+    /// An iPhone that hasn't been trusted yet reports little more than its UDID, so its model and
+    /// version are unknown (`"unknown"` and `"0"`). Nothing works until the person taps Trust.
+    public var isTrusted: Bool { majorVersion > 0 && productType != "unknown" }
+
     /// Minor iOS version, e.g. `4` for `"17.4.1"` (0 when unknown).
     public var minorVersion: Int {
         let parts = productVersion.split(separator: ".")

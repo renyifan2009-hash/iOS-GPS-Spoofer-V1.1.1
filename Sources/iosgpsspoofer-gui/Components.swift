@@ -405,6 +405,7 @@ struct SetupCheckRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(check.title).font(.system(size: 13, weight: .semibold))
                 Text(check.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if check.fix == .installHelper { helperProgress }
             }
             Spacer(minLength: 0)
             if let fix = check.fix {
@@ -418,5 +419,30 @@ struct SetupCheckRow: View {
             }
         }
         .animation(.easeOut(duration: 0.25), value: check.state)
+    }
+
+    /// What the helper installer is doing or why it stopped, in the row, where the person is looking.
+    /// (A failure used to show only in the Activity log, so Install seemed to do nothing.)
+    @ViewBuilder
+    private var helperProgress: some View {
+        let installer = HelperInstaller.shared
+        switch installer.phase {
+        case .working(let step):
+            Text(installer.detail.isEmpty ? step : "\(step) — \(installer.detail)")
+                .font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+        case .needsDeveloperTools:
+            VStack(alignment: .leading, spacing: 4) {
+                Text("The helper needs Python, which comes with Apple's developer tools. Install those first, then click Install again.")
+                    .font(.caption).foregroundStyle(Brand.warning).fixedSize(horizontal: false, vertical: true)
+                Button("Install Developer Tools") { installer.installDeveloperTools() }
+                    .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
+            }
+        case .failed(let message):
+            Text("The install stopped: \(message)")
+                .font(.caption).foregroundStyle(Brand.warning).fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        case .idle, .finished:
+            EmptyView()
+        }
     }
 }
