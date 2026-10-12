@@ -23,6 +23,20 @@ public struct RoutePoint: Sendable, Equatable {
 /// play` replays (the classic engine and the CLI), plus shareable GPX exports.
 public enum RouteBuilder {
 
+    /// The `creator` written into every GPX file this app makes.
+    public static let gpxCreator = "AnyWhere"
+    /// Creators of files written before the app was called AnyWhere. They are
+    /// still ours, so their editable waypoints are still preferred on import.
+    static let legacyGPXCreators = ["iosgpsspoof"]
+    /// What a track is called when nothing else names it.
+    public static let defaultTrackName = "AnyWhere route"
+
+    /// True when a GPX file's `creator` says this app (or its old name) wrote it.
+    static func isOwnExport(creator: String?) -> Bool {
+        guard let creator = creator?.lowercased() else { return false }
+        return ([gpxCreator] + legacyGPXCreators).contains { creator.hasPrefix($0.lowercased()) }
+    }
+
     public static func distance(_ a: GeoPoint, _ b: GeoPoint) -> Double { Geo.distance(a, b) }
 
     public static func totalDistance(_ waypoints: [GeoPoint]) -> Double { Geo.length(of: waypoints) }
@@ -154,7 +168,7 @@ public enum RouteBuilder {
     /// GPX 1.1 track. `pymobiledevice3` paces between points using the gaps
     /// between their `<time>` stamps, so the absolute base time is irrelevant.
     public static func gpx(_ points: [RoutePoint],
-                           name: String = "iosgpsspoof route",
+                           name: String = defaultTrackName,
                            base: Date = Date(timeIntervalSince1970: 1_700_000_000)) -> String {
         let iso = ISO8601DateFormatter()
         // Fractional seconds so sub-second point spacing paces smoothly in
@@ -169,7 +183,7 @@ public enum RouteBuilder {
         }
         return """
         <?xml version="1.0" encoding="UTF-8"?>
-        <gpx version="1.1" creator="iosgpsspoof" xmlns="http://www.topografix.com/GPX/1/1">
+        <gpx version="1.1" creator="\(gpxCreator)" xmlns="http://www.topografix.com/GPX/1/1">
          <trk><name>\(xmlEscape(name))</name><trkseg>
         \(body) </trkseg></trk>
         </gpx>
@@ -181,7 +195,7 @@ public enum RouteBuilder {
     public static func exportGPX(name: String, waypoints: [GeoPoint], track: [GeoPoint]? = nil) -> String {
         var xml = """
         <?xml version="1.0" encoding="UTF-8"?>
-        <gpx version="1.1" creator="iosgpsspoof" xmlns="http://www.topografix.com/GPX/1/1">
+        <gpx version="1.1" creator="\(gpxCreator)" xmlns="http://www.topografix.com/GPX/1/1">
          <metadata><name>\(xmlEscape(name))</name></metadata>
          <rte><name>\(xmlEscape(name))</name>
 
@@ -202,9 +216,9 @@ public enum RouteBuilder {
     }
 
     /// Write a timed track to a temp file, returning its URL. Caller deletes it.
-    public static func writeGPX(_ points: [RoutePoint], name: String = "iosgpsspoof route") throws -> URL {
+    public static func writeGPX(_ points: [RoutePoint], name: String = defaultTrackName) throws -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("iosgpsspoof-route-\(UUID().uuidString).gpx")
+            .appendingPathComponent("anywhere-route-\(UUID().uuidString).gpx")
         try gpx(points, name: name).write(to: url, atomically: true, encoding: .utf8)
         return url
     }
