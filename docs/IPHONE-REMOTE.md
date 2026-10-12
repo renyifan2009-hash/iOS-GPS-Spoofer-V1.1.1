@@ -75,7 +75,7 @@ Sources/
 Tests/SpooferRemoteTests/             # parser, pairing, routing, IP filter tests
 iPhoneRemote/
   project.yml                         # XcodeGen spec; stamps the repo VERSION into BuildVersion.swift at build time
-  AnyWhere/
+  SpoofRemote/                        # the app's source folder; its product is AnyWhere.app
     SpoofRemoteApp.swift              # @main
     ContentView.swift                 # map + status + controls
     MapSearchView.swift               # MKLocalSearchCompleter / MKLocalSearch
@@ -213,7 +213,7 @@ open SpoofRemote.xcodeproj
 library the iPhone-only mode uses (about 210 MB, once). It checks the download
 against a pinned SHA-256 and puts it in `iPhoneRemote/Vendor/`.
 
-Select the **AnyWhere** target ▸ *Signing & Capabilities* ▸ choose your
+Select the **SpoofRemote** target (it builds AnyWhere.app) ▸ *Signing & Capabilities* ▸ choose your
 **Team**, pick your iPhone as the run destination, and press **⌘R**.
 
 ### Option B: by hand in Xcode
@@ -223,10 +223,10 @@ Select the **AnyWhere** target ▸ *Signing & Capabilities* ▸ choose your
 2. Delete the template's `ContentView.swift`, `SpoofRemoteApp.swift` and
    `Assets.xcassets` (Move to Trash).
 3. Drag everything in `iPhoneRemote/SpoofRemote/` into the project navigator
-   (*Copy items if needed* off, *Create groups*, target **AnyWhere** ticked).
+   (*Copy items if needed* off, *Create groups*, target **SpoofRemote** ticked).
 4. **File ▸ Add Package Dependencies… ▸ Add Local…**, choose the repository
    folder (the one with `Package.swift`), and add the **RemoteAPI** and
-   **PhoneOnlyCore** libraries to the AnyWhere target.
+   **PhoneOnlyCore** libraries to the SpoofRemote target.
 5. Run `iPhoneRemote/scripts/fetch-idevice.sh`, then drag
    `iPhoneRemote/Vendor/IDevice.xcframework` into the project and add it to
    the target under *Frameworks, Libraries, and Embedded Content* with

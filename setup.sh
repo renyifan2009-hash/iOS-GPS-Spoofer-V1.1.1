@@ -303,6 +303,13 @@ self_test_app() {
     warn "Skipping the start-up test (SPOOFER_SKIP_SELF_TEST=1)."
     return 0
   fi
+  # An app can't open without a desktop session (over SSH, say). That is not a crash, so say so and go on.
+  local session
+  session="$(launchctl managername 2>/dev/null || true)"
+  if [ -n "$session" ] && [ "$session" != Aqua ]; then
+    warn "This isn't a desktop session ($session), so the start-up test was skipped."
+    return 0
+  fi
   out="$(mktemp "${TMPDIR:-/tmp}/anywhere-selftest.XXXXXX")"
   ANYWHERE_SELF_TEST=1 ANYWHERE_SELF_TEST_SECONDS=5 "$exe" >"$out" 2>&1 </dev/null &
   pid=$!
@@ -386,7 +393,8 @@ install_app() {
     fail "Couldn't replace the existing app at $DEST." "Close it, or ask an administrator if the folder isn't yours."
   fi
   if ! mv "$staging" "$DEST" 2>>"$LOG"; then
-    [ -e "$backup" ] && mv "$backup" "$DEST" 2>/dev/null
+    # Under set -e a failing last command would stop here: put the old copy back if we can, then report.
+    if [ -e "$backup" ]; then mv "$backup" "$DEST" 2>/dev/null || true; fi
     rm -rf "$staging"
     fail "Couldn't put the new app in place. The previous copy was put back."
   fi

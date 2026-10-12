@@ -153,7 +153,7 @@ final class Updater {
             process.standardOutput = log
             process.standardError = log
         }
-        process.terminationHandler = { _ in
+        process.terminationHandler = { @Sendable _ in
             // On success the installer quits this app, so if this app is still here, the update
             // did not finish, whatever the exit status says. The log says why.
             let reason = InstallLog.failureHeadline(inFileAt: logURL)

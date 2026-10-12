@@ -211,7 +211,7 @@ activity log.
   background, which quits the app, replaces it and opens the new one. Output
   goes to `~/Library/Logs/AnyWhere/update.log`.
 - **An old AnyWhere.** AnyWhere doesn't update itself, so when an iPhone
-  is plugged in, and after File ▸ Save iPhone Pairing File…, the Mac reads
+  is plugged in, and after File ▸ Pairing File for the iPhone App…, the Mac reads
   which AnyWhere (`com.iosgpsspoof.remote`) is on it with `apps list` (over
   lockdown, no tunnel) and, if it's older than this code expects, shows a
   banner with a button to the releases page. Not installed, or a failed read,
@@ -220,7 +220,7 @@ activity log.
   `iPhoneRemote/project.yml`. See [PHONE-ONLY.md](PHONE-ONLY.md#keeping-the-two-apps-in-step).
 - **Unplugged.** If the iPhone disappears mid-session, the status says
   "Unplugged" and the session waits for it, without clearing anything.
-- **iPhone-only mode.** File ▸ Save iPhone Pairing File… saves the selected
+- **iPhone-only mode.** File ▸ Pairing File for the iPhone App… (the pairing assistant) saves the selected
   iPhone's pairing file and opens AirDrop with it. The file holds the lockdown
   pairing record (saved after turning on lockdown's network connections) and
   a Remote Pairing identity made over USB, which newer iOS versions need. If
@@ -428,7 +428,7 @@ SPOOFER_SNAPSHOT=1 SPOOFER_DEMO=route \
 | `SPOOFER_WINDOW_SIZE` | The main window's size, like `1040x692` for a 13-inch laptop. The window otherwise remembers its last size. |
 | `SPOOFER_APPEARANCE` | `dark` or `light`. |
 | `FAKE_PMD_DEVMODE=false`, `FAKE_PMD_NO_DEVICE=1`, `FAKE_PMD_FAIL_SET=1`, `FAKE_PMD_IOS=17.5` | Pretend Developer Mode is off, no iPhone is plugged in, setting the location fails, or a different iOS version (the default, 16.7.10, makes the app send every move itself). |
-| `PYTHONPATH="$PWD/Tests/Fixtures/fake-site"`, `FAKE_PMD_RP=fresh` | For File ▸ Save iPhone Pairing File…: a stand-in for pymobiledevice3's library, so the file gets its Remote Pairing identity, and what the pretend iPhone does when asked for one (`paired`, `fresh`, `never`, `locked`, `bare`, `missing`). |
+| `PYTHONPATH="$PWD/Tests/Fixtures/fake-site"`, `FAKE_PMD_RP=fresh` | For File ▸ Pairing File for the iPhone App…: a stand-in for pymobiledevice3's library, so the file gets its Remote Pairing identity, and what the pretend iPhone does when asked for one (`paired`, `fresh`, `never`, `locked`, `bare`, `missing`). |
 | `FAKE_PMD_SPOOFREMOTE=current\|old\|none\|fail` | What `apps list` reports for AnyWhere on the pretend iPhone: the current build, an old one, none installed, or a failed read. Drives the old-SpoofRemote warning. |
 
 MapKit doesn't draw map tiles in a window that other windows cover, so local
@@ -440,15 +440,24 @@ screenshots CI uploads include the map.
 | Job | Checks |
 |---|---|
 | Python helpers | the live helper and the pairing script against pymobiledevice3 11.0.0 and the latest release (Linux) |
-| Build & test · macOS | Xcode 16: build, unit tests, the app playing a route and a joystick session on the pretend iPhone, screenshots of five scenes (artifact `app-screenshots`), the helper as compiled into the binary, a CLI smoke test, and a DMG artifact |
-| Build · Xcode 26 | the Liquid Glass code path, build and tests |
-| Build · swift.org toolchain + macOS 15 SDK | a new Swift with an old SDK, as on a tester's Mac where the build once broke |
-| Installer · clean Mac | `./setup.sh`, the installed app finding its helper from `/`, running it again to update, the piped `install.sh`, and `--uninstall` |
-| Build · AnyWhere | the iPhone app for the simulator, with idevice (fetched, checked against its SHA-256, and cached), and for iPhones as the unsigned `SpoofRemote.ipa` testers install |
+| Build & test · macOS | Xcode 16: build, unit tests, the app playing a route and a joystick session on the pretend iPhone, screenshots of five scenes (artifact `app-screenshots`), the helper as compiled into the binary, a CLI smoke test, a DMG artifact, and the **launch self-test** on the packaged app and on the app copied out of the DMG |
+| Build · Xcode 26 | the Liquid Glass code path, build and tests, and the launch self-test |
+| Build · swift.org toolchain + macOS 15 SDK | a new Swift with an old SDK, as on a tester's Mac where the build once broke: it builds **and starts the app** |
+| Installer · clean Mac | `./setup.sh` (which starts the new app once before installing it), the installed app finding its helper from `/`, running it again to update, the piped `install.sh`, and `--uninstall` |
+| Build · AnyWhere iPhone app | the iPhone app for the simulator, with idevice (fetched, checked against its SHA-256, and cached), and for iPhones as the unsigned `AnyWhere.ipa` testers install |
+| GitHub Release | only for a pushed tag `v*`, after every job above passed: publishes the DMG, `AnyWhere.ipa` and `SHA256SUMS.txt` |
+
+The **launch self-test** is `ANYWHERE_SELF_TEST=1 AnyWhere.app/Contents/MacOS/AnyWhere`: the real app
+with no Dock icon, no focus and no alerts, which prints `SELF-TEST-OK` after a few seconds and quits 0.
+A crash ends the process with a signal instead. `setup.sh`, the in-app update and CI all use it so a
+build that cannot start never replaces one that can.
 
 The DMG and the `.ipa` are uploaded as artifacts. A build says which run made
-it (`2.3.0-ci.45`). For a release, run the workflow by hand on `main` with
-**release_build** ticked: that DMG carries the plain version.
+it (`2.3.0-ci.45`). To publish a release, push a tag that matches `VERSION`
+(`git tag v2.4.0 && git push origin v2.4.0`); the release job checks that, builds
+nothing new, and attaches the artifacts. The DMG of a tag build, or of a run started by
+hand with **release_build** ticked, carries the plain version and is stamped
+`SpooferChannel=release`, so that app updates from releases instead of rebuilding.
 
 ## Project layout
 
