@@ -64,9 +64,17 @@ public enum CurveSpeeds {
             return nil
         }
 
-        for i in 1..<(n - 1) {
-            guard let before = neighbour(of: i, step: -1), let after = neighbour(of: i, step: 1),
-                  let v = speed(at: i, distance: path.cumulative[i], before: before, after: after) else { continue }
+        // The points that aren't on top of the one before. A logger left running repeats
+        // one spot thousands of times, and looking past all the repeats for each repeat's
+        // neighbours is quadratic: the corners are found among these instead.
+        var distinct = [0]
+        for i in 1..<n where Geo.distance(points[i], points[distinct[distinct.count - 1]]) > 0.5 {
+            distinct.append(i)
+        }
+        for k in distinct.indices.dropFirst().dropLast() {
+            let i = distinct[k]
+            guard let v = speed(at: i, distance: path.cumulative[i], before: distinct[k - 1],
+                                after: distinct[k + 1]) else { continue }
             let s = path.cumulative[i]
             // Points of one bend: keep the slowest.
             if let last = limits.last, s - last.distance < 15 {
