@@ -49,6 +49,19 @@ extension AppModel {
     /// Show the Re-center button: there's a dot, and the map isn't on it.
     var canRecenter: Bool { session != nil && devicePosition != nil && !isFollowingDevice }
 
+    /// Right-click actions that can't run now, and why. The place comes from the click, so a
+    /// missing destination never blocks them.
+    var blockedMapActions: [MapContextAction: String] {
+        var blocked: [MapContextAction: String] = [:]
+        if let reason = startIssue(for: .teleport, hasDestination: true)?.menuReason {
+            blocked[.teleportHere] = reason
+        }
+        if let reason = startIssue(for: .joystick, hasDestination: true)?.menuReason {
+            blocked[.joystickHere] = reason
+        }
+        return blocked
+    }
+
     func pinDragged(_ id: UUID, to point: GeoPoint) {
         if id == Self.targetPinID {
             setTarget(point)
@@ -230,6 +243,7 @@ struct MainView: View {
             coveredInsets: NSEdgeInsets(top: 70, left: 0, bottom: bottomPanelsHeight, right: 0),
             roadMarkers: model.roadMarkers,
             contextActions: [.teleportHere, .setTarget, .addWaypoint, .joystickHere, .addFavorite, .copyCoordinates],
+            blockedContextActions: model.blockedMapActions,
             onClick: { model.mapClicked($0) },
             onDragPin: { id, point in model.pinDragged(id, to: point) },
             onContextAction: { action, point in model.performContextAction(action, at: point) },
@@ -272,6 +286,9 @@ struct ModeSwitcher: View {
                 }
                 .buttonStyle(.plain)
                 .help(help(for: item))
+                .accessibilityLabel(item.label)
+                .accessibilityHint(help(for: item))
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
         .padding(3)
@@ -343,6 +360,7 @@ struct SearchBar: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
+                    .accessibilityLabel("Clear search")
                 } else {
                     Text("⌘F")
                         .font(.system(size: 10.5, weight: .semibold, design: .rounded))
@@ -362,6 +380,10 @@ struct SearchBar: View {
                         suggestionRow(suggestion, highlighted: index == search.highlighted)
                             .onTapGesture { choose(index) }
                             .onHover { inside in if inside { search.highlighted = index } }
+                            // A tap gesture is not a button to VoiceOver: say so, and what it does.
+                            .accessibilityElement(children: .combine)
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { choose(index) }
                     }
                 }
                 .padding(6)
@@ -460,6 +482,8 @@ struct MapControls: View {
             .menuIndicator(.hidden)
             .frame(width: 32, height: 32)
             .help("Map style")
+            .accessibilityLabel("Map style")
+            .accessibilityValue(prefs.mapStyle.label)
 
             Button {
                 model.fitMap()
@@ -468,6 +492,7 @@ struct MapControls: View {
             }
             .buttonStyle(CircleIconButtonStyle())
             .help("Fit the map to what matters (⌘0)")
+            .accessibilityLabel("Fit the map")
 
             Button {
                 if model.isFollowingDevice { model.stopFollowingDevice() } else { model.recenterOnDevice() }
@@ -479,6 +504,7 @@ struct MapControls: View {
             .disabled(model.session == nil || model.devicePosition == nil)
             .help(following ? "Following your iPhone. Click to stop (⌘L)"
                             : "Re-center on your iPhone and follow it (⌘L)")
+            .accessibilityLabel(following ? "Stop following your iPhone" : "Follow your iPhone")
         }
         .padding(5)
         .glassPanel(cornerRadius: 22)
@@ -522,9 +548,9 @@ struct Banners: View {
             if let device = model.selectedDevice, model.developerModeEnabled == false, model.session == nil {
                 banner(icon: "hammer.fill", colors: TileColors.orange,
                        text: "Developer Mode is off on \(device.deviceName).") {
-                    Button("Show on iPhone") { model.revealDeveloperMode() }
+                    Button("Show the Switch") { model.revealDeveloperMode() }
                         .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
-                        .help("Make the Developer Mode switch appear in the iPhone's Settings ▸ Privacy & Security")
+                        .help("The Developer Mode switch is hidden on a new iPhone. This makes it appear in the iPhone's Settings ▸ Privacy & Security")
                     Button("How to turn it on") { model.showConnectionHelp = true }
                         .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
                 }
@@ -627,8 +653,11 @@ struct ConnectCard: View {
                 IconTile(symbol: "iphone", colors: TileColors.brand, size: 58)
             }
             VStack(spacing: 6) {
-                Text("Connect your iPhone").font(Brand.title(24))
-                Text("Plug it into this Mac with a USB cable, unlock it and tap **Trust**. It appears here automatically.")
+                // If the helper itself can't list iPhones, the cable is not the thing to check.
+                Text(model.deviceListError == nil ? "Connect your iPhone" : "Can't look for iPhones").font(Brand.title(24))
+                Text(LocalizedStringKey(model.deviceListError == nil
+                     ? "Plug it into this Mac with a USB cable, unlock it and tap **Trust**. It appears here automatically."
+                     : "The helper tool didn't answer. Install it again below, then plug in your iPhone."))
                     .font(.callout)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
@@ -678,7 +707,7 @@ struct SetupCard: View {
             status
 
             HStack {
-                Button("Choose pymobiledevice3…") { model.choosePymobiledevice3() }
+                Button("Choose the Helper…") { model.choosePymobiledevice3() }
                     .buttonStyle(BrandButtonStyle(kind: .secondary, large: false))
                     .help("Already installed it yourself? Pick the pymobiledevice3 program.")
                 Spacer()
@@ -721,12 +750,12 @@ struct SetupCard: View {
         case .needsDeveloperTools:
             Label("This Mac needs Apple's Command Line Tools first. They're free and include Python. Click Install Developer Tools, follow Apple's installer, then click Install again.",
                   systemImage: "info.circle.fill")
-                .font(.callout).foregroundStyle(Brand.warning)
+                .font(.callout).foregroundStyle(Brand.warningText)
                 .fixedSize(horizontal: false, vertical: true)
         case .failed(let message):
             VStack(alignment: .leading, spacing: 6) {
                 Label("That didn't work.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout.weight(.medium)).foregroundStyle(Brand.danger)
+                    .font(.callout.weight(.medium)).foregroundStyle(Brand.dangerText)
                 Text(message).font(.caption.monospaced()).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .lineLimit(6)

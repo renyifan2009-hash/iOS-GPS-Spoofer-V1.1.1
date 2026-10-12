@@ -49,7 +49,7 @@ struct SidebarView: View {
         List(selection: $model.selectedUDID) {
             Section {
                 if model.sidebarDevices.isEmpty {
-                    NoDeviceRow(searching: !model.hasRefreshedOnce)
+                    NoDeviceRow(state: model.sidebarEmptyState)
                 }
                 ForEach(model.sidebarDevices) { row in
                     DeviceRow(device: row.device, connected: row.connected,
@@ -65,12 +65,14 @@ struct SidebarView: View {
                         ProgressView().controlSize(.mini)
                     } else {
                         Button {
-                            Task { await model.refresh() }
+                            // With no helper there is nothing to scan with: say so, don't do nothing.
+                            if model.pmd == nil { model.explain(.helperMissing) } else { Task { await model.refresh() } }
                         } label: {
                             Image(systemName: "arrow.clockwise")
                         }
                         .buttonStyle(.borderless)
                         .help("Rescan for devices (also automatic every \(Int(prefs.autoRefreshInterval)) s)")
+                        .accessibilityLabel("Rescan for devices")
                     }
                 }
             }
@@ -95,7 +97,7 @@ struct SidebarView: View {
                             Button("Rename…") { model.renameFavorite(place) }
                             Button("Copy Coordinates") { model.copyCoordinates(place.point) }
                             Divider()
-                            Button("Remove from Favorites", role: .destructive) { library.removeFavorite(place.id) }
+                            Button("Remove from Favorites", role: .destructive) { model.removeFavoriteWithUndo(place) }
                         }
                         .help("Click to select · double-click to teleport")
                 }
@@ -136,20 +138,17 @@ struct SidebarView: View {
                 ForEach(library.routes) { route in
                     RouteRow(route: route, units: prefs.units, isLoaded: model.savedRouteID == route.id)
                         .contentShape(Rectangle())
-                        .onTapGesture { model.loadSavedRoute(route) }
+                        .onTapGesture { model.requestLoadSavedRoute(route) }
                         .contextMenu {
-                            Button("Load") { model.loadSavedRoute(route) }
-                            Button("Load & Start") {
-                                model.loadSavedRoute(route)
-                                model.startRoute()
-                            }
+                            Button("Load") { model.requestLoadSavedRoute(route) }
+                            Button("Load & Start") { model.requestLoadSavedRoute(route, thenStart: true) }
                             Divider()
                             Button("Rename…") { model.renameSavedRoute(route) }
                             Button("Export GPX…") {
                                 model.exportRoute(name: route.name, waypoints: route.waypoints, track: nil)
                             }
                             Divider()
-                            Button("Delete", role: .destructive) { model.deleteSavedRoute(route) }
+                            Button("Delete…", role: .destructive) { model.requestDeleteSavedRoute(route) }
                         }
                 }
             }
@@ -179,6 +178,7 @@ struct SidebarFooter: View {
             }
             .buttonStyle(.borderless)
             .help("Setup checklist")
+            .accessibilityLabel("Setup checklist")
             Button {
                 model.openPairingFileAssistant()
             } label: {
@@ -186,11 +186,13 @@ struct SidebarFooter: View {
             }
             .buttonStyle(.borderless)
             .help("Pairing file for the iPhone app (⇧⌘K)")
+            .accessibilityLabel("Pairing file for the iPhone app")
             SettingsLink {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
             .help("Settings (⌘,)")
+            .accessibilityLabel("Settings")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -235,7 +237,7 @@ struct DeviceRow: View {
                     PulsingDot(color: status.tint, size: 6, active: status.live)
                     Text(status.title.uppercased())
                         .font(.system(size: 9, weight: .bold, design: .rounded))
-                        .foregroundStyle(status.tint)
+                        .foregroundStyle(status.labelTint)
                 }
             }
         }
@@ -244,16 +246,30 @@ struct DeviceRow: View {
     }
 }
 
+/// What the Devices list says with no iPhone in it. The words depend on why: the helper isn't
+/// installed (nothing was looked for), the helper can't list iPhones, or there just isn't one.
 struct NoDeviceRow: View {
-    let searching: Bool
+    let state: SidebarEmptyState
     @State private var showHelp = false
 
     var body: some View {
         HStack(spacing: 8) {
-            if searching {
+            switch state {
+            case .searching:
                 ProgressView().controlSize(.small)
                 Text("Looking for devices…").foregroundStyle(.secondary)
-            } else {
+            case .helperMissing:
+                IconTile(symbol: "wrench.and.screwdriver.fill", colors: TileColors.orange, size: 22)
+                Text("Install the helper first").foregroundStyle(.secondary)
+                    .help("The card on the map has an Install button.")
+            case .listFailed(let message):
+                IconTile(symbol: "exclamationmark.triangle.fill", colors: TileColors.orange, size: 22)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Can't look for iPhones").foregroundStyle(.secondary)
+                    Text(message).font(.caption2).foregroundStyle(.tertiary).lineLimit(2)
+                }
+                .help(message)
+            case .noIPhone:
                 IconTile(symbol: "iphone.slash", colors: TileColors.gray, size: 22)
                 Text("No iPhone connected").foregroundStyle(.secondary)
                 Spacer()
@@ -263,6 +279,7 @@ struct NoDeviceRow: View {
                     Image(systemName: "questionmark.circle")
                 }
                 .buttonStyle(.borderless)
+                .help("How to connect an iPhone")
                 .popover(isPresented: $showHelp, arrowEdge: .trailing) { ConnectionHelp().padding(18).frame(width: 360) }
             }
         }
@@ -289,8 +306,8 @@ struct ConnectionHelp: View {
             Text("Connect your iPhone").font(Brand.title(17))
             step(1, "cable.connector", "Use a USB **data** cable, plugged straight into the Mac (not a hub).")
             step(2, "hand.tap", "Unlock the iPhone, tap **Trust**, and enter your passcode.")
-            step(3, "hammer", "Turn on **Developer Mode**: Settings ▸ Privacy & Security ▸ Developer Mode. The phone restarts — confirm with **Turn On**.")
-            step(4, "lock.open", "Keep it unlocked for the first run, while the developer disk image is mounted (needs internet once).")
+            step(3, "hammer", "Turn on **Developer Mode**: Settings ▸ Privacy & Security ▸ Developer Mode. The iPhone restarts. Confirm with **Turn On**. Don't see the switch? Click **Show the Switch** in AnyWhere, then look again.")
+            step(4, "lock.open", "Keep the iPhone unlocked and this Mac online the first time you teleport. AnyWhere sets up Apple's developer support then. It needs the internet once.")
             Text("Wi-Fi works too once the phone has been paired over USB: Finder ▸ your iPhone ▸ “Show this iPhone when on Wi-Fi”.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

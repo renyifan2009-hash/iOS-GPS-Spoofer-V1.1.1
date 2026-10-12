@@ -2,29 +2,7 @@ import AppKit
 import Foundation
 import SpooferCore
 
-/// One line of the setup checklist (welcome sheet, connect card).
-struct SetupCheck: Identifiable, Equatable {
-    enum State: Equatable { case ok, pending, warning, failed }
-    /// A button on the row that fixes the problem.
-    enum Fix: Equatable {
-        case installHelper
-        case revealDeveloperMode
-        case connectionHelp
-
-        var label: String {
-            switch self {
-            case .installHelper: return "Install"
-            case .revealDeveloperMode: return "Show on iPhone"
-            case .connectionHelp: return "Help"
-            }
-        }
-    }
-    let id: String
-    let title: String
-    let detail: String
-    let state: State
-    var fix: Fix? = nil
-}
+// `SetupCheck` and the checklist rules are in Logic/SetupChecklist.swift (unit tested).
 
 extension AppModel {
 
@@ -34,12 +12,21 @@ extension AppModel {
     func showToast(_ toast: Toast, duration: TimeInterval = 2.8) {
         toastTask?.cancel()
         self.toast = toast
+        // A note that fades by itself is gone before VoiceOver would reach it: say it out loud.
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: [toast.title, toast.subtitle].compactMap { $0 }.joined(separator: ". "),
+                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
         let id = toast.id
         toastTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(duration * 1000)))
             guard !Task.isCancelled, let self, self.toast?.id == id else { return }
             self.toast = nil
         }
+    }
+
+    func dismissToast() {
+        toastTask?.cancel()
+        toast = nil
     }
 
     func teleportToast(_ point: GeoPoint, name: String?) -> Toast {
@@ -54,67 +41,48 @@ extension AppModel {
         UserDefaults.standard.set(true, forKey: StateKey.welcomed)
     }
 
-    /// Live checklist of everything needed to spoof.
+    /// Live checklist of everything needed to spoof (the rows and their words are in
+    /// Logic/SetupChecklist.swift).
     var setupChecks: [SetupCheck] {
-        var checks: [SetupCheck] = []
+        SetupChecklist.checks(setupInputs)
+    }
 
-        if pmd != nil {
-            checks.append(SetupCheck(id: "tool", title: "Helper tool installed",
-                                     detail: "pymobiledevice3 \(pymobiledevice3Version ?? "found")", state: .ok))
-        } else {
-            checks.append(SetupCheck(id: "tool", title: "Helper tool installed",
-                                     detail: "pymobiledevice3 isn't installed yet. Click Install (about a minute).",
-                                     state: .failed, fix: .installHelper))
+    var setupInputs: SetupInputs {
+        let phone = selectedDevice.map {
+            SetupInputs.IPhone(name: $0.deviceName, model: $0.modelName, iOS: $0.productVersion, trusted: $0.isTrusted)
         }
-
-        if let device = selectedDevice, !device.isTrusted {
-            checks.append(SetupCheck(id: "device", title: "iPhone connected & trusted",
-                                     detail: "An iPhone is plugged in, but it hasn't been trusted yet. Unlock it and tap Trust, then enter its passcode.",
-                                     state: .warning, fix: .connectionHelp))
-        } else if let device = selectedDevice {
-            checks.append(SetupCheck(id: "device", title: "iPhone connected & trusted",
-                                     detail: "\(device.deviceName) · \(device.modelName) · iOS \(device.productVersion)",
-                                     state: .ok))
-        } else if !hasRefreshedOnce || pmd == nil {
-            checks.append(SetupCheck(id: "device", title: "iPhone connected & trusted",
-                                     detail: "Looking for devices…", state: .pending))
-        } else {
-            checks.append(SetupCheck(id: "device", title: "iPhone connected & trusted",
-                                     detail: "Plug it in with a data cable, unlock it and tap Trust.", state: .failed,
-                                     fix: .connectionHelp))
-        }
-
-        switch (selectedDevice, developerModeEnabled) {
-        case (nil, _):
-            checks.append(SetupCheck(id: "devmode", title: "Developer Mode on",
-                                     detail: "Checked once an iPhone is connected.", state: .pending))
-        case (_, true?):
-            checks.append(SetupCheck(id: "devmode", title: "Developer Mode on", detail: "Enabled", state: .ok))
-        case (_, false?):
-            checks.append(SetupCheck(id: "devmode", title: "Developer Mode on",
-                                     detail: "On the iPhone: Settings ▸ Privacy & Security ▸ Developer Mode. It restarts; then tap Turn On.",
-                                     state: .failed, fix: .revealDeveloperMode))
-        case (_, nil):
-            checks.append(SetupCheck(id: "devmode", title: "Developer Mode on",
-                                     detail: "Couldn't check yet — it's verified when you start.", state: .warning))
-        }
-
+        let engine: SetupInputs.Engine
         switch engineStatus {
-        case .checking:
-            checks.append(SetupCheck(id: "engine", title: "Instant live engine",
-                                     detail: "Checking…", state: .pending))
-        case .live(let version):
-            checks.append(SetupCheck(id: "engine", title: "Instant live engine",
-                                     detail: "Ready (pymobiledevice3 \(version)) — smooth routes & joystick", state: .ok))
-        case .classicOnly:
-            checks.append(SetupCheck(id: "engine", title: "Instant live engine",
-                                     detail: "Unavailable — using the compatible classic engine.", state: .warning))
+        case .checking: engine = .checking
+        case .live(let version): engine = .live(version: version)
+        case .classicOnly: engine = .classicOnly
         }
-        return checks
+        return SetupInputs(helperInstalled: pmd != nil, helperVersion: pymobiledevice3Version, iPhone: phone,
+                           hasLookedForDevices: hasRefreshedOnce, deviceListError: deviceListError,
+                           developerMode: developerModeEnabled,
+                           developerSupport: developerSupportState, engine: engine)
+    }
+
+    /// What the sidebar's Devices list says when it has no iPhone.
+    var sidebarEmptyState: SidebarEmptyState {
+        .resolve(helperInstalled: pmd != nil, hasLookedOnce: hasRefreshedOnce, listError: deviceListError)
     }
 
     var setupIsComplete: Bool {
-        setupChecks.allSatisfy { $0.state == .ok }
+        SetupChecklist.isComplete(setupChecks)
+    }
+
+    /// How Apple's developer support stands on the selected iPhone, from what the session says.
+    var developerSupportState: DeveloperSupportState {
+        var connecting: String?
+        var reconnecting: String?
+        switch sessionState {
+        case .connecting(let message): connecting = message
+        case .reconnecting(let message): reconnecting = message
+        default: break
+        }
+        let ready = selectedUDID.map { developerSupportReady.contains($0) } ?? false
+        return .resolve(connecting: connecting, reconnecting: reconnecting, ready: ready)
     }
 
     func performFix(_ fix: SetupCheck.Fix) {

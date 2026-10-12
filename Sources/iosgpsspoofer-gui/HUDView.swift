@@ -142,6 +142,7 @@ struct HUDView: View {
                 }
                 .buttonStyle(CircleIconButtonStyle(size: 30))
                 .help(model.isPaused ? "Resume (⇧⌘P)" : "Pause (⇧⌘P)")
+                .accessibilityLabel(model.isPaused ? "Resume the route" : "Pause the route")
             }
             if model.activity == .routing {
                 Button {
@@ -151,6 +152,7 @@ struct HUDView: View {
                 }
                 .buttonStyle(CircleIconButtonStyle(size: 30))
                 .help("Back to the start of the route")
+                .accessibilityLabel("Back to the start of the route")
             }
         }
         .fixedSize()
@@ -356,11 +358,25 @@ struct JoystickPanel: View {
                 }
                 .buttonStyle(BrandButtonStyle(kind: .primary, large: false))
                 .disabled(model.isStarting || (model.session == nil && !model.canStart))
+                // Grey with no reason looks broken: say it next to the button.
+                if let reason = whyNotReady {
+                    Text(reason)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(14)
         .frame(width: 214)
         .glassPanel(cornerRadius: 20)
+    }
+
+    /// Why the button above is grey, or why pressing it would be refused.
+    private var whyNotReady: String? {
+        if model.session != nil { return model.joystickNeedsLiveEngine ? StartIssue.needsLiveEngine.hint : nil }
+        return model.startIssue(for: .joystick)?.hint
     }
 
     private var readout: String {
@@ -437,6 +453,10 @@ struct JoystickPad: View {
         )
         .opacity(active ? 1 : 0.65)
         .help(active ? "Drag to move the device" : "Start the joystick first")
+        // A drag-only pad: VoiceOver gets a name and the keys that do the same job.
+        .accessibilityElement()
+        .accessibilityLabel("Joystick pad")
+        .accessibilityHint(active ? "Steer with the W, A, S and D keys or the arrow keys." : "Start the joystick first.")
     }
 
     private var knobOffset: CGSize {

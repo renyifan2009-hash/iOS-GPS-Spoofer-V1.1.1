@@ -75,6 +75,8 @@ struct DeviceHeader: View {
 struct TeleportSection: View {
     @Environment(AppModel.self) private var model
     @Environment(Preferences.self) private var prefs
+    private enum CoordinateField: Hashable { case latitude, longitude }
+    @FocusState private var focusedField: CoordinateField?
 
     var body: some View {
         @Bindable var model = model
@@ -108,14 +110,16 @@ struct TeleportSection: View {
                     .buttonStyle(CircleIconButtonStyle(size: 30))
                     .disabled(model.target == nil)
                     .help(model.targetIsFavorite ? "Remove from favorites" : "Add to favorites (⌘D)")
+                    .accessibilityLabel(model.targetIsFavorite ? "Remove from favorites" : "Add to favorites")
                 }
                 HStack(spacing: 10) {
-                    coordinateField("Latitude", text: $model.latitudeText)
-                    coordinateField("Longitude", text: $model.longitudeText)
+                    coordinateField("Latitude", text: $model.latitudeText, field: .latitude)
+                    coordinateField("Longitude", text: $model.longitudeText, field: .longitude)
                 }
-                if model.target == nil {
+                // Not while typing: "-" on its way to "-122.0" isn't a mistake yet.
+                if model.target == nil && focusedField == nil {
                     Label("Latitude −90…90, longitude −180…180", systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(Brand.warning)
+                        .font(.caption).foregroundStyle(Brand.warningText)
                 }
                 // Titles when they fit; just the icons in a narrow inspector.
                 ViewThatFits(in: .horizontal) {
@@ -189,7 +193,7 @@ struct TeleportSection: View {
         }
     }
 
-    private func coordinateField(_ label: String, text: Binding<String>) -> some View {
+    private func coordinateField(_ label: String, text: Binding<String>, field: CoordinateField) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label.uppercased())
                 .font(.system(size: 9.5, weight: .bold, design: .rounded))
@@ -198,6 +202,18 @@ struct TeleportSection: View {
             TextField(label, text: text)
                 .textFieldStyle(.roundedBorder)
                 .font(.body.monospacedDigit())
+                .focused($focusedField, equals: field)
+                .onSubmit { showTypedCoordinates() }
+        }
+    }
+
+    /// Return in a coordinate field: take the map there, or say what is wrong.
+    private func showTypedCoordinates() {
+        if let target = model.target {
+            model.focus(on: target)
+        } else {
+            model.warn("Check the coordinates", "Latitude is −90 to 90. Longitude is −180 to 180.",
+                       log: "Enter a valid latitude (−90…90) and longitude (−180…180).")
         }
     }
 }
@@ -235,6 +251,8 @@ struct QuickPickButton: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(preset.name)
+        .accessibilityLabel(preset.name)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var city: String {
@@ -266,7 +284,7 @@ struct RouteSection: View {
                     .disabled(model.waypoints.count < 2)
                     Divider()
                     Button("Reverse Direction") { model.reverseRoute() }.disabled(model.waypoints.count < 2)
-                    Button("Clear All Waypoints", role: .destructive) { model.clearWaypoints() }
+                    Button("Clear All Waypoints", role: .destructive) { model.requestClearWaypoints() }
                         .disabled(model.waypoints.isEmpty)
                 } label: {
                     Image(systemName: "ellipsis")
@@ -278,6 +296,7 @@ struct RouteSection: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help("Import, export, save…")
+                .accessibilityLabel("Route actions")
             }
 
             if model.waypoints.count >= 2 {
@@ -337,7 +356,7 @@ struct RouteSection: View {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Label("\(DirectionsService.Failure.legs(failed)): \(reason.shortReason)",
                                   systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption).foregroundStyle(Brand.warning)
+                                .font(.caption).foregroundStyle(Brand.warningText)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
                             if reason.isTemporary {
@@ -455,15 +474,16 @@ struct RealisticTripCard: View {
                             .fixedSize()
                     }
                 }
+                // Required credit: readable, not the faintest grey at 9.5 pt.
                 Text("Map data © OpenStreetMap contributors")
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
             }
         case .failed(let reason):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Label("Couldn't load traffic lights (\(reason)). It still stops at some junctions and tries again by itself.",
                       systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(Brand.warning)
+                    .foregroundStyle(Brand.warningText)
                 Spacer(minLength: 0)
                 Button("Try Again") { model.retryRoadData() }
                     .controlSize(.small)
@@ -529,10 +549,15 @@ struct WaypointTimeline: View {
                         HStack(spacing: 2) {
                             Button { model.moveWaypoint(id: waypoint.id, by: -1) } label: { Image(systemName: "chevron.up") }
                                 .disabled(index == 0)
+                                .help("Move up")
+                                .accessibilityLabel("Move up")
                             Button { model.moveWaypoint(id: waypoint.id, by: 1) } label: { Image(systemName: "chevron.down") }
                                 .disabled(index == count - 1)
+                                .help("Move down")
+                                .accessibilityLabel("Move down")
                             Button { model.insertMidpoint(after: waypoint.id) } label: { Image(systemName: "plus") }
                                 .help("Insert a stop after this one")
+                                .accessibilityLabel("Insert a stop after this one")
                             if waitApplies(index: index, count: count) {
                                 Menu {
                                     ForEach(Self.waitChoices, id: \.self) { seconds in
@@ -547,11 +572,14 @@ struct WaypointTimeline: View {
                                 .menuIndicator(.hidden)
                                 .fixedSize()
                                 .help("Wait here before carrying on")
+                                .accessibilityLabel("Wait here before carrying on")
                             }
                             Button { model.focus(on: waypoint.point) } label: { Image(systemName: "scope") }
                                 .help("Show on map")
+                                .accessibilityLabel("Show on map")
                             Button { model.removeWaypoint(id: waypoint.id) } label: { Image(systemName: "trash") }
                                 .help("Remove")
+                                .accessibilityLabel("Remove this stop")
                         }
                         .buttonStyle(CircleIconButtonStyle(size: 24))
                         .transition(.opacity)
@@ -568,8 +596,59 @@ struct WaypointTimeline: View {
                     }
                 }
                 .onTapGesture(count: 2) { model.focus(on: waypoint.point) }
+                // The buttons above only exist while the pointer is over the row. The same
+                // actions, always there: a right-click menu, and VoiceOver's action list.
+                .contextMenu { rowMenu(waypoint, index: index, count: count) }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel(rowDescription(waypoint, index: index, count: count))
+                .accessibilityAction(named: Text("Show on map")) { model.focus(on: waypoint.point) }
+                .accessibilityAction(named: Text("Move up"), if: index > 0) {
+                    model.moveWaypoint(id: waypoint.id, by: -1)
+                }
+                .accessibilityAction(named: Text("Move down"), if: index < count - 1) {
+                    model.moveWaypoint(id: waypoint.id, by: 1)
+                }
+                .accessibilityAction(named: Text("Insert a stop after this one")) {
+                    model.insertMidpoint(after: waypoint.id)
+                }
+                .accessibilityAction(named: Text("Wait 1 minute here"), if: waitApplies(index: index, count: count)) {
+                    model.setWait(60, forWaypoint: waypoint.id)
+                }
+                .accessibilityAction(named: Text("Wait 5 minutes here"), if: waitApplies(index: index, count: count)) {
+                    model.setWait(300, forWaypoint: waypoint.id)
+                }
+                .accessibilityAction(named: Text("No wait here"), if: waypoint.wait > 0 && waitApplies(index: index, count: count)) {
+                    model.setWait(0, forWaypoint: waypoint.id)
+                }
+                .accessibilityAction(named: Text("Remove this stop")) { model.removeWaypoint(id: waypoint.id) }
             }
         }
+    }
+
+    /// What a screen reader says for a row: "Stop 2, 37.33180, -122.03120, waits 2 min".
+    private func rowDescription(_ waypoint: Waypoint, index: Int, count: Int) -> String {
+        var text = "\(label(index, count)), \(Format.coordinate(waypoint.point, precision: 5))"
+        if waypoint.wait > 0, waitApplies(index: index, count: count) { text += ", waits \(Self.waitText(waypoint.wait))" }
+        return text
+    }
+
+    @ViewBuilder
+    private func rowMenu(_ waypoint: Waypoint, index: Int, count: Int) -> some View {
+        Button("Show on Map") { model.focus(on: waypoint.point) }
+        Button("Move Up") { model.moveWaypoint(id: waypoint.id, by: -1) }.disabled(index == 0)
+        Button("Move Down") { model.moveWaypoint(id: waypoint.id, by: 1) }.disabled(index == count - 1)
+        Button("Insert a Stop After") { model.insertMidpoint(after: waypoint.id) }
+        if waitApplies(index: index, count: count) {
+            Menu("Wait Here") {
+                ForEach(Self.waitChoices, id: \.self) { seconds in
+                    Button(seconds == 0 ? "No Wait" : "Wait \(Self.waitText(seconds))") {
+                        model.setWait(seconds, forWaypoint: waypoint.id)
+                    }
+                }
+            }
+        }
+        Divider()
+        Button("Remove This Stop", role: .destructive) { model.removeWaypoint(id: waypoint.id) }
     }
 
     private func rail(index: Int, count: Int) -> some View {
@@ -663,17 +742,11 @@ struct JoystickSection: View {
                 }
             }
 
-            if !(model.session?.canStream ?? true) || isClassicOnly {
-                Label("The joystick needs the live engine. See Settings ▸ Engine.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(Brand.warning)
+            if model.joystickNeedsLiveEngine {
+                Label(StartIssue.needsLiveEngine.hint, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(Brand.warningText)
             }
         }
-    }
-
-    private var isClassicOnly: Bool {
-        if prefs.enginePreference == .classic { return !(model.activeDevice?.isLegacy ?? false) }
-        if case .classicOnly = model.engineStatus { return !(model.activeDevice?.isLegacy ?? false) }
-        return false
     }
 
     private typealias Key = (code: UInt16, label: String)
@@ -717,7 +790,7 @@ struct ConnectionSection: View {
         @Bindable var prefs = prefs
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("Tunnel", selection: $prefs.transport) {
+                Picker("Connection method", selection: $prefs.transport) {
                     ForEach(Transport.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .disabled(model.hasSession)
@@ -753,10 +826,10 @@ struct ConnectionSection: View {
             .font(.caption).foregroundStyle(.secondary)
         case .live(let version):
             Label("Instant live engine ready (pymobiledevice3 \(version))", systemImage: "bolt.fill")
-                .font(.caption).foregroundStyle(Brand.live)
+                .font(.caption).foregroundStyle(Brand.liveText)
         case .classicOnly(let reason):
             Label("Classic engine only: \(reason)", systemImage: "tortoise.fill")
-                .font(.caption).foregroundStyle(Brand.warning)
+                .font(.caption).foregroundStyle(Brand.warningText)
                 .lineLimit(3)
         }
     }
@@ -878,9 +951,10 @@ struct ActionBar: View {
                     Button {
                         model.startRoute()
                     } label: {
-                        Label("Start Route From Here", systemImage: "play.fill").frame(maxWidth: .infinity)
+                        Label("Start at First Stop", systemImage: "play.fill").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(BrandButtonStyle(kind: .secondary))
+                    .help("Moves the iPhone to the first stop, then follows the route from there.")
                     .disabled(model.routeGeometry.count < 2)
                 }
             case .joystick:
@@ -932,17 +1006,9 @@ struct ActionBar: View {
         }
     }
 
+    /// Why the button can't start yet (the wording is in Logic/StartGuidance.swift).
     private var hint: String? {
         if model.hasSession { return nil }
-        if model.pmd == nil { return "pymobiledevice3 is needed — see the setup card." }
-        if model.selectedDevice == nil { return "Connect and select an iPhone to start." }
-        switch model.mode {
-        case .teleport, .joystick:
-            return model.target == nil ? "Pick a place on the map or enter coordinates." : nil
-        case .route:
-            if model.waypoints.count < 2 { return "Click the map to add at least two stops." }
-            if model.directionsState == .computing { return "Finding the road route…" }
-            return nil
-        }
+        return model.startIssue?.hint
     }
 }
