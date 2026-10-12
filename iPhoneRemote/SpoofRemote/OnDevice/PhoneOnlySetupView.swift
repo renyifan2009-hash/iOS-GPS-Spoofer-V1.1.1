@@ -57,6 +57,7 @@ struct PhoneOnlySetupView: View {
                     .animation(Brand.spring, value: phone.loopbackReachable)
                     .animation(Brand.spring, value: phone.pairingFileIsTooOld)
                     .animation(Brand.spring, value: phone.lastError)
+                    .animation(Brand.spring, value: phone.importError)
                     .animation(Brand.spring, value: updates.updateAvailable)
                 }
             }
@@ -68,7 +69,10 @@ struct PhoneOnlySetupView: View {
                 }
             }
             .fileImporter(isPresented: $importing, allowedContentTypes: Self.pairingTypes) { result in
-                if case .success(let url) = result { phone.importPairingFile(from: url) }
+                switch result {
+                case .success(let url): phone.importPairingFile(from: url)
+                case .failure(let error): phone.reportImportFailure(error)
+                }
             }
             .confirmationDialog("Remove the pairing file?", isPresented: $confirmRemove, titleVisibility: .visible) {
                 Button("Remove", role: .destructive) { phone.removePairingFile() }
@@ -76,6 +80,11 @@ struct PhoneOnlySetupView: View {
                 Text("This iPhone goes back to its real location. To use this mode again, open a new pairing file from your Mac.")
             }
             .sensoryFeedback(.success, trigger: phone.isSetUp) { _, isSetUp in isSetUp }
+            .sensoryFeedback(.error, trigger: phone.importFailures)
+            .onChange(of: phone.importFailures) {
+                // The message is in the pairing card, by the button. Say it aloud for VoiceOver.
+                if let error = phone.importError { AccessibilityNotification.Announcement(error).post() }
+            }
         }
         .environment(\.colorScheme, .dark)
         .task { await phone.checkLoopback() }
@@ -119,9 +128,19 @@ struct PhoneOnlySetupView: View {
         let tooOld = phone.pairingFileIsTooOld
         return step(done: phone.isSetUp && !tooOld, symbol: "key.fill", title: pairingTitle(tooOld: tooOld),
                     detail: pairingDetail(tooOld: tooOld)) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { pairingButtons(tooOld: tooOld) }
-                VStack(alignment: .leading, spacing: 8) { pairingButtons(tooOld: tooOld) }
+            VStack(alignment: .leading, spacing: 10) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { pairingButtons(tooOld: tooOld) }
+                    VStack(alignment: .leading, spacing: 8) { pairingButtons(tooOld: tooOld) }
+                }
+                if let error = phone.importError {
+                    // Right under the button that caused it, not at the bottom of the screen.
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Brand.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.rise)
+                }
             }
         }
     }
@@ -138,13 +157,17 @@ struct PhoneOnlySetupView: View {
         if tooOld {
             return "This iPhone's iOS needs a newer kind of pairing file. On your Mac, update AnyWhere, plug this iPhone in and choose File ▸ Pairing File for the iPhone App… again. Then AirDrop it here."
         }
-        return "It's in this iPhone's Keychain. It lets this app talk to the iPhone like your Mac does."
+        let held = "It's in this iPhone's Keychain. It lets this app talk to the iPhone like your Mac does."
+        // Which file it is, so a file left from before a reinstall isn't a mystery.
+        guard let source = phone.pairingSource else { return held }
+        return "\(source.summary()). \(held)"
     }
 
     @ViewBuilder
     private func pairingButtons(tooOld: Bool) -> some View {
         if !phone.isSetUp || tooOld {
             Button {
+                phone.clearImportError()
                 importing = true
             } label: {
                 Label("Choose File", systemImage: "folder")

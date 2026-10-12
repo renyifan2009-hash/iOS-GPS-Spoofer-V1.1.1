@@ -54,17 +54,14 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             // A pairing file opened from AirDrop, Files or Mail.
-            if phone.importPairingFile(from: url), !isSpoofing { source = .thisPhone }
-            guard showPairing else {
-                showPhoneSetup = true
-                return
+            if phone.importPairingFile(from: url) {
+                // Someone who brings a pairing file has no need for the intro.
+                hasSeenIntro = true
+                if !isSpoofing, !connection.isWorking, !phone.isWorking { source = .thisPhone }
             }
-            // One sheet at a time: let the Mac sheet go first.
-            showPairing = false
-            Task {
-                try? await Task.sleep(for: .milliseconds(500))
-                showPhoneSetup = true
-            }
+            // Either way the setup screen opens: it says the file was added,
+            // or why it wasn't.
+            presentPhoneSetup()
         }
         .fullScreenCover(isPresented: $showIntro, onDismiss: {
             if pairAfterIntro {
@@ -79,7 +76,8 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            if !hasSeenIntro { showIntro = true }
+            // (A pairing file that was opened first has already shown the setup screen.)
+            if !hasSeenIntro, !showPhoneSetup { showIntro = true }
             connection.startBrowsing()
             connection.startPolling()
             updates.checkIfDue()
@@ -115,6 +113,7 @@ struct ContentView: View {
             case .background:
                 connection.stopPolling()
                 connection.stopBrowsing()
+                phone.sweepInbox()
             default:
                 break
             }
@@ -128,6 +127,25 @@ struct ContentView: View {
         .sensoryFeedback(.selection, trigger: locations.selection?.id)
         .sensoryFeedback(trigger: isSpoofing) { _, isSpoofing in
             isSpoofing ? .success : .impact(weight: .light)
+        }
+    }
+
+    /// Show the setup screen for the iPhone-only mode, over whatever else is
+    /// up. SwiftUI shows one sheet at a time, and a sheet asked for while the
+    /// intro or another sheet is up is lost, so those go first.
+    private func presentPhoneSetup() {
+        let otherUp = showIntro || showSearch || showPairing
+        pairAfterIntro = false      // the intro's "Find My Mac" would open the Mac sheet next
+        showIntro = false
+        showSearch = false
+        showPairing = false
+        guard otherUp else {
+            showPhoneSetup = true
+            return
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            showPhoneSetup = true
         }
     }
 
@@ -227,6 +245,7 @@ struct ContentView: View {
         .animation(Brand.spring, value: locations.selection)
         .animation(Brand.spring, value: connection.lastError)
         .animation(Brand.spring, value: phone.lastError)
+        .animation(Brand.spring, value: phone.importError)
         .animation(Brand.spring, value: connection.status?.connected)
         .animation(Brand.spring, value: updates.updateAvailable)
     }
@@ -338,12 +357,20 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Use this iPhone on its own").font(Brand.rounded(.title3))
                     Text(OnDeviceController.isSupported
-                         ? "Set it up once with your Mac. Then change the location anywhere, even on cellular."
+                         ? "Needs a one-time file from your Mac. Tap Set Up for the steps."
                          : "Needs iOS 17.4 or later. Use your Mac instead, or update this iPhone.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+            if let error = phone.importError {
+                // A pairing file that was just turned down: the setup screen says so too.
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Brand.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.rise)
             }
             Button {
                 showPhoneSetup = true
