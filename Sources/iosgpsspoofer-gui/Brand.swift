@@ -3,14 +3,16 @@ import SwiftUI
 
 /// The app's visual identity: one gradient, a few accents, rounded type.
 enum Brand {
-    static let indigo = Color(red: 0.31, green: 0.27, blue: 0.90)    // #4F46E5
-    static let violet = Color(red: 0.49, green: 0.23, blue: 0.93)    // #7C3AED
-    static let sky = Color(red: 0.05, green: 0.65, blue: 0.91)       // #0EA5E9
-    static let accent = Color(red: 0.25, green: 0.40, blue: 0.96)    // #3F66F5
+    // The AnyWhere logo's range: deep cobalt to bright cyan. (The names are from the
+    // earlier indigo palette; they are used in many places, so they stay.)
+    static let indigo = Color(red: 0.07, green: 0.27, blue: 0.85)    // #1245D9  cobalt
+    static let violet = Color(red: 0.25, green: 0.38, blue: 0.97)    // #4061F7  periwinkle
+    static let sky = Color(red: 0.13, green: 0.76, blue: 0.96)       // #21C2F5  cyan
+    static let accent = Color(red: 0.12, green: 0.45, blue: 1.00)    // #1F73FF  azure
     static let live = Color(red: 0.13, green: 0.77, blue: 0.37)      // #22C55E
     static let warning = Color(red: 0.96, green: 0.62, blue: 0.04)   // #F59E0B
     static let danger = Color(red: 0.94, green: 0.27, blue: 0.27)    // #EF4444
-    static let night = Color(red: 0.07, green: 0.06, blue: 0.20)     // hero backgrounds
+    static let night = Color(red: 0.015, green: 0.09, blue: 0.25)    // #04173F  hero backgrounds
 
     static var gradient: LinearGradient {
         LinearGradient(colors: [indigo, sky], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -27,7 +29,7 @@ enum Brand {
 
     /// Deep night-sky gradient for hero areas.
     static var heroGradient: LinearGradient {
-        LinearGradient(colors: [night, Color(red: 0.20, green: 0.13, blue: 0.55), Color(red: 0.03, green: 0.38, blue: 0.62)],
+        LinearGradient(colors: [night, Color(red: 0.04, green: 0.22, blue: 0.60), Color(red: 0.05, green: 0.50, blue: 0.80)],
                        startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
@@ -36,10 +38,10 @@ enum Brand {
     }
 
     // AppKit colours (MapKit overlays, layers, the icon renderer).
-    static var nsIndigo: NSColor { NSColor(srgbRed: 0.31, green: 0.27, blue: 0.90, alpha: 1) }
-    static var nsSky: NSColor { NSColor(srgbRed: 0.05, green: 0.65, blue: 0.91, alpha: 1) }
+    static var nsIndigo: NSColor { NSColor(srgbRed: 0.07, green: 0.27, blue: 0.85, alpha: 1) }
+    static var nsSky: NSColor { NSColor(srgbRed: 0.13, green: 0.76, blue: 0.96, alpha: 1) }
     static var nsLive: NSColor { NSColor(srgbRed: 0.13, green: 0.77, blue: 0.37, alpha: 1) }
-    static var nsViolet: NSColor { NSColor(srgbRed: 0.49, green: 0.23, blue: 0.93, alpha: 1) }
+    static var nsViolet: NSColor { NSColor(srgbRed: 0.25, green: 0.38, blue: 0.97, alpha: 1) }
 }
 
 /// Two-colour fills for icon tiles, System Settings style.

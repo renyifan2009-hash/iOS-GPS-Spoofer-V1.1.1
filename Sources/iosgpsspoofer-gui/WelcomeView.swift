@@ -221,9 +221,9 @@ private struct AuroraBackdrop: View {
     }
 
     private static let colors: [Color] = [
-        Brand.night, Color(red: 0.20, green: 0.13, blue: 0.55), Brand.night,
-        Color(red: 0.16, green: 0.10, blue: 0.48), Brand.indigo, Color(red: 0.03, green: 0.30, blue: 0.55),
-        Brand.night, Color(red: 0.03, green: 0.38, blue: 0.62), Color(red: 0.08, green: 0.06, blue: 0.25),
+        Brand.night, Color(red: 0.04, green: 0.22, blue: 0.60), Brand.night,
+        Color(red: 0.03, green: 0.18, blue: 0.52), Brand.indigo, Color(red: 0.03, green: 0.30, blue: 0.55),
+        Brand.night, Color(red: 0.03, green: 0.38, blue: 0.62), Color(red: 0.02, green: 0.08, blue: 0.24),
     ]
 
     private static func points(_ t: TimeInterval) -> [SIMD2<Float>] {

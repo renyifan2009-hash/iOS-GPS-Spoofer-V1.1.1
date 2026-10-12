@@ -92,19 +92,24 @@ enum DebugSnapshot {
     private static var rendered = false
 
     static func renderOffscreenIfRequested() {
-        guard !rendered, let path = ProcessInfo.processInfo.environment["SPOOFER_RENDER"], !path.isEmpty else { return }
+        guard !rendered, let path = ProcessInfo.processInfo.environment["SPOOFER_RENDER"], !path.isEmpty,
+              let demo else { return }
         let model = AppModel.shared
-        let waiting: Bool = {
-            switch model.pairingFileState {
-            case .working: return true
-            default: return false
-            }
-        }()
-        guard demo?.hasPrefix("pairing") == true, model.showPairingFile, !waiting else { return }
-        rendered = true
         let dark = ProcessInfo.processInfo.environment["SPOOFER_APPEARANCE"] == "dark"
-        let view = PairingFileSheet()
-            .environment(model)
+        let content: AnyView
+        switch demo {
+        case "pairing", "pairing-ready":
+            if case .working = model.pairingFileState { return }
+            guard model.showPairingFile else { return }
+            content = AnyView(PairingFileSheet().environment(model))
+        case "welcome":
+            guard model.selectedDevice != nil || ProcessInfo.processInfo.environment["FAKE_PMD_NO_DEVICE"] == "1" else { return }
+            content = AnyView(WelcomeView().environment(model).environment(Preferences.shared))
+        default:
+            return
+        }
+        rendered = true
+        let view = content
             .tint(Brand.accent)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, dark ? .dark : .light)
@@ -183,6 +188,8 @@ enum DebugSnapshot {
                 while model.directionsState == .computing { try? await Task.sleep(for: .milliseconds(200)) }
                 model.startRoute()
             }
+        case "welcome":
+            break   // rendered by renderOffscreenIfRequested
         case "pairing", "pairing-ready":
             // The pairing-file assistant, empty or after making the file (use
             // ANYWHERE_PAIRING_DIR=<folder> to keep it off the real Desktop).

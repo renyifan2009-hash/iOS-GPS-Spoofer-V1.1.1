@@ -9,13 +9,14 @@ import SwiftUI
 /// SwiftUI 7 ships in the iOS 26 SDK), not on the compiler version: a newer
 /// Swift toolchain can be paired with an older SDK that has no Liquid Glass.
 enum Brand {
-    static let indigo = Color(red: 0.31, green: 0.27, blue: 0.90)
-    static let violet = Color(red: 0.49, green: 0.23, blue: 0.93)
-    static let sky = Color(red: 0.05, green: 0.65, blue: 0.91)
+    // The AnyWhere logo's range: deep cobalt to bright cyan.
+    static let indigo = Color(red: 0.07, green: 0.27, blue: 0.85)
+    static let violet = Color(red: 0.25, green: 0.38, blue: 0.97)
+    static let sky = Color(red: 0.13, green: 0.76, blue: 0.96)
     static let live = Color(red: 0.13, green: 0.77, blue: 0.37)
     static let warning = Color(red: 0.96, green: 0.62, blue: 0.04)
     static let danger = Color(red: 0.94, green: 0.27, blue: 0.27)
-    static let night = Color(red: 0.05, green: 0.04, blue: 0.16)
+    static let night = Color(red: 0.015, green: 0.08, blue: 0.22)
 
     static var gradient: LinearGradient {
         LinearGradient(colors: [indigo, sky], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -247,9 +248,9 @@ struct AuroraBackground: View {
     }
 
     private static let colors: [Color] = [
-        Brand.night, Color(red: 0.20, green: 0.13, blue: 0.55), Brand.night,
-        Color(red: 0.16, green: 0.10, blue: 0.48), Brand.indigo, Color(red: 0.03, green: 0.30, blue: 0.55),
-        Brand.night, Color(red: 0.03, green: 0.38, blue: 0.62), Color(red: 0.08, green: 0.06, blue: 0.25),
+        Brand.night, Color(red: 0.04, green: 0.22, blue: 0.60), Brand.night,
+        Color(red: 0.03, green: 0.18, blue: 0.52), Brand.indigo, Color(red: 0.03, green: 0.30, blue: 0.55),
+        Brand.night, Color(red: 0.03, green: 0.38, blue: 0.62), Color(red: 0.02, green: 0.08, blue: 0.24),
     ]
 
     private static func points(_ t: TimeInterval) -> [SIMD2<Float>] {
