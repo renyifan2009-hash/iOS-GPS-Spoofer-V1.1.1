@@ -162,15 +162,18 @@ struct SidebarFooter: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image(nsImage: AppIconImage.shared)
                 .resizable()
                 .frame(width: 22, height: 22)
             VStack(alignment: .leading, spacing: 0) {
+                // One line, always: with three buttons beside it the name used to wrap to "AnyWh / ere".
                 Text("AnyWhere").font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    .lineLimit(1).fixedSize(horizontal: true, vertical: false)
                 EngineBadge(engine: model.sessionEngine, status: model.engineStatus)
             }
-            Spacer()
+            .layoutPriority(1)
+            Spacer(minLength: 4)
             Button {
                 model.showWelcome = true
             } label: {

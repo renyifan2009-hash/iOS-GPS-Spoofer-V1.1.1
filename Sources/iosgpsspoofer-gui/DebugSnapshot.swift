@@ -113,6 +113,8 @@ enum DebugSnapshot {
                 PhoneInstaller.shared.onPhone = .notInstalled
             }
             content = AnyView(PhoneInstallSheet().environment(model))
+        case "footer":
+            content = AnyView(SidebarFooter().environment(model).frame(width: 240))
         case "welcome":
             guard model.selectedDevice != nil || ProcessInfo.processInfo.environment["FAKE_PMD_NO_DEVICE"] == "1" else { return }
             content = AnyView(WelcomeView().environment(model).environment(Preferences.shared))
@@ -199,7 +201,7 @@ enum DebugSnapshot {
                 while model.directionsState == .computing { try? await Task.sleep(for: .milliseconds(200)) }
                 model.startRoute()
             }
-        case "welcome", "phone-install", "phone-install-ready":
+        case "welcome", "phone-install", "phone-install-ready", "footer":
             break   // rendered by renderOffscreenIfRequested
         case "pairing", "pairing-ready":
             // The pairing-file assistant, empty or after making the file (use

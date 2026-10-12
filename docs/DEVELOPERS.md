@@ -23,6 +23,14 @@ folder (saved places, routes, the remote's pairing) the first time and never del
 environment is rebuilt. An old-named `.app` that is still in Applications is offered to the Trash
 (`LegacyApp`). The icons are cut from the supplied logo by `brand/make-icons.py`.
 
+### Testing the Mac app's decision logic
+
+The Mac app is an executable target, which SwiftPM cannot test. Rules that decide what the app says or
+allows (when Start is refused and why, the setup checklist, asking before a route is thrown away, wording
+tone) live in `Sources/iosgpsspoofer-gui/Logic/` and use only Foundation and `SpooferCore`.
+`Tests/SpooferCoreTests/GUILogic` is a symlink to that folder, so SwiftPM compiles those files into the test
+target too. If a real GUI test target is added later, delete the symlink and move the tests.
+
 ## Contents
 
 - [How it works](#how-it-works)
