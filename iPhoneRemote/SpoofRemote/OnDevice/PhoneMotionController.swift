@@ -151,13 +151,22 @@ final class PhoneMotionController: ControlTarget {
         let directions = MKDirections(request: request)
         self.directions = directions
         defer { self.directions = nil }
-        let response = try await directions.calculate()
-        guard let polyline = response.routes.first?.polyline, polyline.pointCount >= 2,
-              polyline.pointCount <= 100_000 else { throw StandaloneRoute.Problem.invalid }
-        var coordinates = [CLLocationCoordinate2D](repeating: .init(), count: polyline.pointCount)
-        polyline.getCoordinates(&coordinates, range: NSRange(location: 0, length: polyline.pointCount))
-        // Explicit endpoints preserve the chosen stops and continuity between legs.
-        return [a] + coordinates.map { StandaloneRoute.Point($0.latitude, $0.longitude) } + [b]
+        // Older MapKit SDKs return a non-Sendable Response from the async overlay. Convert it
+        // inside the completion callback so only our Sendable points cross back to the actor.
+        return try await withCheckedThrowingContinuation { continuation in
+            directions.calculate { response, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let polyline = response?.routes.first?.polyline, polyline.pointCount >= 2,
+                      polyline.pointCount <= 100_000 else {
+                    continuation.resume(throwing: StandaloneRoute.Problem.invalid)
+                    return
+                }
+                var coordinates = [CLLocationCoordinate2D](repeating: .init(), count: polyline.pointCount)
+                polyline.getCoordinates(&coordinates, range: NSRange(location: 0, length: polyline.pointCount))
+                // Explicit endpoints preserve the chosen stops and continuity between legs.
+                continuation.resume(returning: [a] + coordinates.map { StandaloneRoute.Point($0.latitude, $0.longitude) } + [b])
+            }
+        }
     }
 
     private func runRoute(_ route: StandaloneRoute, token: Int) {

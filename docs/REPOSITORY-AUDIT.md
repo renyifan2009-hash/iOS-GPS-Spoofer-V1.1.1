@@ -58,4 +58,6 @@ The unsigned simulator test-host run stalled during preparation; an ad-hoc-signe
 
 The first PR CI run exposed a Swift 6.1.2 compiler crash when lowering actor-isolated constructor default arguments in the App's State initializer (local Xcode 27 uses Swift 6.4). The controller now has a production convenience initializer that constructs those dependencies explicitly, and a separate initializer for tests. This keeps the older toolchain build check rather than bypassing it by selecting a newer compiler.
 
+Once that crash was fixed, Xcode 16's older MapKit SDK rejected its non-Sendable directions response crossing into the main actor. The directions completion callback now converts the response into Sendable route points before resuming the actor. The dependency remains on Apple's SDK; no unchecked Sendable annotation was added to MapKit objects.
+
 Still unverified: actual developer-image mounting, real RSD/DVT GPS commands from this binary, iOS 17.0–17.3, cellular, reboot with Mac off and background/force-quit behavior. The supplied DDI's matching hashes do not establish compatibility with any particular phone. See [PHONE-STANDALONE-TESTING.md](PHONE-STANDALONE-TESTING.md). No release is published by this audit.
