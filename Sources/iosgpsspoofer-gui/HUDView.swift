@@ -104,7 +104,7 @@ struct HUDView: View {
     private var secondaryLine: String {
         var parts: [String] = []
         if let p = model.devicePosition { parts.append(Format.coordinate(p)) }
-        if let device = model.session?.device { parts.append("\(device.deviceName) · \(device.modelName)") }
+        if let device = model.session?.device { parts.append(device.isTrusted ? "\(device.deviceName) · \(device.modelName)" : device.deviceName) }
         return parts.joined(separator: "  ·  ")
     }
 

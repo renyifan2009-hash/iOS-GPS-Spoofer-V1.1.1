@@ -122,12 +122,22 @@ The prompt (written with ChatGPT, kept in `~/Downloads`) is a spec for a larger,
   signing tool, the iPhone-only mode, update behavior).
 - The iPhone-only mode on iOS 26.4+ is Apple's change and is not worked around (see Boundaries).
 - GitHub repo rename: still not done. The repo belongs to `renyifan2009-hash` (a fork of SegFault42's) and the account used here (`svaka2000`) has only write access; renaming needs admin. See "Shipped" for the three files to change afterwards.
-- One audit finding was left open on purpose (PX-12, low, "uncertain" even after verification): the iPhone app declares the
-  `.mobiledevicepairing` document type as *Imported* in `iPhoneRemote/SpoofRemote/Info.plist`, where *Exported* may be the
-  more correct kind for a type in the app's own namespace. Only an AirDrop-open test on a real iPhone (B3 in
-  `docs/DEVICE-TESTING.md`) can show whether it matters, so it was not changed blind. The audit confirmed 81 of 89 candidates (7 refuted).
-  All 13 high-severity ones were checked against the final code and are fixed (some under different names than their audit ids);
-  the medium and low ones went through the same fix passes, but only some were re-checked afterwards.
+- **Audit re-check (done 2026-10-12, a second look at the 69 medium and low findings against the shipped code).** 49 are fully
+  fixed, 20 were partly fixed, none were still wholly open. A skeptic agent then tried to refute each partial one: 5 fell away,
+  15 stand, all rated **low** (11) or **negligible** (4). Fixed since: stray sweep no longer kills a `clear` in progress
+  (core-process-06); installer waits after SIGTERM then kills, and uninstall / old-copy removal no longer stop the script half
+  way (IDIST-11); a Swift older than 6 gets a plain message (IDIST-10); the docs now say the download is Apple silicon only,
+  CI tests macOS 15 and the source build needs macOS 14.5+ (IDIST-06/08/10); "unknown · iOS 0" is replaced by "Waiting for
+  Trust on the iPhone" in five places (UXM-04); the pairing-too-old and wrong-iPhone messages name the real cause and fix
+  (PX-05/07); a saved route draft drops points that aren't places (gui-crash-02); two stale menu names in the docs.
+  **Left, on purpose:** core-process-03 (a third device-list fallback; narrow), IDIST-12 (a quieter install.sh ref lookup),
+  and the four negligible ones (core-process-11/14, IDIST-14, UXM-14).
+- **PX-12** (the pairing-file type in the iPhone `Info.plist`): changed from Imported to Exported (hygiene: the type is in the
+  app's own namespace). The re-check found that this does not settle the real risk, which is another app (SideStore, Jitterbug)
+  claiming the same `.mobiledevicepairing` extension so that AnyWhere is not offered in the AirDrop list. The candidate fix is
+  a second document type for `public.data`; it is not applied, because it needs a real-iPhone test with SideStore installed
+  (`docs/DEVICE-TESTING.md` B3b) and it has a cost (AnyWhere would show in Open-in for any file). "Save to Files" and the
+  in-app file picker cover it meanwhile.
 - The release-channel update (the in-app Update downloading the release DMG, checking it and swapping it in) is built (f30a7aa) but
   cannot run until a release exists, because nothing is published overnight. Until then the in-app Update still rebuilds from
   source, and the self-test gate is what keeps that safe.

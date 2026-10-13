@@ -136,7 +136,7 @@ iPhone's own lockdown:
 
 | When | What happens | Needs the Mac? |
 |---|---|---|
-| Once | Turn on Developer Mode. Install SpoofRemote. Save the pairing file on the Mac (**File ▸ Save iPhone Pairing File…**) and AirDrop it to the iPhone. Install LocalDevVPN. | Yes, once |
+| Once | Turn on Developer Mode. Install SpoofRemote. Save the pairing file on the Mac (**File ▸ Pairing File for the iPhone App…**) and AirDrop it to the iPhone. Install LocalDevVPN. | Yes, once |
 | Each spoof | SpoofRemote checks LocalDevVPN is on, opens the tunnel and sets the location. Moving re-uses the open connection. **Stop** clears it. | No |
 | While spoofing | A background location session (the blue pill in the status bar) keeps the app running, so iOS doesn't close the connection. | No |
 | After an iPhone restart | The Developer Disk Image is gone. Today the Mac must load it again. | **Yes, today** |

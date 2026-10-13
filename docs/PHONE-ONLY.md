@@ -182,7 +182,7 @@ The code:
 | The setup screen | `iPhoneRemote/SpoofRemote/OnDevice/PhoneOnlySetupView.swift` |
 | Mac: saving both identities | `Sources/SpooferCore/Device.swift` (`exportPairingFile`) |
 | Mac: making the Remote Pairing identity (Python, run by pymobiledevice3's interpreter) | `Sources/SpooferCore/RemotePairingScript.swift` |
-| Mac: File ▸ Save iPhone Pairing File… | `Sources/iosgpsspoofer-gui/AppModel+PhoneOnly.swift` |
+| Mac: File ▸ Pairing File for the iPhone App… | `Sources/iosgpsspoofer-gui/AppModel+PhoneOnly.swift` |
 | Command line: `iosgpsspoof export-pairing` | `Sources/iosgpsspoof/Commands.swift` |
 | AnyWhere's version and the release check (shared, with tests) | `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift`, `ReleaseVersion.swift` |
 | Mac: reading the iPhone's installed AnyWhere | `Sources/SpooferCore/Device.swift` (`installedSpoofRemoteVersion`) |

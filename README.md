@@ -14,7 +14,9 @@ What the iPhone shows:
 
 ## What you need
 
-- A Mac with **macOS 14 Sonoma** or newer.
+- A Mac with **macOS 14 Sonoma** or newer. The downloadable app (Option 1) is for **Apple silicon** Macs
+  (M1 or newer). On an Intel Mac, use Option 2, which needs **macOS 14.5 or newer** with Swift 6 (Xcode 16 or
+  Apple's Command Line Tools).
 - An **iPhone or iPad**. iOS 17 or newer works best.
 - A **USB cable that carries data**. The cable that came with your iPhone works.
   Some cheap cables only charge.
@@ -36,8 +38,8 @@ There are two ways. **Option 1 is the easiest and the one to try first.**
 4. The app offers to install its small helper tool the first time. Click
    **Install**.
 
-This is the same file the project's automatic checks build and test, so it
-runs on every Mac that meets the requirements above.
+This is the same file the project's automatic checks build and test (on
+macOS 15, with Xcode 16 and Xcode 26). It is built for Apple silicon Macs.
 
 ### Option 2: build it on your Mac (about 5 minutes)
 

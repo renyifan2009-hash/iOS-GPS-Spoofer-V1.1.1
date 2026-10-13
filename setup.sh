@@ -147,6 +147,16 @@ check_developer_tools() {
     echo "developer dir: $dev_dir"
   } >>"$LOG"
   ok "Swift ${SWIFT_VERSION:-(unknown version)} with the macOS $SDK_VERSION SDK"
+  local swift_major="${SWIFT_VERSION%%.*}"
+  case "$swift_major" in
+    ""|*[!0-9]*) ;;    # couldn't read it: let the build speak
+    *) if [ "$swift_major" -lt 6 ]; then
+         fail "This project needs Swift 6, and this Mac has Swift $SWIFT_VERSION." \
+              "Update macOS and the Command Line Tools in System Settings > General > Software Update," \
+              "or skip building: download the ready-made app (Option 1 in the README):" \
+              "  https://github.com/${SPOOFER_REPO:-renyifan2009-hash/iOS-GPS-Spoofer-V1.2.3}/releases/latest"
+       fi ;;
+  esac
   # A Swift from swift.org (installed with swiftly) next to an older macOS SDK is the setup that once
   # built an app that crashed at launch. The start-up test below catches it; this says why early.
   local swift_path
@@ -270,7 +280,19 @@ quit_running_app() {
   for name in "$APP_NAME" "$LEGACY_APP_NAME"; do
     pkill -TERM -f "/$name.app/Contents/MacOS/$name" >/dev/null 2>&1 || true
   done
-  sleep 1
+  # The app puts the iPhone's real location back before it exits, which can take a few seconds.
+  i=0
+  while [ "$i" -lt 20 ] && app_running; do
+    sleep 0.5
+    i=$((i + 1))
+  done
+  if app_running; then
+    # It ignored the request and SIGTERM. The app's next launch restores the location after a kill.
+    for name in "$APP_NAME" "$LEGACY_APP_NAME"; do
+      pkill -KILL -f "/$name.app/Contents/MacOS/$name" >/dev/null 2>&1 || true
+    done
+    sleep 1
+  fi
 }
 
 # Saved places, routes and the remote's pairing live in Application Support. They moved from
@@ -390,7 +412,7 @@ install_app() {
     rm -rf "$staging"
     fail "Couldn't put the new app in place. The previous copy was put back."
   fi
-  rm -rf "$backup"
+  rm -rf "$backup" 2>>"$LOG" || warn "Couldn't delete the old copy at $backup. It is safe to delete by hand."
   # One copy only: remove one left in the other standard place by an older install, and
   # any copy that still has the old name (it shares this app's bundle ID, so keeping it
   # makes macOS pick between the two when something opens "the app").
@@ -432,9 +454,12 @@ uninstall() {
   for dir in "${dirs[@]}"; do
     for name in "$APP_NAME" "$LEGACY_APP_NAME"; do
       if [ -d "$dir/$name.app" ]; then
-        rm -rf "$dir/$name.app"
-        ok "Removed $dir/$name.app"
-        removed=1
+        if rm -rf "$dir/$name.app" 2>>"$LOG"; then
+          ok "Removed $dir/$name.app"
+          removed=1
+        else
+          warn "Couldn't remove $dir/$name.app (it may belong to another user: ask an administrator)."
+        fi
       fi
     done
   done

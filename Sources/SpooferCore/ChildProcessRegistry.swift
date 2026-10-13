@@ -212,7 +212,13 @@ public final class ChildProcessRegistry: @unchecked Sendable {
         let mine = getpid()
         return pids.sorted().filter { $0 != mine && parentPID(of: $0) == 1 }.map {
             StrayProcess(pid: $0, command: commandLine(of: $0) ?? "")
-        }
+        }.filter { !isRestoringTheRealLocation($0.command) }
+    }
+
+    /// A `simulate-location clear` is the thing that puts the real location back. It ends by itself, and
+    /// killing it half way would leave the iPhone on the fake location, so the sweep leaves it alone.
+    public static func isRestoringTheRealLocation(_ command: String) -> Bool {
+        command.contains("simulate-location clear")
     }
 
     /// What an iPhone needs after a killed run left it on a fake location.

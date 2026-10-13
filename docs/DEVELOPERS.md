@@ -73,8 +73,8 @@ Two front ends share one core, `SpooferCore`:
 
 ## Building
 
-You need macOS 14 or newer and Xcode 16+ or Apple's Command Line Tools
-(Swift 6). Any of these work:
+You need Xcode 16+ or Apple's Command Line Tools (Swift 6), which needs
+macOS 14.5 or newer. (The downloaded app itself runs on macOS 14.) Any of these work:
 
 ```bash
 ./setup.sh                  # what testers run: helper + release build + install to /Applications

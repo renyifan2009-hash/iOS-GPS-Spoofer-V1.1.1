@@ -140,7 +140,8 @@ public struct TunnelFailure: Error, Equatable, Sendable, LocalizedError {
             return Self.unreachableExplanation
         }
         if isPairingProblem {
-            return "The iPhone didn't accept the pairing file. Save a new one from your Mac and open it here."
+            return "The iPhone didn't accept the pairing file. A pairing file belongs to one iPhone: if you have more than one, "
+                + "make sure it was saved with this one plugged in. Save a new one from your Mac and open it here."
         }
         if wasCutOff {
             return "This iPhone closed the connection while the tunnel was opening. Turn LocalDevVPN off and on, "

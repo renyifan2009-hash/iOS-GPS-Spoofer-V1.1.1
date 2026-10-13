@@ -25,7 +25,7 @@ struct MenuBarContent: View {
                     .frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("AnyWhere").font(Brand.title(14, weight: .semibold))
-                    Text(model.activeDevice.map { "\($0.deviceName) · \($0.modelName)" } ?? "No iPhone connected")
+                    Text(model.activeDevice.map { $0.isTrusted ? "\($0.deviceName) · \($0.modelName)" : $0.deviceName } ?? "No iPhone connected")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()

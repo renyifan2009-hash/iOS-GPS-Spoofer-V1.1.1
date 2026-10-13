@@ -66,7 +66,7 @@ struct DeviceHeader: View {
 
     private func deviceLine(_ device: Device?) -> String {
         guard let d = device else { return "Plug it in with a USB cable to begin" }
-        return "\(d.modelName) · iOS \(d.productVersion) · \(d.isUSB ? "USB" : "Wi-Fi")"
+        return d.isTrusted ? "\(d.versionLine) · \(d.isUSB ? "USB" : "Wi-Fi")" : d.versionLine
     }
 }
 

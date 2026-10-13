@@ -53,6 +53,12 @@ public struct Device: Codable, Identifiable, Hashable, Sendable {
     /// version are unknown (`"unknown"` and `"0"`). Nothing works until the person taps Trust.
     public var isTrusted: Bool { majorVersion > 0 && productType != "unknown" }
 
+    /// What to print under the iPhone's name: the model and iOS, or, until it is trusted (when it would say
+    /// "unknown · iOS 0"), what to do about it.
+    public var versionLine: String {
+        isTrusted ? "\(modelName) · iOS \(productVersion)" : "Waiting for Trust on the iPhone"
+    }
+
     /// Minor iOS version, e.g. `4` for `"17.4.1"` (0 when unknown).
     public var minorVersion: Int {
         let parts = productVersion.split(separator: ".")

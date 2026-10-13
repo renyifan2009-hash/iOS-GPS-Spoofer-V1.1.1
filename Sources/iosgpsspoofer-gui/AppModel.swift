@@ -967,8 +967,9 @@ final class AppModel {
         if let data = d.data(forKey: StateKey.routeDraft),
            let draft = try? JSONDecoder().decode(RouteDraft.self, from: data) {
             let waits = draft.waits ?? []
-            waypoints = draft.waypoints.enumerated().map { i, point in
-                Waypoint(point: point, wait: i < waits.count ? max(0, waits[i]) : 0)
+            // (A draft saved by an older build may hold a point that isn't a place: leave it out.)
+            waypoints = draft.waypoints.enumerated().compactMap { i, point in
+                point.isValid ? Waypoint(point: point, wait: i < waits.count ? max(0, waits[i]) : 0) : nil
             }
             followRoads = draft.followRoads
             travelMode = draft.travelMode

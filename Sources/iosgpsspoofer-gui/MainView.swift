@@ -227,7 +227,7 @@ struct MainView: View {
     private var subtitle: String {
         guard let device = model.activeDevice else { return "No iPhone connected" }
         if model.hasSession { return model.statusDisplay.title }
-        return "\(device.modelName) · iOS \(device.productVersion)"
+        return device.versionLine
     }
 
     private var mapLayer: some View {

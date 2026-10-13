@@ -32,6 +32,7 @@ for the first pass. It is the file CI builds and starts.
 | B1 | With **no** iPhone plugged in: File ▸ **Pairing File for the iPhone App…** (⇧⌘K). | The window opens and says "No iPhone is connected" and what to do. The menu item is not greyed out. | |
 | B2 | Plug the iPhone in. Click **Create Pairing File**. | "Pairing file created", with its name and the folder (your **Desktop**). **Show in Finder** selects it. | |
 | B3 | Click **Send … with AirDrop**, accept on the iPhone. | The iPhone offers AnyWhere in the list. Tapping it opens AnyWhere's setup screen with "Pairing file added" ticked. | |
+| B3b | Repeat B3 on an iPhone that **also has SideStore (or Jitterbug) installed**, which claim the same `.mobiledevicepairing` extension. | AnyWhere is still offered in the AirDrop list. If it is not, only "Save to Files" shows: the fix to try is a second document type for `public.data` (rank Alternate) in `iPhoneRemote/SpoofRemote/Info.plist`, and the cost is that AnyWhere then shows up in Open-in for any file. Not changed blind. | |
 | B4 | Repeat B3 but choose **Save to Files** on the iPhone. In AnyWhere: This iPhone ▸ **Choose File**. | The file is in Downloads and imports. | |
 | B5 | In the Mac window, click **Remove File from This Mac**. | The file leaves the Desktop. The iPhone keeps working. | |
 

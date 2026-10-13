@@ -231,7 +231,7 @@ struct DeviceRow: View {
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.deviceName).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                Text(connected ? "\(device.modelName) · iOS \(device.productVersion)" : "Disconnected — waiting…")
+                Text(connected ? device.versionLine : "Disconnected — waiting…")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
