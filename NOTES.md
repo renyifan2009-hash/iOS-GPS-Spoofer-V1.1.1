@@ -155,6 +155,33 @@ The prompt (written with ChatGPT, kept in `~/Downloads`) is a spec for a larger,
 
 Not verified, and said so in the release notes: nothing has been run on a real iPhone (`docs/DEVICE-TESTING.md`), and the in-app Update from a release has now been published but not yet exercised by a real installed app.
 
+## iPhone controls (2026-10-12, branch `feature/iphone-controls`)
+
+Asked for: the iPhone-side route builder, joystick, history and scheduling screens, so the iPhone steers the Mac.
+
+| What | Where |
+|---|---|
+| Protocol: `POST /joystick` (heading + speed, 1.5 s dead-man timeout), `/pause`, `/autostop`; `/status` gained `activity`, `speed`, `heading`, `routeProgress`, `routePaused`, `autoStopAt` (all optional, so old and new Macs and iPhones mix) | `Sources/RemoteAPI/RemoteAPI.swift`, `Sources/SpooferRemote/MacRemoteServer.swift`; defaults answer 501 |
+| Headless helper (`iosgpsspoof serve`): joystick, pause, route progress | `SessionRemoteController.swift`, `JoystickMotion.swift` |
+| **Mac app** (Settings ▸ iPhone Remote): `/route` now really drives a route (before, only the headless helper did), plus joystick, pause, stop-after | `RemoteHost.swift`, `AppModel+RemoteControl.swift` |
+| iPhone app: joystick card, route builder (stops, waits, reorder, reverse, travel mode, repeat, roads, rush hour, speed), saved and recent routes, route progress with Pause / Resume / Stop, stop-after timer | `iPhoneRemote/SpoofRemote/` (`JoystickCard`, `RouteCard`, `RouteSheets`, `RouteDraft`, `RouteLibrary`, `AutoStopRow`) |
+| Rules shared with the Mac and covered by `swift test`: `Killswitch` (moved), `JoystickInput`, `JoystickPreset`, `SpeedText`, `SavedRoute` | `Sources/PhoneOnlyCore/` |
+| Tests | protocol, server and bridge tests; `JoystickMotionTests`; `SessionRemoteControllerTests` (needs python3); `scripts/test-remote-bridge.py` drives the real Mac app |
+
+**Not built: scheduling.** "Scheduling" would mean the Mac starting location changes at a set time while nobody is there.
+A safety check stopped my first attempt at the supervisor for that, and I did not rebuild it another way. What exists is the
+safe half: the **stop-after** timer, which only ever puts the real location back. If you want scheduled starts, decide what
+should confirm them first (for example a notification that has to be accepted), then build that.
+
+**Found and fixed on the way (the first was already in v2.4.0):** the iPhone app's bottom card could stretch tall and empty
+(introduced by 3078339). The card is now a height-capped `ScrollView` with the main button pinned underneath. A flexible frame
+inside `ViewThatFits` and a preference-key measurement both gave the wrong height and were dropped. The map's follow mode could
+run away when the zoom was computed from the span; it is now clamped (300 to 40,000 m).
+
+**Next release:** bump the iPhone build 4 → 5 (`iPhoneRemote/project.yml` and `SpoofRemote.expected` together) and `VERSION`,
+because the iPhone app now needs a Mac that has `/joystick`, `/pause` and `/autostop` (an older Mac answers 501 and the app says
+to update it). Nothing here has run on a real iPhone: `docs/DEVICE-TESTING.md`, section F.
+
 ## SUMMARY (run closed 2026-10-12 about 05:35 PDT)
 
 **State.** Branch `overnight/anywhere-rebrand` is 77 commits ahead of `main` (156 files, +12.5k/−1k lines), pushed. CI on the last

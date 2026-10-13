@@ -8,6 +8,7 @@ import SwiftUI
 struct SpoofRemoteApp: App {
     @State private var connection = ConnectionManager()
     @State private var locations = LocationController()
+    @State private var routeLibrary = RouteLibrary()
     @State private var phone = OnDeviceController()
     @State private var updates = UpdateChecker()
 
@@ -16,6 +17,7 @@ struct SpoofRemoteApp: App {
             ContentView()
                 .environment(connection)
                 .environment(locations)
+                .environment(routeLibrary)
                 .environment(phone)
                 .environment(updates)
                 .tint(Brand.indigo)

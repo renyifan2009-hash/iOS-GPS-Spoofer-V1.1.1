@@ -1,5 +1,5 @@
 import XCTest
-@testable import SpooferCore
+@testable import PhoneOnlyCore
 
 final class KillswitchTests: XCTestCase {
     func testThePresetsAreTheOnesOnTheMenu() {

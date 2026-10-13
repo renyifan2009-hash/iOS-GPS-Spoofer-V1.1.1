@@ -42,6 +42,19 @@ No jailbreak, private entitlement, or system modification is used or needed.
   live status (Mac reachable, iPhone linked, what's being simulated), and an
   animated first-run introduction. Liquid Glass design on iOS 26 and later;
   it still runs on iOS 17.
+- **Joystick**: a thumb pad that steers the Mac's location at walking, cycling
+  or driving pace (or a custom top speed up to 120 km/h). Up on the pad can
+  mean north or up on the screen as the map is turned. VoiceOver gets
+  Move north/east/south/west actions instead of dragging.
+- **Route builder**: tap stops on the map, drag to reorder, set a wait at any
+  stop (30 seconds to 30 minutes), reverse the route, choose walking or
+  driving, once / loop / there and back, follow roads, rush-hour slowdowns
+  and a top speed, then **Drive Route**. Routes can be saved by name or picked
+  from the last few driven. They live on the iPhone only.
+- **While a route runs**: how far along it is, the current speed, **Pause**,
+  **Resume** and **Stop**.
+- **Stop after**: a timer (15 minutes up to 4 hours) that puts the real
+  location back by itself, set from the iPhone.
 - **A newer-release notice**: AnyWhere doesn't update itself, so at most
   once a day it asks GitHub whether a newer release is out and, if so, shows a
   small notice with a button to the releases page. It sends nothing about you
@@ -64,12 +77,13 @@ No jailbreak, private entitlement, or system modification is used or needed.
 Package.swift                         # adds RemoteAPI, SpooferRemote, PhoneOnlyCore, tests
 Sources/
   RemoteAPI/RemoteAPI.swift           # wire types, shared by Mac and iPhone
-  PhoneOnlyCore/                      # iPhone-only mode: pairing file format, tunnel rules (shared too)
+  PhoneOnlyCore/                      # rules shared with the iPhone app: pairing file, tunnel, Killswitch, JoystickInput, SavedRoute
   SpooferRemote/
     MacRemoteServer.swift             # NWListener HTTP server, routing, local-only filter
     PairingManager.swift              # codes, tokens (hashed), lockout
     BonjourService.swift              # advertising, local addresses, IP checks
     SessionRemoteController.swift     # drives SpooferCore's SpoofSession headlessly
+    JoystickMotion.swift              # heading + speed -> next position, with the dead-man timeout
   iosgpsspoof/Serve.swift             # `iosgpsspoof serve` + LaunchAgent
   iosgpsspoofer-gui/RemoteHost.swift  # Mac app: Settings ▸ iPhone Remote
 Tests/SpooferRemoteTests/             # parser, pairing, routing, IP filter tests
@@ -81,6 +95,12 @@ iPhoneRemote/
     MapSearchView.swift               # MKLocalSearchCompleter / MKLocalSearch
     ConnectionManager.swift           # Bonjour, pairing, HTTP, polling
     LocationController.swift          # selection, favorites, recents, geocoding
+    JoystickCard.swift                # the thumb pad and its model
+    RouteCard.swift                   # build a route / a route driving
+    RouteSheets.swift                 # edit the stops, saved and recent routes
+    RouteDraft.swift                  # the route being built
+    RouteLibrary.swift                # saved and recent routes (on the iPhone)
+    AutoStopRow.swift                 # the stop-after timer
     PairingView.swift                 # find Mac, 6-digit code, manual address
     IntroView.swift                   # animated introduction
     Glass.swift                       # Liquid Glass helpers + fallbacks
@@ -107,6 +127,10 @@ duplicating it.
 | first `POST /start` | `Pymobiledevice3.selectDevice(udid:connection:)` → `SpoofSession(pmd:device:transport:engine:python:callbackQueue:)` → `SpoofSession.start(at:)` |
 | `POST /location` or `/start` while running | `SpoofSession.move(to:)` (one message with the live engine) |
 | `POST /stop` | `SpoofSession.stop()` (restores the real location) |
+| `POST /route` | `RouteRunner` over the planned legs, played through `SpoofSession.move(to:)` |
+| `POST /joystick` | a 4 Hz timer that applies the latest heading and speed with `SpoofSession.move(to:)`; lets go after 1.5 s of silence |
+| `POST /pause` | the route's clock stops and resumes (`routePausedAt`) |
+| `POST /autostop` | the `Killswitch` rule, armed for N minutes |
 | Ctrl-C / `launchctl` stop | `SpoofSession.stopBlocking()` |
 | `GET /status` | state from `onStateChange` / `onPosition` / `onEngineChange`, and `Pymobiledevice3.listDevices()` every 5 s |
 | engine choice at startup | `LiveHelper.probe(python:)` with `Pymobiledevice3.pythonInterpreter` |
@@ -119,7 +143,13 @@ that, when it reports `.failed` the controller calls `start(at:)` again after
 **Mac app (Settings ▸ iPhone Remote)**: `AppRemoteBridge` calls the same
 methods as the Teleport button: `AppModel.teleport(to:name:)` (which uses
 `obtainSession()` → `SpoofSession.start(at:)`, or `move(to:)` if a session is
-running) and `AppModel.stop()` (→ `SpoofSession.stop()`).
+running) and `AppModel.stop()` (→ `SpoofSession.stop()`). A route sent from
+the iPhone goes through `AppModel.startRemoteRoute(_:)`, which fills in the
+Route panel the same way you would (waypoints, travel mode, speed, traffic)
+and presses **Start Route**, so what the iPhone starts is what the Mac shows.
+The joystick steers the Mac app's own joystick engine, and the stop-after
+timer is the app's own **Stop Automatically After** setting, scoped to the
+current session.
 
 ## The API
 
@@ -133,6 +163,12 @@ POST /pair        {"code": "482913", "clientName": "iPhone", "clientID": "…"}
 POST /location    {"latitude": 37.3349, "longitude": -122.0090, "name": "Apple Park"}
 POST /start       (same body, optional: without one it starts at the last location)
 POST /stop
+POST /route       {"waypoints": [{"latitude": 37.33, "longitude": -122.01, "wait": 60}, …], "followRoads": true,
+                   "travelMode": "driving", "loopMode": "once", "speed": 13.9, "realistic": true,
+                   "timeOfDayTraffic": false, "name": "Commute"}
+POST /joystick    {"heading": 90, "speed": 1.4}        (degrees clockwise from north, metres per second)
+POST /pause       {"paused": true}
+POST /autostop    {"minutes": 30}                      (0 turns it off)
 GET  /status
 POST /unpair
 GET  /info        → {"serverID": "…", "name": "MacBook Air", "version": 1}
@@ -155,7 +191,27 @@ GET  /info        → {"serverID": "…", "name": "MacBook Air", "version": 1}
 ```
 
 `phase` is `idle`, `starting`, `active`, `reconnecting`, `stopping` or
-`failed`. Errors are a non-2xx status with `{"error": "message"}`: 400 bad
+`failed`.
+
+While a route or the joystick is running, `/status` also has `activity`
+(`hold`, `planning`, `route` or `joystick`), `speed` (m/s), `heading`
+(degrees), `routeProgress` (0 to 1), `routePaused` and `autoStopAt` (when the
+stop-after timer fires, in seconds since 1970). These are all optional: a Mac
+from before they existed leaves them out, and the iPhone app copes.
+
+**The joystick is a dead-man switch.** The iPhone keeps sending `/joystick`
+about three times a second while the thumb is down. If nothing arrives for
+1.5 seconds (the iPhone locked, went to the background or lost the
+connection), the Mac eases to a stop by itself and stays where it is. Lifting
+the thumb sends one "stand still". The joystick and stop-after calls
+answer 409 until a location is being held, and pause until a route is running; the joystick needs the live
+engine, so on the classic engine it answers 409 with the reason.
+
+`POST /route` plans the legs on the Mac (it can take a while with roads on; the
+status says `planning`) and returns as soon as the route is accepted. A bad
+route (fewer than two points, a point off the planet, a negative wait) is a
+400. A Mac from before routes existed answers 501, and the iPhone app says to
+update the Mac app. Errors are a non-2xx status with `{"error": "message"}`: 400 bad
 input, 401 not paired, 403 wrong code, 409 can't do that now (no iPhone,
 still stopping), 429 too many wrong codes.
 
@@ -269,6 +325,19 @@ The Mac app's bundle (`package-dmg.sh`) also declares
    green ("Simulating"). Open Maps to see it.
 6. Pick somewhere else and tap **Move Here**, or **Stop** to restore the real
    location, without touching the Mac.
+7. Switch the bottom card to **Joystick** to steer from the held place: pick a
+   pace, drag the pad, let go to stand still.
+8. Switch it to **Route**, tap two or more places on the map, adjust the
+   options and tap **Drive Route**. The card then shows the progress with
+   **Pause** and **Stop**. **Stops** reorders, deletes, sets waits and
+   reverses; **Save** keeps the route under a name; **Saved** lists saved and
+   recent routes.
+9. Use the timer in the card's corner to stop by itself after a while.
+
+The Mac keeps the connection to the iPhone, so the joystick and routes need
+the Mac awake and reachable. They don't need the iPhone app to stay open for a
+route (a route carries on by itself on the Mac), but the joystick does: it
+only moves while the app is open and a thumb is on the pad.
 
 ## Test: iPhone → Personal Hotspot → Mac → USB back to the iPhone
 
@@ -316,4 +385,6 @@ the Mac automatically.
 | Mac not listed | Allow Local Network for AnyWhere (Settings ▸ Privacy & Security ▸ Local Network), or connect by address. |
 | "The Mac can't see this iPhone" | Plug it in, unlock it, tap Trust. `iosgpsspoof doctor` should list it. |
 | "port 47653 is already in use" | Another helper (or the Mac app's iPhone Remote) is running. Stop one, or use `--port`. |
+| "Update the Mac app to use this" | The Mac is running a release from before routes, the joystick or the timer existed. Install the newest AnyWhere on the Mac. |
+| The joystick says it needs a live session | Start a location first (tap **Start Here**), and use the live engine (the Mac's Settings ▸ Engine). |
 | Starts, then *Retrying* | See the Mac's log; usually Developer Mode is off or the developer disk image needs internet once. |

@@ -63,6 +63,24 @@ Apple's change. If it fails, copy the small print under the error and send it.
 | E1 | Do B first. Install LocalDevVPN, tap Connect. In AnyWhere on the iPhone: This iPhone ▸ Start Here. | Either the location changes, or a plain error with small print. | |
 | E2 | Close AnyWhere on the iPhone. | Say what happens to the location. | |
 
+## F. The iPhone app steering the Mac (joystick, routes, timer)
+
+Needs the Mac app on this version, its **Settings ▸ iPhone Remote** turned on, and the iPhone app paired
+(see [IPHONE-REMOTE.md](IPHONE-REMOTE.md)). These ran in the simulator against a pretend iPhone. They have
+not run against a real iPhone, a real network or real roads.
+
+| # | Do this | You should see | OK? |
+|---|---|---|---|
+| F1 | In the iPhone app, tap a place, **Start Here**, switch to **Joystick**, pick Walk, drag the pad up. Try it over Wi-Fi, then with the Mac on the iPhone's Personal Hotspot. | The blue dot in Maps moves north, smoothly, a few steps a second. The card shows the pace and a compass point. Letting go brings it to a stop within a couple of seconds. | |
+| F2 | While steering, lock the iPhone, or switch to another app. | The dot stops moving within about 2 seconds and stays put. (Nothing runs away.) | |
+| F3 | While steering, switch Wi-Fi off on the iPhone for 5 seconds, then on. | The dot stops. The app shows a plain message, then recovers when the connection is back. | |
+| F4 | **Route**: tap three places on real roads, choose Driving, **Drive Route**. | The card says it is planning on the Mac, then shows the progress rising. Maps shows the dot following roads, slowing at turns and, with realistic driving on, stopping at some lights. | |
+| F5 | During the route tap **Pause**, wait, then **Resume**. | The dot stands still while paused and carries on from the same place. | |
+| F6 | Close the iPhone app during a route and open it again. | The route kept going on the Mac and the app shows the progress again. | |
+| F7 | Set the timer to 15 minutes (or 1 minute through Custom on the Mac to save time), start a hold and leave it. | A countdown shows on the card. At zero the real location comes back and the app says so. | |
+| F8 | Save a route, kill the app, open it, **Saved**. | The route is there with its name and stops, and one tap puts it back on the map. | |
+| F9 | Install this build of the iPhone app against a Mac still on 2.3.0 or 2.4.0, then try the joystick. | A plain "update the Mac app" message, not an error code. | |
+
 ## What to send back
 
 - The iOS version of the iPhone and the macOS version of the Mac.

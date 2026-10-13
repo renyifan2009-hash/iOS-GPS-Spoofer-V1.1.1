@@ -1,4 +1,5 @@
 import MapKit
+import PhoneOnlyCore
 import RemoteAPI
 import SwiftUI
 
@@ -10,14 +11,15 @@ enum LocationSource: String {
     case thisPhone
 }
 
-/// What the Mac card is doing: a single teleport, or building a route.
-enum MacMode: Hashable { case teleport, route }
+/// What the Mac card is doing: a single teleport, a route, or steering with the joystick.
+enum MacMode: Hashable { case teleport, route, joystick }
 
 /// The map, a floating status pill and controls, and a glass card to start,
 /// move or stop the simulated location.
 struct ContentView: View {
     @Environment(ConnectionManager.self) private var connection
     @Environment(LocationController.self) private var locations
+    @Environment(RouteLibrary.self) private var routeLibrary
     @Environment(OnDeviceController.self) private var phone
     @Environment(UpdateChecker.self) private var updates
     @Environment(\.scenePhase) private var scenePhase
@@ -31,10 +33,20 @@ struct ContentView: View {
     @State private var showPhoneSetup = false
     @State private var pairAfterIntro = false
     @State private var route = RouteDraft()
+    @State private var joystick = JoystickModel()
     @State private var macMode: MacMode = .teleport
+    /// How far out the map is, so following the simulated location keeps the zoom.
+    @State private var mapDistance: CLLocationDistance = 3500
 
     /// Either source holds a location right now.
     private var isSpoofing: Bool { connection.isSpoofing || phone.isSpoofing }
+
+    /// How much of the screen the card may take. The joystick card is the tallest (a pad and a pace
+    /// row); the rest of the time the map matters more.
+    private var cardHeightFraction: CGFloat {
+        if dynamicTypeSize.isAccessibilitySize { return 0.7 }
+        return source == .mac && macMode == .joystick && connection.isSpoofing ? 0.74 : 0.6
+    }
 
     var body: some View {
         GeometryReader { screen in
@@ -45,7 +57,7 @@ struct ContentView: View {
                     Spacer(minLength: 0)
                     // The card may take up to 60% of the screen (70% with very large text,
                     // where the map matters less). Past that it scrolls.
-                    bottomCard(maxHeight: screen.size.height * (dynamicTypeSize.isAccessibilitySize ? 0.7 : 0.6))
+                    bottomCard(maxHeight: screen.size.height * cardHeightFraction)
                 }
                 .padding(.horizontal, 14)
                 .padding(.bottom, 8)
@@ -98,9 +110,32 @@ struct ContentView: View {
             #if DEBUG
             // For screenshots in the Simulator: `-SpoofRemoteShow phoneSetup`
             // opens the setup sheet; `phoneStart` starts at Apple Park.
+            // `-SpoofRemotePair host:port:code` pairs with a Mac by itself (for tests against a Mac running
+            // on this computer). `-SpoofRemoteMode route|joystick` opens that tab.
+            if let pair = UserDefaults.standard.string(forKey: "SpoofRemotePair") {
+                let parts = pair.split(separator: ":").map(String.init)
+                if parts.count == 3, let port = UInt16(parts[1]) {
+                    Task {
+                        if await connection.pair(host: parts[0], port: port, code: parts[2]) {
+                            hasSeenIntro = true
+                            connection.startPolling()
+                        }
+                    }
+                }
+            }
+            switch UserDefaults.standard.string(forKey: "SpoofRemoteMode") {
+            case "route": macMode = .route
+            case "joystick": macMode = .joystick
+            default: break
+            }
             switch UserDefaults.standard.string(forKey: "SpoofRemoteShow") {
             case "phoneSetup":
                 showPhoneSetup = true
+            case "applePark":
+                // Just the map, at Apple Park with a pin (for screenshots): nothing is started.
+                let place = Place(name: "Apple Park", subtitle: "Cupertino, CA", latitude: 37.3349, longitude: -122.0090)
+                locations.select(place, moveCamera: false)
+                locations.focus(on: place.coordinate, meters: 2200)
             case "phoneStart":
                 let place = Place(name: "Apple Park", subtitle: "Cupertino", latitude: 37.3349, longitude: -122.0090)
                 locations.selection = place
@@ -143,6 +178,44 @@ struct ContentView: View {
         .sensoryFeedback(.selection, trigger: locations.selection?.id)
         .sensoryFeedback(trigger: isSpoofing) { _, isSpoofing in
             isSpoofing ? .success : .impact(weight: .light)
+        }
+        .onChange(of: connection.status?.activity) { _, activity in followMacActivity(activity) }
+        .onChange(of: simulatedSpot) { _, _ in keepSimulatedLocationInView() }
+    }
+
+    // MARK: - Following the Mac
+
+    /// Where the Mac says the location is, as something that can be compared.
+    private struct Spot: Equatable { var latitude: Double; var longitude: Double }
+
+    private var simulatedSpot: Spot? {
+        guard source == .mac, let status = connection.status, status.spoofing,
+              let latitude = status.latitude, let longitude = status.longitude else { return nil }
+        return Spot(latitude: latitude, longitude: longitude)
+    }
+
+    /// The Mac started something (a route from its own window, say): show the matching controls.
+    private func followMacActivity(_ activity: String?) {
+        switch activity {
+        case "route", "planning": if macMode != .route { macMode = .route }
+        case "joystick": if macMode != .joystick { macMode = .joystick }
+        default: break
+        }
+    }
+
+    /// While steering, the map keeps the simulated location in view (and the zoom you chose).
+    private func keepSimulatedLocationInView() {
+        guard macMode == .joystick, joystick.followsMarker, let spot = simulatedSpot else { return }
+        // The card covers the lower part of the screen: aim the camera a little behind the marker so it
+        // sits in the free part above the card.
+        // (The map shows about half as many metres top to bottom as the camera is away.)
+        let shift = mapDistance * 0.54 * 0.26
+        let behind = PhoneGeo.moved(latitude: spot.latitude, longitude: spot.longitude, meters: shift,
+                                    bearing: joystick.mapHeading + 180)
+        let marker = CLLocationCoordinate2D(latitude: behind.latitude, longitude: behind.longitude)
+        withAnimation(.linear(duration: 0.4)) {
+            locations.camera = .camera(MapCamera(centerCoordinate: marker, distance: mapDistance,
+                                                 heading: joystick.mapHeading, pitch: 0))
         }
     }
 
@@ -191,7 +264,8 @@ struct ContentView: View {
                     }
                     .annotationTitles(.hidden)
                 }
-                if let selection = locations.selection, !routeMode {
+                // (While steering, the pin of the place you started from would sit under the moving marker.)
+                if let selection = locations.selection, !routeMode, !(macMode == .joystick && connection.isSpoofing) {
                     Annotation(selection.name, coordinate: selection.coordinate, anchor: .bottom) {
                         SelectionPin().id(selection.id)
                     }
@@ -218,6 +292,13 @@ struct ContentView: View {
             .mapControls {
                 MapCompass()
                 MapScaleView()
+            }
+            .onMapCameraChange(frequency: .onEnd) { context in
+                // Only a zoom someone could steer by: the whole world (the first reading) and a few metres
+                // across would otherwise be copied back onto the map by the follow below.
+                let distance = context.camera.distance
+                if (300...40_000).contains(distance) { mapDistance = distance }
+                joystick.setMapHeading(context.camera.heading)
             }
             .onTapGesture { point in
                 guard let coordinate = proxy.convert(point, from: .local) else { return }
@@ -288,17 +369,21 @@ struct ContentView: View {
     private func bottomCard(maxHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             sourcePicker
-            // The card used to be a fixed stack: on a small iPhone, or with large text, the
-            // buttons ended up past the bottom with no way to reach them. When it doesn't
-            // fit, the part under the picker scrolls.
-            ViewThatFits(in: .vertical) {
-                cardBody
-                ScrollView { cardBody }
-                    .scrollBounceBehavior(.basedOnSize)
-            }
+            // The part under the picker is exactly as tall as what is in it, up to the limit, and scrolls
+            // past that. (A small iPhone, or large text, would otherwise push the buttons off the
+            // bottom. A flexible frame here stretched the card to the limit even when it was nearly
+            // empty, over half the map.)
+            ScrollView { cardBody }
+                .scrollBounceBehavior(.basedOnSize)
+                // Capped, then sized to what is in it: `frame(maxHeight:)` before `fixedSize` gives the
+                // content's height up to the cap, and the scroll view scrolls only past it.
+                .frame(maxHeight: max(160, maxHeight - 96 - (hasPinnedAction ? 70 : 0)))
+                .fixedSize(horizontal: false, vertical: true)
+            // The main button stays put at the bottom, however much is above it to scroll.
+            pinnedAction
         }
         .padding(18)
-        .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .glassSurface(cornerRadius: 32)
         .animation(Brand.spring, value: source)
         .animation(Brand.spring, value: macMode)
@@ -313,6 +398,65 @@ struct ContentView: View {
         .animation(Brand.spring, value: phone.importError)
         .animation(Brand.spring, value: connection.status?.connected)
         .animation(Brand.spring, value: updates.updateAvailable)
+    }
+
+    // MARK: - The pinned action (Mac)
+
+    private var hasPinnedAction: Bool {
+        guard source == .mac, connection.isPaired else { return false }
+        switch macMode {
+        case .teleport, .joystick: return true
+        case .route: return !isDrivingRoute
+        }
+    }
+
+    @ViewBuilder
+    private var pinnedAction: some View {
+        if hasPinnedAction {
+            switch macMode {
+            case .teleport: actions
+            case .route: driveRouteButton
+            case .joystick: joystickButton
+            }
+        }
+    }
+
+    private var driveRouteButton: some View {
+        GlassGroup(spacing: 10) {
+            Button {
+                driveRoute()
+            } label: {
+                Label(connection.isWorking ? "Starting…" : "Drive Route", systemImage: route.driving ? "car.fill" : "figure.walk")
+                    .frame(maxWidth: .infinity)
+                    .contentTransition(.opacity)
+            }
+            .prominentButton()
+            .disabled(!route.canDrive || connection.isWorking || !connection.isOnline)
+        }
+    }
+
+    private var joystickButton: some View {
+        GlassGroup(spacing: 10) {
+            if connection.isSpoofing {
+                Button {
+                    Task { await connection.stop() }
+                } label: {
+                    Label("Stop", systemImage: "stop.fill").frame(maxWidth: .infinity)
+                }
+                .prominentButton(tint: Brand.danger)
+            } else {
+                Button {
+                    startJoystick()
+                } label: {
+                    Label(connection.isWorking ? "Starting…" : "Start Joystick", systemImage: "location.fill")
+                        .frame(maxWidth: .infinity)
+                        .contentTransition(.opacity)
+                }
+                .prominentButton()
+                .disabled(locations.selection == nil || connection.isWorking || !connection.isOnline)
+            }
+        }
+        .disabled(connection.isWorking)
     }
 
     private var sourcePicker: some View {
@@ -363,8 +507,22 @@ struct ContentView: View {
                 .transition(.rise)
         } else {
             if connection.isSpoofing, let status = connection.status {
-                NowSimulatingRow(status: status)
-                    .transition(.rise)
+                switch macMode {
+                case .teleport:
+                    NowSimulatingRow(status: status)
+                        .transition(.rise)
+                    AutoStopRow(connection: connection)
+                        .transition(.rise)
+                case .route:
+                    // A route that is driving has its own progress card; building one needs the room.
+                    if !isDrivingRoute {
+                        HeldStrip(status: status, connection: connection)
+                            .transition(.rise)
+                    }
+                case .joystick:
+                    // Steering says where it is, and how fast, in its own header.
+                    EmptyView()
+                }
             }
             if let status = connection.status, !status.connected, connection.isOnline {
                 Label("The Mac can't see this iPhone. Connect them with a cable and tap Trust.",
@@ -373,19 +531,11 @@ struct ContentView: View {
                     .foregroundStyle(Brand.warningText)
                     .transition(.rise)
             }
-            if !connection.isSpoofing {
-                macModePicker
-                    .transition(.rise)
-            }
-            if macMode == .route {
-                if connection.isSpoofing {
-                    stopAction
-                        .transition(.rise)
-                } else {
-                    RouteCardView(route: route, connection: connection) { driveRoute() }
-                        .transition(.rise)
-                }
-            } else {
+            // Always there, so a place can be held first and then steered or driven from.
+            macModePicker
+                .transition(.rise)
+            switch macMode {
+            case .teleport:
                 if let place = locations.selection {
                     selectionRow(place)
                         .transition(.rise)
@@ -395,7 +545,18 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                         .transition(.rise)
                 }
-                actions
+            case .route:
+                if isDrivingRoute {
+                    RouteProgressCardView(route: route, connection: connection)
+                        .transition(.rise)
+                } else {
+                    RouteCardView(route: route, connection: connection, library: routeLibrary)
+                        .transition(.rise)
+                }
+            case .joystick:
+                JoystickCardView(joystick: joystick, connection: connection,
+                                 hasPlace: locations.selection != nil || connection.isSpoofing)
+                    .transition(.rise)
             }
             if let error = connection.lastError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -418,6 +579,7 @@ struct ContentView: View {
         Picker("Mode", selection: $macMode) {
             Text("Teleport").tag(MacMode.teleport)
             Text("Route").tag(MacMode.route)
+            Text("Joystick").tag(MacMode.joystick)
         }
         .pickerStyle(.segmented)
     }
@@ -435,9 +597,26 @@ struct ContentView: View {
         .disabled(connection.isWorking)
     }
 
+    /// The Mac is planning or driving a route.
+    private var isDrivingRoute: Bool {
+        ["planning", "route"].contains(connection.status?.activity ?? "")
+    }
+
     private func driveRoute() {
-        guard let request = route.request(name: "Route") else { return }
-        Task { await connection.driveRoute(request) }
+        let name = route.name ?? "Drive on \(Date.now.formatted(date: .abbreviated, time: .shortened))"
+        guard let request = route.request(name: name) else { return }
+        let snapshot = route.snapshot(named: name)
+        Task {
+            if await connection.driveRoute(request) { routeLibrary.recordRecent(snapshot) }
+        }
+    }
+
+    /// Hold the place that was picked, then the pad takes over.
+    private func startJoystick() {
+        guard let place = locations.selection else { return }
+        Task {
+            if await connection.start(at: place.request) { locations.recordRecent(place) }
+        }
     }
 
     // MARK: - This iPhone

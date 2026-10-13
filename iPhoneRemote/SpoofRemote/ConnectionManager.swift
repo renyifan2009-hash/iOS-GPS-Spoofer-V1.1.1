@@ -336,7 +336,9 @@ final class ConnectionManager {
             while !Task.isCancelled {
                 guard let self else { return }
                 await self.refresh()
-                let delay: Duration = self.link == .online ? .seconds(2) : .seconds(4)
+                // Faster while something is moving, so its progress and the marker stay smooth.
+                let moving = ["planning", "route", "joystick"].contains(self.status?.activity ?? "")
+                let delay: Duration = self.link == .online ? (moving ? .seconds(1) : .seconds(2)) : .seconds(4)
                 try? await Task.sleep(for: delay)
             }
         }
@@ -425,6 +427,43 @@ final class ConnectionManager {
         return await post(RemoteAPI.Path.route, body: body)
     }
 
+    @discardableResult
+    func setPaused(_ paused: Bool) async -> Bool {
+        await post(RemoteAPI.Path.pause, body: try? RemoteAPI.makeEncoder().encode(PauseRequest(paused: paused)))
+    }
+
+    /// Put the real location back by itself after this many minutes; 0 turns it off.
+    @discardableResult
+    func setAutoStop(minutes: Int) async -> Bool {
+        await post(RemoteAPI.Path.autoStop, body: try? RemoteAPI.makeEncoder().encode(AutoStopRequest(minutes: minutes)))
+    }
+
+    /// One steering message from the joystick. It goes out several times a second, so it doesn't use
+    /// `isWorking` (that greys the buttons) and it leaves `lastError` alone: the joystick shows its own
+    /// problem. Returns the Mac's reason when it refused or couldn't be reached, nil when it took it.
+    func steer(heading: Double, speed: Double) async -> String? {
+        let id = server?.serverID
+        do {
+            let body = try RemoteAPI.makeEncoder().encode(JoystickRequest(heading: heading, speed: speed))
+            let data = try await send("POST", RemoteAPI.Path.joystick, body: body, timeout: 3)
+            let fresh = try RemoteAPI.makeDecoder().decode(RemoteStatus.self, from: data)
+            guard server?.serverID == id else { return nil }
+            if fresh != status { status = fresh }
+            return nil
+        } catch ClientError.http(401, let message) {
+            guard server?.serverID == id else { return nil }
+            dropPairing(because: message)
+            return message
+        } catch ClientError.http(404, _) {
+            return Self.macTooOld
+        } catch ClientError.http(_, let message) {
+            return message
+        } catch {
+            if error is CancellationError || (error as? URLError)?.code == .cancelled { return nil }
+            return Self.describe(error)
+        }
+    }
+
     private func command(_ path: String, _ location: LocationRequest?) async -> Bool {
         let body: Data?
         do {
@@ -454,6 +493,11 @@ final class ConnectionManager {
         } catch ClientError.http(401, let message) {
             guard server?.serverID == id else { return false }
             dropPairing(because: message)
+            return false
+        } catch ClientError.http(404, _) {
+            // A Mac whose AnyWhere is older than this iPhone app doesn't have the call at all.
+            guard server?.serverID == id else { return false }
+            lastError = Self.macTooOld
             return false
         } catch {
             // Cancelled with the screen that asked: nothing went wrong.
@@ -500,6 +544,9 @@ final class ConnectionManager {
         }
         return data
     }
+
+    /// The Mac answered "no such endpoint": its AnyWhere is older than this app.
+    static let macTooOld = "This Mac's AnyWhere is too old for that. Update AnyWhere on the Mac, then try again."
 
     private static func describe(_ error: Error) -> String {
         if let urlError = error as? URLError {

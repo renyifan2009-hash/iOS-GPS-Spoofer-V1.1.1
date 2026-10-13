@@ -6,11 +6,11 @@ on the iPhone, and your real location comes back when you press **Stop**.
 
 ![The Mac app driving a loop around Apple Park on real roads, following the iPhone's blue dot](img/mac-app.png)
 
-What the iPhone shows:
+The iPhone app, AnyWhere, steers the Mac from your pocket:
 
-| Apple Park | North Atlantic | Eiffel Tower |
+| Joystick | Build a route | Route driving |
 |:---:|:---:|:---:|
-| ![The iPhone showing a simulated location at Apple Park](img/IMG_0111.PNG) | ![The iPhone showing a simulated location in the North Atlantic](img/IMG_0112.PNG) | ![The iPhone showing a simulated location at the Eiffel Tower](img/IMG_0113.PNG) |
+| ![The iPhone app with the joystick pad, a pace picker and a stop-after timer](img/iphone-joystick.png) | ![The iPhone app with a three-stop route on the map, with travel, repeat and speed options](img/iphone-route.png) | ![The iPhone app showing a route at 4 percent with Pause and Stop buttons](img/iphone-route-progress.png) |
 
 ## What you need
 
@@ -119,6 +119,18 @@ The app shows a checklist. Each step gets a green tick when it's done.
   card counts down, and when it reaches 0:00 your real location comes back.
   It is a safety net for when you walk away. The same choice is in
   **Settings ▸ General**. It starts counting when you start spoofing.
+
+- **From the iPhone:** with the iPhone app paired to the Mac (see
+  [docs/IPHONE-REMOTE.md](docs/IPHONE-REMOTE.md)), the iPhone can do all of
+  this too. Tap the map and **Start**, then pick **Joystick** to steer with
+  your thumb at walking, cycling or driving pace. Pick **Route** to tap out
+  stops, set a wait at any stop, reverse or reorder them, and **Drive Route**.
+  A running route shows how far along it is, with **Pause**, **Resume** and
+  **Stop**. Routes you like can be saved on the iPhone. A **stop after** timer
+  (15 minutes up to 4 hours) puts your real location back by itself. The Mac
+  does the moving, so keep it on and connected. If the iPhone locks, goes to
+  the background or loses the connection, the joystick stops after about a
+  second and a half.
 
 The map follows your iPhone's blue dot. Drag the map to look around. Click
 **Re-center** to go back to the dot.

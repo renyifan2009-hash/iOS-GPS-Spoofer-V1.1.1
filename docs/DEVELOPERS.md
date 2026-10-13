@@ -411,7 +411,15 @@ runs on.
 swift test                                                      # SpooferCore, SpooferRemote and PhoneOnlyCore unit tests
 python3 Tests/LiveHelperTests/test_live_helper.py               # the live helper (needs pymobiledevice3)
 python3 Tests/PairingScriptTests/test_remote_pairing_script.py  # the pairing file's Remote Pairing identity
+swift build && scripts/test-remote-bridge.py                    # the real Mac app, driven like the iPhone app drives it
 ```
+
+`scripts/test-remote-bridge.py` starts a debug build of the Mac app against the pretend iPhone (temporary HOME,
+its own data folder), pairs over HTTP, and checks what the pretend iPhone is told: the joystick moves east,
+goes quiet by itself, a route reports progress and stands still while paused, the stop-after timer arms, and
+**Stop** restores the real location. It needs python3 and port 47653 free. The pure rules the iPhone app
+shares with the Mac (`Killswitch`, `JoystickInput`, `SavedRoute`) live in `PhoneOnlyCore`, so `swift test`
+covers them even though the iPhone app itself is only built in CI.
 
 The helper tests pull the script straight out of `LiveHelperScript.swift`, so
 they run without Swift. The end-to-end ones drive pymobiledevice3's real CLI
@@ -446,6 +454,7 @@ SPOOFER_SNAPSHOT=1 SPOOFER_DEMO=route \
 | `SPOOFER_APPEARANCE` | `dark` or `light`. |
 | `FAKE_PMD_DEVMODE=false`, `FAKE_PMD_NO_DEVICE=1`, `FAKE_PMD_FAIL_SET=1`, `FAKE_PMD_IOS=17.5` | Pretend Developer Mode is off, no iPhone is plugged in, setting the location fails, or a different iOS version (the default, 16.7.10, makes the app send every move itself). |
 | `PYTHONPATH="$PWD/Tests/Fixtures/fake-site"`, `FAKE_PMD_RP=fresh` | For File ▸ Pairing File for the iPhone App…: a stand-in for pymobiledevice3's library, so the file gets its Remote Pairing identity, and what the pretend iPhone does when asked for one (`paired`, `fresh`, `never`, `locked`, `bare`, `missing`). |
+| `SPOOFER_PRINT_PAIRING=1` | Debug builds only. Prints `PAIRING-CODE 123456` to stdout whenever the remote server makes a code, so a script can pair without reading the window. Used by `scripts/test-remote-bridge.py`. |
 | `FAKE_PMD_SPOOFREMOTE=current\|old\|none\|fail` | What `apps list` reports for AnyWhere on the pretend iPhone: the current build, an old one, none installed, or a failed read. Drives the old-SpoofRemote warning. |
 
 MapKit doesn't draw map tiles in a window that other windows cover, so local
