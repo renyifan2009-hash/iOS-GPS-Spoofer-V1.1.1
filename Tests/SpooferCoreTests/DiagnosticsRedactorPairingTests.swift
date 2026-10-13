@@ -15,7 +15,26 @@ final class DiagnosticsRedactorPairingTests: XCTestCase {
 
     /// The same count and seed always give the same stand-in "key"; none of it is a real one.
     private func bytes(_ count: Int, seed: Int) -> Data {
-        Data((0..<count).map { UInt8(($0 * 53 + seed * 31 + 7) % 251) })
+        var out = Data()
+        for index in 0..<count {
+            let value: Int = (index * 53 + seed * 31 + 7) % 251
+            out.append(UInt8(value))
+        }
+        return out
+    }
+
+    /// Bytes as Python prints them: \x0c\xc8...
+    private func hexEscapes(_ data: Data) -> String {
+        var out = ""
+        for byte in data { out += String(format: "\\x%02x", Int(byte)) }
+        return out
+    }
+
+    /// Bytes as the decimal numbers Rust prints in a Vec<u8>.
+    private func decimals(_ data: Data) -> [String] {
+        var out: [String] = []
+        for byte in data { out.append(String(Int(byte))) }
+        return out
     }
 
     /// Text shaped like a PEM block: a header, base64 lines of 64, a footer.
@@ -33,24 +52,28 @@ final class DiagnosticsRedactorPairingTests: XCTestCase {
     /// gave the Mac when it was trusted) and a Remote Pairing identity (an Ed25519 key and the name the iPhone
     /// knows it by). `public` is the one part that is not a secret.
     private var secretData: [String: Data] {
-        [
-            "DeviceCertificate": pem("CERTIFICATE", bodyBytes: 700, seed: 1),
-            "HostCertificate": pem("CERTIFICATE", bodyBytes: 700, seed: 2),
-            "HostPrivateKey": pem("RSA PRIVATE KEY", bodyBytes: 1190, seed: 3),
-            "RootCertificate": pem("CERTIFICATE", bodyBytes: 700, seed: 4),
-            "RootPrivateKey": pem("RSA PRIVATE KEY", bodyBytes: 1190, seed: 5),
-            "EscrowBag": bytes(190, seed: 6),
-            "private_key": bytes(32, seed: 8),     // 44 characters in base64: shorter than any "long blob" rule
-            "alt_irk": bytes(16, seed: 9),         // 24 characters
-        ]
+        var fields: [String: Data] = [:]
+        fields["DeviceCertificate"] = pem("CERTIFICATE", bodyBytes: 700, seed: 1)
+        fields["HostCertificate"] = pem("CERTIFICATE", bodyBytes: 700, seed: 2)
+        fields["HostPrivateKey"] = pem("RSA PRIVATE KEY", bodyBytes: 1190, seed: 3)
+        fields["RootCertificate"] = pem("CERTIFICATE", bodyBytes: 700, seed: 4)
+        fields["RootPrivateKey"] = pem("RSA PRIVATE KEY", bodyBytes: 1190, seed: 5)
+        fields["EscrowBag"] = bytes(190, seed: 6)
+        fields["private_key"] = bytes(32, seed: 8)     // 44 characters in base64: shorter than any "long blob" rule
+        fields["alt_irk"] = bytes(16, seed: 9)         // 24 characters
+        return fields
     }
 
     private var publicKey: Data { bytes(32, seed: 7) }
 
     /// Strings that name the Mac or the iPhone.
     private var identifiers: [String: String] {
-        ["HostID": Self.hostID, "SystemBUID": Self.systemBUID, "WiFiMACAddress": Self.wifiMAC,
-         "identifier": Self.identifier]
+        var fields: [String: String] = [:]
+        fields["HostID"] = Self.hostID
+        fields["SystemBUID"] = Self.systemBUID
+        fields["WiFiMACAddress"] = Self.wifiMAC
+        fields["identifier"] = Self.identifier
+        return fields
     }
 
     private func fakeRecordPlist() throws -> String {
@@ -142,10 +165,11 @@ final class DiagnosticsRedactorPairingTests: XCTestCase {
 
     func testARecordPrintedAsAPythonDictIsHidden() throws {
         let pemKey = String(decoding: secretData["HostPrivateKey"]!, as: UTF8.self).replacingOccurrences(of: "\n", with: "\\n")
-        let escapes = bytes(32, seed: 8).map { String(format: "\\x%02x", $0) }.joined()
-        let text = "{'HostPrivateKey': b'\(pemKey)', 'private_key': b'\(escapes)', "
-            + "'alt_irk': b'\(bytes(16, seed: 9).base64EncodedString())', "
-            + "'HostID': '\(Self.hostID)', 'SystemBUID': '\(Self.systemBUID)', 'WiFiMACAddress': '\(Self.wifiMAC)'}"
+        let escapes = hexEscapes(bytes(32, seed: 8))
+        let irk = bytes(16, seed: 9).base64EncodedString()
+        var text = "{'HostPrivateKey': b'\(pemKey)', 'private_key': b'\(escapes)', 'alt_irk': b'\(irk)', "
+        text += "'HostID': '\(Self.hostID)', 'SystemBUID': '\(Self.systemBUID)', "
+        text += "'WiFiMACAddress': '\(Self.wifiMAC)'}"
         let out = redact(text)
 
         XCTAssertFalse(out.contains("BEGIN"), "the key block should be gone")
@@ -158,17 +182,21 @@ final class DiagnosticsRedactorPairingTests: XCTestCase {
     }
 
     func testByteArraysPrintedTheWayRustPrintsThemAreHidden() {
-        let key = bytes(32, seed: 8).map(String.init)
-        let oneLine = "RpPairingFile { identifier: \"\(Self.identifier)\", private_key: [\(key.joined(separator: ", "))], ok: true }"
+        let key = decimals(bytes(32, seed: 8))
+        let list = key.joined(separator: ", ")
+        let oneLine = "RpPairingFile { identifier: \"\(Self.identifier)\", private_key: [\(list)], ok: true }"
         let outOne = redact(oneLine)
         XCTAssertFalse(outOne.contains(key.prefix(8).joined(separator: ", ")), "the byte list should be gone")
         XCTAssertFalse(outOne.contains(Self.identifier))
         XCTAssertTrue(outOne.contains("ok: true"), "the rest of the line stays")
 
         // {:#?} puts one number on each line, with a trailing comma.
-        let pretty = "RpPairingFile {\n    private_key: [\n" + key.map { "        \($0),\n" }.joined() + "    ],\n    ok: true,\n}"
+        var pretty = "RpPairingFile {\n    private_key: [\n"
+        for number in key { pretty += "        \(number),\n" }
+        pretty += "    ],\n    ok: true,\n}"
         let outPretty = redact(pretty)
-        XCTAssertFalse(outPretty.contains(key[3] + ",\n        " + key[4]), "the pretty-printed byte list should be gone")
+        let pair = "\(key[3]),\n        \(key[4])"
+        XCTAssertFalse(outPretty.contains(pair), "the pretty-printed byte list should be gone")
         XCTAssertTrue(outPretty.contains("ok: true,"))
     }
 
@@ -202,11 +230,15 @@ final class DiagnosticsRedactorPairingTests: XCTestCase {
 
     func testRedactingAPairingRecordTwiceChangesNothingMore() throws {
         let plist = try fakeRecordPlist()
-        let json = String(decoding: try JSONSerialization.data(withJSONObject: secretData.mapValues { $0.base64EncodedString() },
-                                                              options: [.prettyPrinted, .sortedKeys]), as: UTF8.self)
-        let python = "{'private_key': b'\(bytes(32, seed: 8).map { String(format: "\\x%02x", $0) }.joined())', 'HostID': '\(Self.hostID)'}"
-        let rust = "private_key: [\(bytes(32, seed: 8).map(String.init).joined(separator: ", "))]"
-        for text in [plist, json, python, rust, String(plist.prefix(900))] {
+        var base64Fields: [String: String] = [:]
+        for (name, value) in secretData { base64Fields[name] = value.base64EncodedString() }
+        let jsonData = try JSONSerialization.data(withJSONObject: base64Fields, options: [.prettyPrinted, .sortedKeys])
+        let json = String(decoding: jsonData, as: UTF8.self)
+        let escapes = hexEscapes(bytes(32, seed: 8))
+        let python = "{'private_key': b'\(escapes)', 'HostID': '\(Self.hostID)'}"
+        let rust = "private_key: [\(decimals(bytes(32, seed: 8)).joined(separator: ", "))]"
+        let cutOff = String(plist.prefix(900))
+        for text in [plist, json, python, rust, cutOff] {
             let once = redact(text)
             XCTAssertEqual(redact(once), once)
         }
