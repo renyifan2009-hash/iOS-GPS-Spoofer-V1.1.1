@@ -31,7 +31,7 @@ after each working chunk, log assumptions here, never stop on one blocked item.
 | A2 | Bundle IDs (`com.iosgpsspoofer.gui`, `com.iosgpsspoof.remote`), SwiftPM product names, the Bonjour service `_iosgpsspoof._tcp` and the GitHub repo URL stay as they are. | Changing them would orphan existing installs, Keychain items and the updater. |
 | A3 | Old data folders migrate to the new name on first launch (copy, never delete). | Favorites and saved routes must survive the rename. |
 | A4 | The GitHub repo is not renamed from here. | Renaming a repo is outward-facing; it needs the owner (`renyifan2009-hash`). |
-| A5 | Nothing is published overnight: no merge to `main`, no tag or GitHub Release, no production deploy of the landing page. Everything is on branches (`overnight/anywhere-rebrand` here, `anywhere-rebrand` in `igs-landing`). | Publishing is outward-facing and `main` is what testers install. The CI release job and the landing branch are ready; shipping is a few commands (see "Ship it" below). |
+| A5 | Nothing was published overnight: no merge to `main`, no tag or GitHub Release, no production deploy of the landing page. Everything stayed on branches. **Later, on 2026-10-12 evening, the owner of this work authorized shipping it, and it was shipped (see "Shipped" below).** | Publishing is outward-facing and `main` is what testers install. |
 | A6 | The "own loader" is an install assistant (download, checksum, check the app is AnyWhere, hand it to Sideloadly / AltStore / SideStore), not a new Apple-ID signer. | `docs/design/iphone-standalone.md` already rules out a home-made re-signer (Apple credentials, anisette). The assistant does everything that can be verified without them. |
 | A7 | The tester's crash is treated as a locally compiled build on a mismatched toolchain (the audit's most-confirmed finding, and what happened before). It could not be reproduced here (no crash report exists on this Mac), so the fix is a gate, not a patch: every source build must pass a launch self-test before it replaces anything, and CI now launches the app on the same toolchain mix. | There is no crash log from the tester. If it happens again with the DMG build, the `.ips` file is the next step. |
 
@@ -121,7 +121,7 @@ The prompt (written with ChatGPT, kept in `~/Downloads`) is a spec for a larger,
 - Everything on a real iPhone: `docs/DEVICE-TESTING.md` is the checklist (pairing file over AirDrop, installing through a
   signing tool, the iPhone-only mode, update behavior).
 - The iPhone-only mode on iOS 26.4+ is Apple's change and is not worked around (see Boundaries).
-- GitHub repo rename, `main` merge, release tag and landing deploy: owner's call (A4, A5).
+- GitHub repo rename: still not done. The repo belongs to `renyifan2009-hash` (a fork of SegFault42's) and the account used here (`svaka2000`) has only write access; renaming needs admin. See "Shipped" for the three files to change afterwards.
 - One audit finding was left open on purpose (PX-12, low, "uncertain" even after verification): the iPhone app declares the
   `.mobiledevicepairing` document type as *Imported* in `iPhoneRemote/SpoofRemote/Info.plist`, where *Exported* may be the
   more correct kind for a type in the app's own namespace. Only an AirDrop-open test on a real iPhone (B3 in
@@ -132,22 +132,18 @@ The prompt (written with ChatGPT, kept in `~/Downloads`) is a spec for a larger,
   cannot run until a release exists, because nothing is published overnight. Until then the in-app Update still rebuilds from
   source, and the self-test gate is what keeps that safe.
 
-## Ship it (when you are ready)
+## Shipped (2026-10-12 evening, authorized by the owner)
 
-CI runs on pull requests, on `main` and by hand, not on every push to a branch. Opening the PR starts it.
+| What | Result |
+|---|---|
+| `main` | Fast-forwarded to `77539c7` (nothing overwritten; `main` was an ancestor). CI on that commit: all 7 jobs green. |
+| Version | `VERSION` 2.4.0. iPhone app build 3 → 4 in `iPhoneRemote/project.yml` and `SpoofRemote.expected` together (a test checks they agree). Macs on 2.4.0 now tell people whose iPhone app is still build 3 to update. The fake `pymobiledevice3` reports current = 4, old = 3. |
+| Release | Tag `v2.4.0` on `77539c7`. The CI release job published **AnyWhere 2.4.0** as Latest with `AnyWhere-2.4.0.dmg`, `AnyWhere.ipa` and `SHA256SUMS.txt`. Notes written by hand (guide format, what is new, what is not verified). |
+| Checked after publishing | Checksums match. The app inside the DMG reports 2.4.0 on the `release` channel, `codesign --verify` is clean, and its launch self-test passes (isolated HOME, nothing installed). The IPA is build 4, version 1.1, bundle ID `com.iosgpsspoof.remote`. Images in the notes load. |
+| Landing page | `anywhere-rebrand` fast-forwarded onto `svaka2000/igs-landing` `main`; the git-connected Vercel production deploy went live (title, OG image, icons all 200). A second commit swapped the hero screenshot for the fresh CI render (it still showed the old name). Its links point at `releases/latest` and `main/install.sh`, both valid. |
+| Repo rename | **Not done: blocked by permission** (write access only). Asked of whoever owns `renyifan2009-hash`: rename the repo, or give admin. Afterwards change the slug in `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift`, `install.sh` and `scripts/make-app.sh`, plus the links in `README.md`, `docs/` and the landing page. GitHub redirects the old name in the meantime. |
 
-1. Open a PR from `overnight/anywhere-rebrand` into `main` and let CI run (all 7 jobs were green on 9d41662, the last code change;
-   run 38248259692). Review and merge it.
-2. Pick the version. `VERSION` still says 2.3.0 and the release job refuses a tag that doesn't match it, so bump `VERSION`
-   (2.4.0 is a sensible number) in a commit on `main` first. The iPhone app changed too (import errors, Keychain cleanup,
-   accessibility): if you want Macs to nag people on the old iPhone build, also raise `CURRENT_PROJECT_VERSION` in
-   `iPhoneRemote/project.yml` and `SpoofRemote.expected` in `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift` together (a test
-   checks they agree). Both are release decisions, so neither was done overnight.
-3. Tag it: `git tag v2.4.0 && git push origin v2.4.0` (the tag must equal `VERSION`). The CI `release` job builds the DMG and
-   `AnyWhere.ipa`, runs the launch self-test, and publishes the release with `SHA256SUMS.txt`.
-4. Landing page: merge `anywhere-rebrand` in `svaka2000/igs-landing` (tip 64e18e9), then `vercel --prod` there.
-5. Optional: rename the GitHub repo (`gh repo rename AnyWhere`), then update the slug in `Sources/PhoneOnlyCore/SpoofRemoteVersion.swift`,
-   `install.sh`, `scripts/make-app.sh` (GitHub redirects the old name meanwhile).
+Not verified, and said so in the release notes: nothing has been run on a real iPhone (`docs/DEVICE-TESTING.md`), and the in-app Update from a release has now been published but not yet exercised by a real installed app.
 
 ## SUMMARY (run closed 2026-10-12 about 05:35 PDT)
 
