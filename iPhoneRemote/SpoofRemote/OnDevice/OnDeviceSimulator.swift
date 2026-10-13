@@ -3,7 +3,7 @@ import Foundation
 import IDevice
 import PhoneOnlyCore
 
-/// Changes this iPhone's location from the iPhone itself (iOS 17.4 and
+/// Attempts to change this iPhone's location from the iPhone itself (iOS 17 and
 /// later), the way a Mac does over USB: a developer tunnel, RSD, then DVT's
 /// location simulation channel. The LocalDevVPN app routes the iPhone's own
 /// address back to it, which is how an app can reach its own developer
@@ -12,7 +12,7 @@ import PhoneOnlyCore
 /// There are two ways to open the tunnel (`TunnelRoute`), and the pairing
 /// file decides which are possible:
 /// - **Remote Pairing**: pair-verify with remotepairingd, then its own
-///   tunnel. Works on every iOS version this mode supports.
+///   tunnel. On iOS 17.0–17.3 this path still needs a physical-device test.
 /// - **Lockdown**: lockdown with the pairing record, then CoreDeviceProxy.
 ///   Newer iOS versions don't answer lockdown through LocalDevVPN.
 ///
@@ -50,6 +50,7 @@ final class OnDeviceSimulator {
     ///     connection would pair again. It can be called even when the
     ///     connection then fails.
     init(pairing: PairingRecord, routes: [TunnelRoute], address: String = OnDeviceSimulator.defaultAddress,
+         developerImage: URL? = nil,
          onRenewedPairing: (PairingRecord) -> Void = { _ in }) throws {
         // The file as it stands: a route that pairs again changes it for the routes after it.
         var pairing = pairing
@@ -80,12 +81,89 @@ final class OnDeviceSimulator {
         // Every tunnel ends in the same adapter and RSD handshake. From here
         // on another route wouldn't help: the tunnel is open.
         do {
+            if try mountDeveloperSupportIfNeeded(from: developerImage) {
+                // Service advertisements were captured before the image was mounted. A fresh
+                // tunnel obtains a new RSD handshake containing the newly started developer services.
+                close()
+                switch route {
+                case .remotePairing(let port):
+                    try openRemotePairingTunnel(pairing, address: address, port: port) { renewed in
+                        pairing = renewed
+                        onRenewedPairing(renewed)
+                    }
+                case .lockdown: try openLockdownTunnel(pairing, address: address)
+                }
+            }
             try Self.check(.instruments, route, remote_server_connect_rsd(adapter, handshake, &server))
             try Self.check(.simulation, route, location_simulation_new(server, &simulation))
         } catch {
             close()
             throw error
         }
+    }
+
+    /// Mount only when RSD has no Instruments service. Never replace developer support that is
+    /// already running. Personalization stays in idevice and Apple's signing service.
+    private func mountDeveloperSupportIfNeeded(from directory: URL?) throws -> Bool {
+        var instrumentsAvailable = false
+        try Self.check(.services, route,
+                       rsd_service_available(handshake, "com.apple.instruments.dtservicehub", &instrumentsAvailable))
+        guard !instrumentsAvailable else { return false }
+        guard let directory else {
+            throw TunnelFailure(step: .developerImage, route: route,
+                                message: "No developer image is stored on this iPhone. Import the Apple DDI folder in Set Up.")
+        }
+        let bundle: DeveloperImageBundle
+        do { bundle = try DeveloperImageBundle(directory: directory) }
+        catch { throw TunnelFailure(step: .developerImage, route: route, message: error.localizedDescription) }
+        var cryptexAvailable = false
+        try Self.check(.services, route,
+                       rsd_service_available(handshake, "com.apple.security.cryptexd.remote", &cryptexAvailable))
+        if bundle.cryptexPaths != nil, cryptexAvailable {
+            var assets: OpaquePointer?
+            try Self.check(.developerImage, route, cryptex1_assets_load(directory.path, &assets))
+            defer { cryptex1_assets_free(assets) }
+            try Self.check(.developerImage, route, cryptexd_install_ddi(adapter, handshake, assets, nil))
+            return true
+        }
+
+        guard let personalizedPaths = bundle.personalizedPaths else {
+            throw TunnelFailure(step: .developerImage, route: route,
+                                message: "This folder only contains Cryptex payloads, but this iPhone doesn't advertise the Cryptex service. Import a matching Apple DDI folder.")
+        }
+
+        var lockdown: OpaquePointer?
+        try Self.check(.developerImage, route, lockdownd_connect_rsd(adapter, handshake, &lockdown))
+        defer { lockdownd_client_free(lockdown) }
+        var value: plist_t?
+        try Self.check(.developerImage, route, lockdownd_get_value(lockdown, "UniqueChipID", nil, &value))
+        defer { plist_free(value) }
+        var ecid: UInt64 = 0
+        plist_get_uint_val(value, &ecid)
+        guard ecid != 0 else {
+            throw TunnelFailure(step: .developerImage, route: route, message: "This iPhone didn't report its personalization identifier.")
+        }
+        var mounter: OpaquePointer?
+        try Self.check(.developerImage, route, image_mounter_connect_rsd(adapter, handshake, &mounter))
+        defer { image_mounter_free(mounter) }
+        let image = try DeveloperImageBundle.read(personalizedPaths[0], in: directory,
+                                                  limit: DeveloperImageBundle.maxImageBytes)
+        let cache = try DeveloperImageBundle.read(personalizedPaths[1], in: directory,
+                                                  limit: DeveloperImageBundle.maxImageBytes)
+        let manifest = try DeveloperImageBundle.read("BuildManifest.plist", in: directory,
+                                                     limit: DeveloperImageBundle.maxManifestBytes)
+        let error = image.withUnsafeBytes { imageBytes in
+            cache.withUnsafeBytes { cacheBytes in
+                manifest.withUnsafeBytes { manifestBytes in
+                    image_mounter_mount_personalized_rsd(mounter, adapter, handshake,
+                        imageBytes.bindMemory(to: UInt8.self).baseAddress, image.count,
+                        cacheBytes.bindMemory(to: UInt8.self).baseAddress, cache.count,
+                        manifestBytes.bindMemory(to: UInt8.self).baseAddress, manifest.count, nil, ecid)
+                }
+            }
+        }
+        try Self.check(.developerImage, route, error)
+        return true
     }
 
     /// Pair-verify with remotepairingd, then its TLS-PSK tunnel and RSD: one

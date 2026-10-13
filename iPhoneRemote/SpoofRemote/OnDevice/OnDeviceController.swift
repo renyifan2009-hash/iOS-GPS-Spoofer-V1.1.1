@@ -12,11 +12,12 @@ final class OnDeviceController {
     enum Phase: Equatable {
         case idle
         case connecting
+        case stopping
         case active
     }
 
     private(set) var phase: Phase = .idle
-    private(set) var pairing: PairingFile? = PairingFile.load()
+    private(set) var pairing: PairingFile?
     /// Which of this iPhone's developer ports answer through LocalDevVPN. Nil
     /// until checked.
     private(set) var ports: DeveloperPorts?
@@ -42,7 +43,7 @@ final class OnDeviceController {
 
     var isSetUp: Bool { pairing != nil }
     var isSpoofing: Bool { phase == .active }
-    var isWorking: Bool { phase == .connecting }
+    var isWorking: Bool { phase == .connecting || phase == .stopping }
 
     /// Whether LocalDevVPN routes this iPhone's own address back to it. Nil
     /// until checked.
@@ -52,30 +53,63 @@ final class OnDeviceController {
     /// pairing file was saved without that identity. A new file fixes it.
     var pairingFileIsTooOld: Bool {
         guard let pairing, let ports else { return false }
-        return TunnelPlan.readiness(for: pairing.record, ports: ports) == .fileLacksRemotePairing
+        return TunnelPlan.readiness(for: pairing.record, ports: ports, allowLockdown: Self.allowLockdown) == .fileLacksRemotePairing
     }
 
-    /// CoreDevice's tunnel, which this mode needs, arrived in iOS 17.4.
+    /// Remote Pairing is attempted on iOS 17+. CoreDeviceProxy fallback is 17.4+ only.
+    /// Eligibility is not a claim that every device/OS build has passed a hardware test.
     static let isSupported = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+        OperatingSystemVersion(majorVersion: 17, minorVersion: 0, patchVersion: 0))
+    private static let allowLockdown = ProcessInfo.processInfo.isOperatingSystemAtLeast(
         OperatingSystemVersion(majorVersion: 17, minorVersion: 4, patchVersion: 0))
+    private(set) var developerImageBuild: String? = UserDefaults.standard.string(forKey: "developerImageBuild")
+    private(set) var importingDeveloperImage = false
+    private(set) var developerImageError: String?
+    private(set) var isUpdatingLocation = false
+    @ObservationIgnored private var heartbeat: Task<Void, Never>?
+    @ObservationIgnored private var stopTask: Task<Bool, Never>?
 
     static let pairingFileTooOldMessage = "This pairing file can't be used on this iPhone's iOS. On your Mac, plug this iPhone "
         + "in by cable, unlock it, and choose File ▸ Pairing File for the iPhone App… again. Then open the new file here. "
         + "If it still fails, update AnyWhere on the Mac first."
 
-    private let engine = OnDeviceEngine()
-    private let keepAlive = KeepAlive()
+    private let engine: any OnDeviceOperations
+    private let keepAlive: any BackgroundHolding
+    @ObservationIgnored private let developerPortProbe: (@Sendable () async -> DeveloperPorts)?
+    @ObservationIgnored private let heartbeatInterval: Duration
     /// Counts calls to `stop()`. A `set` that was still running when one came
     /// in must not put its location back on screen: the stop cleared it.
     @ObservationIgnored private var stops = 0
 
-    init() {
+    init(engine: any OnDeviceOperations = OnDeviceEngine(), pairing: PairingFile? = PairingFile.load(),
+         keepAlive: any BackgroundHolding = KeepAlive(),
+         developerPortProbe: (@Sendable () async -> DeveloperPorts)? = nil,
+         heartbeatInterval: Duration = .seconds(15)) {
+        self.engine = engine
+        self.pairing = pairing
+        self.keepAlive = keepAlive
+        self.developerPortProbe = developerPortProbe
+        self.heartbeatInterval = heartbeatInterval
         engine.onAbandonedCallEnded { [weak self] in
             Task { @MainActor in await self?.holdAgain() }
         }
     }
 
     // MARK: Pairing file
+
+    func importDeveloperImage(from url: URL) async {
+        guard phase == .idle, !importingDeveloperImage else { return }
+        importingDeveloperImage = true
+        developerImageError = nil
+        defer { importingDeveloperImage = false }
+        do {
+            let bundle = try await Task.detached(priority: .userInitiated) {
+                try DeveloperImageStore.importFolder(url)
+            }.value
+            developerImageBuild = bundle.build
+            UserDefaults.standard.set(bundle.build, forKey: "developerImageBuild")
+        } catch { developerImageError = error.localizedDescription }
+    }
 
     /// Import a pairing file from Files, AirDrop or "Open in". On success the
     /// file is in the Keychain and the copy iOS made for this app is deleted.
@@ -193,7 +227,12 @@ final class OnDeviceController {
         checkingLoopback = true
         let known = remotePairingPort
         let check = Task { @MainActor in
-            let findings = await LoopbackProbe.developerPorts(knownRemotePairingPort: known)
+            let findings: LoopbackProbe.Findings
+            if let probe = self.developerPortProbe {
+                findings = LoopbackProbe.Findings(ports: await probe(), remotePairingPort: nil)
+            } else {
+                findings = await LoopbackProbe.developerPorts(knownRemotePairingPort: known)
+            }
             self.ports = findings.ports
             if let port = findings.remotePairingPort { self.rememberRemotePairingPort(port) }
             self.loopbackCheck = nil
@@ -211,8 +250,9 @@ final class OnDeviceController {
     /// The routes that answered at the last check, or all the file allows if
     /// nothing was checked.
     private func knownRoutes(for record: PairingRecord) -> [TunnelRoute] {
-        if let ports, case .ready(let routes) = TunnelPlan.readiness(for: record, ports: ports) { return routes }
-        return TunnelPlan.routes(for: record, discoveredPort: remotePairingPort)
+        if let ports, case .ready(let routes) = TunnelPlan.readiness(for: record, ports: ports,
+                                                                  allowLockdown: Self.allowLockdown) { return routes }
+        return TunnelPlan.routes(for: record, discoveredPort: remotePairingPort, allowLockdown: Self.allowLockdown)
     }
 
     // MARK: The location
@@ -220,12 +260,15 @@ final class OnDeviceController {
     /// Start holding `coordinate`, or move there if already holding one.
     @discardableResult
     func set(_ coordinate: CLLocationCoordinate2D, name: String?) async -> Bool {
+        guard CLLocationCoordinate2DIsValid(coordinate), !importingDeveloperImage, !isUpdatingLocation else { return false }
         adoptRenewedPairing()
         guard let pairing else {
             show("Set up this iPhone first: it needs the pairing file from your Mac.")
             return false
         }
-        guard phase != .connecting else { return false }
+        guard phase != .connecting, phase != .stopping else { return false }
+        isUpdatingLocation = true
+        defer { isUpdatingLocation = false }
         let stopsBefore = stops
         let moving = phase == .active
         let routes: [TunnelRoute]
@@ -238,7 +281,9 @@ final class OnDeviceController {
             // Without LocalDevVPN the connection would wait a long time
             // before failing, so check first; it takes a moment.
             await checkLoopback()
-            switch TunnelPlan.readiness(for: pairing.record, ports: ports ?? DeveloperPorts()) {
+            guard stops == stopsBefore else { return false }
+            switch TunnelPlan.readiness(for: pairing.record, ports: ports ?? DeveloperPorts(),
+                                        allowLockdown: Self.allowLockdown) {
             case .ready(let ready):
                 routes = ready
             case .nothingAnswers:
@@ -264,10 +309,12 @@ final class OnDeviceController {
             current = coordinate
             currentName = name
             clearError()
+            startHeartbeat()
             return true
         } catch {
             // The pairing may have been renewed before a later step failed.
             adoptRenewedPairing()
+            guard stops == stopsBefore else { return false }
             // A remembered port that no longer leads anywhere would be tried
             // first every time. Forget it: Bonjour is asked again if needed.
             if remotePairingPort != nil { rememberRemotePairingPort(nil) }
@@ -286,7 +333,7 @@ final class OnDeviceController {
                          routes: [TunnelRoute]) async throws {
         do {
             try await engine.set(latitude: coordinate.latitude, longitude: coordinate.longitude,
-                                 pairing: pairing, routes: routes)
+                                 pairing: pairing, routes: routes, developerImage: DeveloperImageStore.directory)
         } catch let failure as TunnelFailure where failure.pointsAtAnotherPort {
             // remotepairingd may not be on the port tried: it's usually
             // 49152, but iOS doesn't promise that. Ask Bonjour, and try once
@@ -296,7 +343,8 @@ final class OnDeviceController {
             // The first try may have paired again: use the file as it is now.
             adoptRenewedPairing()
             try await engine.set(latitude: coordinate.latitude, longitude: coordinate.longitude,
-                                 pairing: self.pairing?.record ?? pairing, routes: [.remotePairing(port: port)])
+                                 pairing: self.pairing?.record ?? pairing, routes: [.remotePairing(port: port)],
+                                 developerImage: DeveloperImageStore.directory)
         }
     }
 
@@ -316,21 +364,48 @@ final class OnDeviceController {
     }
 
     /// Back to the real location.
-    func stop() async {
+    @discardableResult
+    func stop() async -> Bool {
         stops += 1
-        guard phase != .idle else { return }
-        await engine.clear()
+        heartbeat?.cancel()
+        heartbeat = nil
+        if let stopTask { return await stopTask.value }
+        guard phase != .idle else { return true }
+        phase = .stopping
+        let clearing = Task { await engine.clear() }
+        stopTask = clearing
+        let cleared = await clearing.value
+        stopTask = nil
         adoptRenewedPairing()
         keepAlive.stop()
         phase = .idle
         current = nil
         currentName = nil
+        if !cleared {
+            show("The connection didn't confirm Stop. If Maps still shows the simulated location, restart this iPhone.")
+        }
+        return cleared
+    }
+
+    private func startHeartbeat() {
+        guard heartbeat == nil else { return }
+        let interval = heartbeatInterval
+        heartbeat = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: interval) } catch { return }
+                guard let self, self.phase == .active else { return }
+                guard !self.isUpdatingLocation, let coordinate = self.current else { continue }
+                _ = await self.set(coordinate, name: self.currentName)
+            }
+        }
     }
 
     // MARK: Errors
 
     /// Nothing is held (any more). With a message, also say why.
     private func giveUp(_ message: String?) -> Bool {
+        heartbeat?.cancel()
+        heartbeat = nil
         if let message { show(message) }
         phase = .idle
         current = nil
@@ -370,7 +445,15 @@ final class OnDeviceController {
 /// moves to a new queue (a "lane"). The stuck call keeps its old lane. If it
 /// ever returns, it only closes what it had open, and whatever was waiting
 /// behind it has already been told it failed.
-final class OnDeviceEngine: @unchecked Sendable {
+protocol OnDeviceOperations: Sendable {
+    var route: TunnelRoute? { get }
+    func onAbandonedCallEnded(_ handler: @escaping @Sendable () -> Void)
+    func takeRenewedPairing() -> PairingRecord?
+    func set(latitude: Double, longitude: Double, pairing: PairingRecord, routes: [TunnelRoute], developerImage: URL?) async throws
+    func clear() async -> Bool
+}
+
+final class OnDeviceEngine: OnDeviceOperations, @unchecked Sendable {
     struct TimedOut: LocalizedError {
         var errorDescription: String? {
             "Connecting took too long. Check that LocalDevVPN is connected, then try again. "
@@ -467,8 +550,10 @@ final class OnDeviceEngine: @unchecked Sendable {
         lock.withLock { abandonedCallEnded = handler }
     }
 
-    func set(latitude: Double, longitude: Double, pairing: PairingRecord, routes: [TunnelRoute]) async throws {
-        try await perform(timeout: Self.connectTimeout) { lane, gaveUp in
+    func set(latitude: Double, longitude: Double, pairing: PairingRecord, routes: [TunnelRoute],
+             developerImage: URL? = nil) async throws {
+        let timeout = route == nil ? (developerImage == nil ? Self.connectTimeout : 180) : 10
+        try await perform(timeout: timeout) { lane, gaveUp in
             if let simulator = lane.simulator {
                 do {
                     try simulator.set(latitude: latitude, longitude: longitude)
@@ -484,7 +569,7 @@ final class OnDeviceEngine: @unchecked Sendable {
             // If the caller has stopped waiting, a new connection now would
             // set a location behind its back.
             if gaveUp() { throw TimedOut() }
-            let fresh = try OnDeviceSimulator(pairing: pairing, routes: routes) { renewed in
+            let fresh = try OnDeviceSimulator(pairing: pairing, routes: routes, developerImage: developerImage) { renewed in
                 self.lock.withLock { self.renewedPairing = renewed }
             }
             do {
@@ -499,14 +584,19 @@ final class OnDeviceEngine: @unchecked Sendable {
         }
     }
 
-    func clear() async {
-        try? await perform(timeout: Self.clearTimeout) { lane, _ in
-            defer {
-                lane.simulator?.close()
-                lane.simulator = nil
-                self.lock.withLock { self.liveRoute = nil }
+    func clear() async -> Bool {
+        do {
+            try await perform(timeout: Self.clearTimeout) { lane, _ in
+                defer {
+                    lane.simulator?.close()
+                    lane.simulator = nil
+                    self.lock.withLock { self.liveRoute = nil }
+                }
+                try lane.simulator?.clear()
             }
-            try lane.simulator?.clear()
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -748,7 +838,13 @@ enum RemotePairingPort {
 /// background location session (the blue pill in the status bar) keeps
 /// the app awake.
 @MainActor
-final class KeepAlive {
+protocol BackgroundHolding {
+    func start()
+    func stop()
+}
+
+@MainActor
+final class KeepAlive: BackgroundHolding {
     private var session: CLBackgroundActivitySession?
     private var updates: Task<Void, Never>?
     private let manager = CLLocationManager()

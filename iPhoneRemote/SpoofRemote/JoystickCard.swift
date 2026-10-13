@@ -38,7 +38,7 @@ final class JoystickModel {
     }
 
     /// The thumb moved: x right, y up.
-    func thumbMoved(to vector: CGVector, connection: ConnectionManager) {
+    func thumbMoved(to vector: CGVector, connection: any ControlTarget) {
         holding = true
         thumb = vector
         let input = JoystickInput.make(x: Double(vector.dx), y: Double(vector.dy), topSpeed: topSpeed,
@@ -47,7 +47,7 @@ final class JoystickModel {
         sendWhileHeld(connection)
     }
 
-    func thumbLifted(connection: ConnectionManager) {
+    func thumbLifted(connection: any ControlTarget) {
         holding = false
         thumb = .zero
         current = .idle
@@ -56,7 +56,7 @@ final class JoystickModel {
     }
 
     /// For VoiceOver: a short push in a compass direction, then stand still.
-    func nudge(heading: Double, seconds: Double = 2, connection: ConnectionManager) {
+    func nudge(heading: Double, seconds: Double = 2, connection: any ControlTarget) {
         sendTask?.cancel()
         sendTask = Task { [weak self] in
             guard let self else { return }
@@ -74,12 +74,12 @@ final class JoystickModel {
     }
 
     /// Stand still and stop sending (the screen went away or the app went to the background).
-    func release(connection: ConnectionManager) {
+    func release(connection: any ControlTarget) {
         guard holding || sendTask != nil else { return }
         thumbLifted(connection: connection)
     }
 
-    private func sendWhileHeld(_ connection: ConnectionManager) {
+    private func sendWhileHeld(_ connection: any ControlTarget) {
         guard sendTask == nil else { return }
         sendTask = Task { [weak self] in
             while let self, !Task.isCancelled {
@@ -174,7 +174,7 @@ struct JoystickPad: View {
 /// Steer from the iPhone: pick a pace, drag the pad.
 struct JoystickCardView: View {
     @Bindable var joystick: JoystickModel
-    var connection: ConnectionManager
+    var connection: any ControlTarget
     var hasPlace: Bool
 
     @Environment(\.scenePhase) private var scenePhase

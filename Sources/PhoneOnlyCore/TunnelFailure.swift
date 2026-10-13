@@ -10,6 +10,7 @@ public struct TunnelFailure: Error, Equatable, Sendable, LocalizedError {
         case reach
         case tunnel
         case services
+        case developerImage
         case instruments
         case simulation
         case setLocation
@@ -23,6 +24,7 @@ public struct TunnelFailure: Error, Equatable, Sendable, LocalizedError {
             case .reach: "Reaching the iPhone"
             case .tunnel: "Opening the developer tunnel"
             case .services: "Connecting to the developer services"
+            case .developerImage: "Loading developer support"
             case .instruments: "Opening Instruments"
             case .simulation: "Opening location simulation"
             case .setLocation: "Setting the location"
@@ -133,8 +135,14 @@ public struct TunnelFailure: Error, Equatable, Sendable, LocalizedError {
         if code == Code.developerModeNotEnabled || text.contains("developer mode") {
             return "Developer Mode is off. Turn it on in Settings ▸ Privacy & Security ▸ Developer Mode."
         }
-        if step == .instruments || step == .simulation || code == Code.imageNotMounted || text.contains("image") {
-            return "Apple's developer support isn't loaded. Connect this iPhone to your Mac once and open AnyWhere."
+        if step == .developerImage {
+            return "Couldn't load Apple's developer support. In This iPhone ▸ Set Up, import a matching developer-image folder. Keep internet available for Apple's signing service."
+        }
+        if code == Code.imageNotMounted {
+            return "Apple's developer support isn't loaded. Import a matching developer-image folder in This iPhone ▸ Set Up, or load it once from your Mac."
+        }
+        if step == .instruments || step == .simulation {
+            return "This iPhone's location service didn't open. Check Developer Mode and developer support, then try again. This iOS build may use a different developer protocol."
         }
         if isUnreachable {
             return Self.unreachableExplanation

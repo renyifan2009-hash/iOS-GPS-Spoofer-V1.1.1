@@ -66,15 +66,15 @@ public enum TunnelPlan {
         case remotePairingDoesNotAnswer
     }
 
-    /// Remote Pairing first: it works on every iOS version this mode
-    /// supports. Lockdown after it, as a second chance on older iOS.
-    public static func readiness(for record: PairingRecord, ports: DeveloperPorts) -> Readiness {
+    /// Remote Pairing first. Lockdown/CoreDeviceProxy is a second chance on
+    /// iOS 17.4+ when reachable. Route selection alone does not prove OS compatibility.
+    public static func readiness(for record: PairingRecord, ports: DeveloperPorts, allowLockdown: Bool = true) -> Readiness {
         guard ports.anyAnswered else { return .nothingAnswers }
         var routes: [TunnelRoute] = []
         if record.hasRemotePairingIdentity {
             routes += ports.remotePairing.map { .remotePairing(port: $0) }
         }
-        if record.hasLockdownRecord, ports.lockdown {
+        if allowLockdown, record.hasLockdownRecord, ports.lockdown {
             routes.append(.lockdown)
         }
         if !routes.isEmpty { return .ready(routes) }
@@ -82,12 +82,13 @@ public enum TunnelPlan {
     }
 
     /// Every route the file allows, for when the ports haven't been checked.
-    public static func routes(for record: PairingRecord, discoveredPort: UInt16? = nil) -> [TunnelRoute] {
+    public static func routes(for record: PairingRecord, discoveredPort: UInt16? = nil,
+                              allowLockdown: Bool = true) -> [TunnelRoute] {
         var routes: [TunnelRoute] = []
         if record.hasRemotePairingIdentity {
             routes += remotePairingCandidates(discovered: discoveredPort).map { .remotePairing(port: $0) }
         }
-        if record.hasLockdownRecord { routes.append(.lockdown) }
+        if allowLockdown, record.hasLockdownRecord { routes.append(.lockdown) }
         return routes
     }
 }

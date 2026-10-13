@@ -326,6 +326,15 @@ jobs:
             -destination 'generic/platform=iOS Simulator' -configuration Debug \
             CODE_SIGNING_ALLOWED=NO build
 
+      - name: Standalone iPhone control tests
+        run: |
+          xcrun simctl list devices available --json > "$RUNNER_TEMP/simulators.json"
+          SIMULATOR_ID=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["devices"]; print(next(v["udid"] for k in sorted(d,reverse=True) if "iOS" in k for v in d[k] if v.get("isAvailable") and v["name"].startswith("iPhone")))' "$RUNNER_TEMP/simulators.json")
+          xcodebuild -project iPhoneRemote/SpoofRemote.xcodeproj -scheme SpoofRemote \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -configuration Debug \
+            -parallel-testing-enabled NO -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 30 CODE_SIGN_IDENTITY=- test
+
       # The file testers install with a sideloading tool (or the AnyWhere installer), which signs it
       # with their own Apple ID. Built with the newest Xcode 26, for the iOS 26 design.
       - name: Build for iPhones (unsigned .ipa)

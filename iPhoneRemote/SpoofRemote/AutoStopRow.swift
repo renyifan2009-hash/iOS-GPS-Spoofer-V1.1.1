@@ -6,7 +6,7 @@ import SwiftUI
 /// while, which becomes a live countdown once it is set. The Mac does the stopping, so it still works if
 /// this iPhone is locked or out of range.
 struct AutoStopRow: View {
-    var connection: ConnectionManager
+    var connection: any ControlTarget
     /// Just an icon (and the countdown when set), to sit in a header.
     var compact = false
 
@@ -66,7 +66,7 @@ struct AutoStopRow: View {
 /// While a place is held and the Route tab is open: where it is held, the timer, and Stop, on one line.
 struct HeldStrip: View {
     let status: RemoteStatus
-    var connection: ConnectionManager
+    var connection: any ControlTarget
 
     var body: some View {
         HStack(spacing: 10) {

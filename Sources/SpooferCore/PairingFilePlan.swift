@@ -14,7 +14,7 @@ public enum PairingFileReadiness: Equatable, Sendable {
         guard helperAvailable else { return .helperMissing }
         guard let device else { return .noDevice }
         guard device.isTrusted else { return .needsTrust(deviceName: device.deviceName) }
-        guard device.supportsUserspaceTunnel else {
+        guard device.majorVersion >= 17 else {
             return .iosTooOld(deviceName: device.deviceName, version: device.productVersion)
         }
         return .ready(deviceName: device.deviceName)
@@ -48,7 +48,7 @@ public enum PairingFileReadiness: Equatable, Sendable {
         case .needsTrust:
             return "Unlock the iPhone and tap Trust when it asks “Trust This Computer?”, then enter its passcode."
         case .iosTooOld:
-            return "This needs iOS 17.4 or later. Update the iPhone in Settings ▸ General ▸ Software Update."
+            return "This needs iOS 17 or later. Update the iPhone in Settings ▸ General ▸ Software Update."
         }
     }
 }

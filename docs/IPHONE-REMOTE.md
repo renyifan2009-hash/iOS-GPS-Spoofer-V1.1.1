@@ -1,5 +1,7 @@
 # iPhone Remote
 
+**Computer-off control:** choose **This iPhone** for the local teleport, joystick, route and timer backend. See [PHONE-ONLY.md](PHONE-ONLY.md); published build 4 lacks the new standalone controls.
+
 Control the simulated location entirely from your iPhone. Your Mac stays in a
 bag, a car or another room and keeps the location alive; the **AnyWhere**
 app on the iPhone picks places and tells it to start, move or stop.

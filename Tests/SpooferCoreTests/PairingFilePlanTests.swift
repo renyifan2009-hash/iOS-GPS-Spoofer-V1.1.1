@@ -52,16 +52,16 @@ final class PairingFilePlanTests: XCTestCase {
     }
 
     func testTooOldIOSNamesTheVersionAndTheFix() {
-        for version in ["16.7.2", "17.3", "15.0"] {
+        for version in ["16.7.2", "15.0"] {
             let state = PairingFileReadiness.evaluate(helperAvailable: true, device: device(version: version))
             XCTAssertEqual(state, .iosTooOld(deviceName: "Sam's iPhone", version: version), version)
             XCTAssertTrue(state.title.contains(version))
-            XCTAssertTrue(state.instruction.contains("17.4"))
+            XCTAssertTrue(state.instruction.contains("17"))
         }
     }
 
-    func testIOS174AndNewerAreReady() {
-        for version in ["17.4", "17.7.1", "18.0", "26.6"] {
+    func testIOS17AndNewerCanExportPairingForAnAttempt() {
+        for version in ["17.0", "17.3", "17.4", "17.7.1", "18.0", "26.6"] {
             XCTAssertTrue(PairingFileReadiness.evaluate(helperAvailable: true, device: device(version: version)).isReady, version)
         }
     }

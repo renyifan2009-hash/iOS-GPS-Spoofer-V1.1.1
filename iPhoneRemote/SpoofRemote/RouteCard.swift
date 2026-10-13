@@ -51,7 +51,7 @@ enum RouteText {
 /// Build a route on the map, then send it to the Mac to drive.
 struct RouteCardView: View {
     @Bindable var route: RouteDraft
-    var connection: ConnectionManager
+    var connection: any ControlTarget
     var library: RouteLibrary
 
     @State private var showStops = false
@@ -166,7 +166,7 @@ struct RouteCardView: View {
             .pickerStyle(.segmented)
 
             Toggle("Follow roads & paths", isOn: $route.followRoads)
-            if route.driving {
+            if route.driving, connection.executionName == "Mac" {
                 Toggle("Slower in rush hour", isOn: $route.timeOfDayTraffic)
             }
 
@@ -222,7 +222,7 @@ struct RouteCardView: View {
 /// A route that is driving: how far along, and pause, resume or stop.
 struct RouteProgressCardView: View {
     var route: RouteDraft
-    var connection: ConnectionManager
+    var connection: any ControlTarget
 
     private var status: RemoteStatus? { connection.status }
     private var planning: Bool { status?.activity == "planning" }
@@ -277,7 +277,7 @@ struct RouteProgressCardView: View {
     }
 
     private var subtitle: String {
-        if planning { return "Planning the route on the Mac…" }
+        if planning { return "Planning the route on the \(connection.executionName)…" }
         var parts: [String] = []
         if let progress = status?.routeProgress { parts.append("\(Int((progress * 100).rounded()))%") }
         if paused {
