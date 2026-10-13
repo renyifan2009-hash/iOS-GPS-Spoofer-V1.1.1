@@ -81,8 +81,13 @@ final class OnDeviceController {
     /// in must not put its location back on screen: the stop cleared it.
     @ObservationIgnored private var stops = 0
 
-    init(engine: any OnDeviceOperations = OnDeviceEngine(), pairing: PairingFile? = PairingFile.load(),
-         keepAlive: any BackgroundHolding = KeepAlive(),
+    // Swift 6.1 crashes while lowering actor-isolated default arguments in the App's @State
+    // initializer. Construct production dependencies here; test injection remains explicit.
+    convenience init() {
+        self.init(engine: OnDeviceEngine(), pairing: PairingFile.load(), keepAlive: KeepAlive())
+    }
+
+    init(engine: any OnDeviceOperations, pairing: PairingFile?, keepAlive: any BackgroundHolding,
          developerPortProbe: (@Sendable () async -> DeveloperPorts)? = nil,
          heartbeatInterval: Duration = .seconds(15)) {
         self.engine = engine
