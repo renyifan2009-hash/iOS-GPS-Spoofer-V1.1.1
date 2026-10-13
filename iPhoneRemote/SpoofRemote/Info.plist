@@ -39,7 +39,9 @@
 			</array>
 		</dict>
 	</array>
-	<key>UTImportedTypeDeclarations</key>
+	<!-- Exported, not imported: this identifier is in the app's own namespace, so this app is the
+	     one that defines the type (Apple: exported = types your app owns, imported = someone else's). -->
+	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>

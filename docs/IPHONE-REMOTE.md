@@ -252,7 +252,7 @@ if you skip step 6:
 | `NSAppTransportSecurity` ▸ `NSAllowsLocalNetworking` | YES | plain HTTP to local addresses |
 | `NSLocationWhenInUseUsageDescription` | "Shows where iOS reports this iPhone to be…" | the optional blue dot that confirms the simulated location, and the iPhone-only mode's background session |
 | `UIBackgroundModes` | `location` | the iPhone-only mode stays awake while it holds a location |
-| `CFBundleDocumentTypes`, `UTImportedTypeDeclarations` | `com.iosgpsspoof.mobiledevicepairing` (`.mobiledevicepairing`) | pairing files from the Mac open in AnyWhere |
+| `CFBundleDocumentTypes`, `UTExportedTypeDeclarations` | `com.iosgpsspoof.mobiledevicepairing` (`.mobiledevicepairing`) | pairing files from the Mac open in AnyWhere |
 
 The Mac app's bundle (`package-dmg.sh`) also declares
 `NSLocalNetworkUsageDescription` and `NSBonjourServices`.
