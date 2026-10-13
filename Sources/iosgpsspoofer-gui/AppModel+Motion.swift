@@ -159,15 +159,29 @@ extension AppModel {
         let magnitude = min(1.0, hypot(dx, dy))
         guard let from = joystickPosition ?? devicePosition ?? target else { return }
         var goal = 0.0
+        var steeredFromPhone = false
         if magnitude > 0.05 {
             goal = prefs.joystickSpeed * magnitude * (sprinting ? 2.5 : 1)
             // Pad "up" is screen-up, whichever way the map is rotated.
             joystickHeadingNow = Geo.normalizedBearing(atan2(dx, dy) * 180 / .pi + mapHeading)
+        } else if let remote = remoteJoystickMotion {
+            // Steering from the iPhone, only while nobody is using the pad or keys here. It lets go by
+            // itself when the iPhone goes quiet.
+            if remote.isExpired(at: Date()) {
+                remoteJoystickMotion = nil
+            } else if remote.speed > 0 {
+                goal = remote.speed
+                joystickHeadingNow = remote.heading
+                steeredFromPhone = true
+            }
         }
         var speed = goal
         if prefs.realisticTrips {
             // Ease in and out, a little brisker than a planned trip so it feels responsive.
-            let profile = MotionProfile.forSpeed(prefs.joystickSpeed)
+            // (From the iPhone the speed is the one it asked for, a walk or a drive: ease to match.)
+            // The braking of whatever it is moving like right now: a cyclist stops faster than a walker.
+            let reference = steeredFromPhone ? max(goal, 0.5) : prefs.joystickSpeed
+            let profile = MotionProfile.forSpeed(max(reference, joystickSpeedNow))
             speed = joystickSpeedNow < goal ? min(goal, joystickSpeedNow + 2 * profile.acceleration * dt)
                                             : max(goal, joystickSpeedNow - 2 * profile.braking * dt)
         }

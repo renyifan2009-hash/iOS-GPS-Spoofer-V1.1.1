@@ -3,6 +3,7 @@ import CoreLocation
 import Foundation
 import Observation
 import SpooferCore
+import SpooferRemote
 
 struct LogEntry: Identifiable, Equatable {
     let id = UUID()
@@ -206,6 +207,16 @@ final class AppModel {
     /// Where the joystick really is, before GPS drift is added.
     @ObservationIgnored var joystickPosition: GeoPoint?
     @ObservationIgnored var lapTimeCache: (key: String, value: TimeInterval)?
+
+    // MARK: Driven from the iPhone (Settings ▸ iPhone Remote). See AppModel+RemoteControl.swift.
+    /// "Slower in rush hour" as the iPhone asked for this route; nil = the Mac's own setting.
+    @ObservationIgnored var remoteTrafficOverride: Bool?
+    /// What the iPhone's joystick last asked for. Expires by itself.
+    @ObservationIgnored var remoteJoystickMotion: JoystickMotion?
+    /// Waiting for the roads of a route the iPhone sent, then starting it.
+    @ObservationIgnored var remoteRouteTask: Task<Void, Never>?
+    /// The minutes the running Auto-stop was armed with (the Mac's setting, or the iPhone's for this session).
+    @ObservationIgnored var killswitchArmedMinutes = 0
 
     // MARK: Joystick
     /// On-screen pad deflection, x right / y up, magnitude ≤ 1.
@@ -675,6 +686,10 @@ final class AppModel {
 
     private func endSession() {
         disarmKillswitch()
+        remoteRouteTask?.cancel()
+        remoteRouteTask = nil
+        remoteJoystickMotion = nil
+        remoteTrafficOverride = nil
         if let sessionActivity { ProcessInfo.processInfo.endActivity(sessionActivity) }
         sessionActivity = nil
         lastDeviceGeocode = nil

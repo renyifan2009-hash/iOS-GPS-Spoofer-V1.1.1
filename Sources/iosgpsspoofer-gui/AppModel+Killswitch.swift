@@ -6,13 +6,16 @@ import SwiftUI
 /// The rules (presets, parsing, wording, countdown) are in `Killswitch`, which has the tests.
 extension AppModel {
     /// Start counting for the session that is running now. Nothing happens when the setting is Never.
-    func armKillswitch(now: Date = Date()) {
+    /// `minutes` is for one session only (the iPhone asked for it); without it the Mac's setting is used.
+    func armKillswitch(now: Date = Date(), minutes: Int? = nil) {
         killswitchTask?.cancel()
         killswitchTask = nil
-        guard session != nil, let deadline = Killswitch.deadline(from: now, minutes: prefs.autoStopMinutes) else {
+        let wanted = Killswitch.sanitize(minutes: minutes ?? prefs.autoStopMinutes)
+        guard session != nil, let deadline = Killswitch.deadline(from: now, minutes: wanted) else {
             killswitchDeadline = nil
             return
         }
+        killswitchArmedMinutes = wanted
         killswitchDeadline = deadline
         // Short naps instead of one long sleep: if the Mac's clock is changed the deadline is still
         // checked against the real time within a minute.
@@ -40,7 +43,7 @@ extension AppModel {
         killswitchDeadline = nil
         killswitchTask = nil
         guard session != nil else { return }
-        let how = Killswitch.label(minutes: prefs.autoStopMinutes)
+        let how = Killswitch.label(minutes: killswitchArmedMinutes)
         appendLog("Auto-stop: \(how) of spoofing is up. Restoring the real location…", level: .warning)
         showToast(Toast(symbol: "timer", title: "Spoofing stopped automatically",
                         subtitle: "\(how) is up. The real location is coming back.", style: .info), duration: 8)

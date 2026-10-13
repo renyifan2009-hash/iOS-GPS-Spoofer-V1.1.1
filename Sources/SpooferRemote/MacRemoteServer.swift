@@ -16,13 +16,31 @@ public protocol RemoteController: AnyObject, Sendable {
     func stop() async -> RemoteStatus
     /// Plan `request` and move the location along it until stopped.
     func driveRoute(_ request: RouteRequest) async throws -> RemoteStatus
+    /// Move the held location in a direction at a speed, until the next request or until none arrives for
+    /// `RemoteAPI.joystickTimeout` seconds.
+    func joystick(_ request: JoystickRequest) async throws -> RemoteStatus
+    /// Pause or resume the route that is being driven.
+    func setPaused(_ request: PauseRequest) async throws -> RemoteStatus
+    /// Put the real location back by itself after N minutes (0 turns it off).
+    func setAutoStop(_ request: AutoStopRequest) async throws -> RemoteStatus
 }
 
 public extension RemoteController {
-    /// Controllers that don't drive routes answer 501; the headless
-    /// `SessionRemoteController` overrides this.
+    /// Controllers that don't do these answer 501; each one overrides what it supports.
     func driveRoute(_ request: RouteRequest) async throws -> RemoteStatus {
         throw RemoteControlError("Driving a route isn't supported here yet.", status: 501)
+    }
+
+    func joystick(_ request: JoystickRequest) async throws -> RemoteStatus {
+        throw RemoteControlError("The joystick isn't supported here.", status: 501)
+    }
+
+    func setPaused(_ request: PauseRequest) async throws -> RemoteStatus {
+        throw RemoteControlError("Pausing isn't supported here.", status: 501)
+    }
+
+    func setAutoStop(_ request: AutoStopRequest) async throws -> RemoteStatus {
+        throw RemoteControlError("Stopping by itself isn't supported here.", status: 501)
     }
 }
 
@@ -147,6 +165,7 @@ public final class MacRemoteServer: @unchecked Sendable {
     private static let knownPaths: Set<String> = [
         RemoteAPI.Path.info, RemoteAPI.Path.pair, RemoteAPI.Path.unpair, RemoteAPI.Path.status,
         RemoteAPI.Path.location, RemoteAPI.Path.start, RemoteAPI.Path.route, RemoteAPI.Path.stop,
+        RemoteAPI.Path.joystick, RemoteAPI.Path.pause, RemoteAPI.Path.autoStop,
     ]
 
     func handle(_ request: HTTPRequest) async -> HTTPResponse {
@@ -187,6 +206,26 @@ public final class MacRemoteServer: @unchecked Sendable {
                 let route = try Self.route(from: request.body)
                 let status = try await controller.driveRoute(route)
                 command("started a \(route.waypoints.count)-point route", client)
+                return .json(status)
+            case ("POST", RemoteAPI.Path.joystick):
+                // No log line or toast per request: this arrives several times a second.
+                let steer = try Self.body(JoystickRequest.self, from: request.body, hint: "a heading and a speed")
+                guard steer.isValid else {
+                    throw RemoteControlError("The heading must be 0 up to 360 degrees and the speed 0 to 70 m/s.", status: 400)
+                }
+                return .json(try await controller.joystick(steer))
+            case ("POST", RemoteAPI.Path.pause):
+                let pause = try Self.body(PauseRequest.self, from: request.body, hint: "{\"paused\": true}")
+                let status = try await controller.setPaused(pause)
+                command(pause.paused ? "paused the route" : "resumed the route", client)
+                return .json(status)
+            case ("POST", RemoteAPI.Path.autoStop):
+                let stop = try Self.body(AutoStopRequest.self, from: request.body, hint: "{\"minutes\": 30}")
+                guard stop.isValid else {
+                    throw RemoteControlError("Minutes must be 0 (off) to \(RemoteAPI.maxAutoStopMinutes).", status: 400)
+                }
+                let status = try await controller.setAutoStop(stop)
+                command(stop.minutes > 0 ? "set Auto-stop to \(stop.minutes) minutes" : "turned Auto-stop off", client)
                 return .json(status)
             case ("POST", RemoteAPI.Path.stop):
                 let status = await controller.stop()
@@ -240,6 +279,14 @@ public final class MacRemoteServer: @unchecked Sendable {
             throw RemoteControlError("Latitude must be between −90 and 90 and longitude between −180 and 180.", status: 400)
         }
         return location
+    }
+
+    /// A JSON body of type `T`, or a 400 that says what was expected.
+    static func body<T: Decodable>(_ type: T.Type, from body: Data, hint: String) throws -> T {
+        guard let value = try? RemoteAPI.makeDecoder().decode(T.self, from: body) else {
+            throw RemoteControlError("Expected \(hint).", status: 400)
+        }
+        return value
     }
 
     static func route(from body: Data) throws -> RouteRequest {

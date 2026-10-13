@@ -107,6 +107,13 @@ final class RemoteHost {
         case .ready:
             state = .running
             AppModel.shared.appendLog("iPhone Remote is on: pair with code \(pairingCode).", level: .info)
+            #if DEBUG
+            // For automated tests of the real app: SPOOFER_PRINT_PAIRING=1 prints the code to stdout.
+            if ProcessInfo.processInfo.environment["SPOOFER_PRINT_PAIRING"] == "1" {
+                print("PAIRING-CODE \(pairingCode.filter(\.isNumber))")
+                fflush(stdout)
+            }
+            #endif
         case .failed(let message):
             state = .failed(message)
             server = nil
@@ -123,9 +130,9 @@ final class RemoteHost {
     }
 }
 
-/// Lets the remote server drive the app's own model. Fixed-point only:
-/// start and move call `AppModel.teleport(to:name:)`, exactly like the
-/// Teleport button (which creates the `SpoofSession` or moves it), and stop
+/// Lets the remote server drive the app's own model, so the window shows what the iPhone does. Start and
+/// move call `AppModel.teleport(to:name:)`, exactly like the Teleport button (which creates the
+/// `SpoofSession` or moves it); a route and the joystick go through `AppModel+RemoteControl.swift`; stop
 /// calls `AppModel.stop()`.
 @MainActor
 final class AppRemoteBridge: RemoteController {
@@ -155,6 +162,62 @@ final class AppRemoteBridge: RemoteController {
         guard let point = model.target else {
             throw RemoteControlError("Pick a location first.", status: 400)
         }
+        try Self.requireReadyToStart(model)
+        model.mode = .teleport
+        model.teleport(to: point, name: request?.name ?? model.targetName)
+        return Self.makeStatus(model)
+    }
+
+    func driveRoute(_ request: RouteRequest) async throws -> RemoteStatus {
+        let model = AppModel.shared
+        guard request.isValid else { throw RemoteControlError("That route isn't valid.", status: 400) }
+        try Self.requireReadyToStart(model)
+        model.startRemoteRoute(request)
+        return Self.makeStatus(model)
+    }
+
+    func joystick(_ request: JoystickRequest) async throws -> RemoteStatus {
+        let model = AppModel.shared
+        guard request.isValid else {
+            throw RemoteControlError("The heading must be 0 up to 360 degrees and the speed 0 to 70 m/s.", status: 400)
+        }
+        guard let session = model.session, model.sessionState == .active else {
+            throw RemoteControlError("Start a location first, then steer with the joystick.")
+        }
+        guard session.canStream else {
+            throw RemoteControlError("The joystick needs the live engine. This iPhone is using the classic one, "
+                                     + "where every move takes a second or more.")
+        }
+        model.steerFromPhone(request)
+        return Self.makeStatus(model)
+    }
+
+    func setPaused(_ request: PauseRequest) async throws -> RemoteStatus {
+        let model = AppModel.shared
+        guard model.activity == .routing else { throw RemoteControlError("No route is running.") }
+        guard model.canPauseRoute else {
+            throw RemoteControlError("This route is being replayed as a recorded track, which can't be paused.")
+        }
+        if model.isPaused != request.paused { model.togglePause() }
+        return Self.makeStatus(model)
+    }
+
+    func setAutoStop(_ request: AutoStopRequest) async throws -> RemoteStatus {
+        let model = AppModel.shared
+        guard model.session != nil || model.isStarting || request.minutes == 0 else {
+            throw RemoteControlError("Start a location first. Auto-stop counts from now.")
+        }
+        model.armAutoStopFromPhone(minutes: request.minutes)
+        return Self.makeStatus(model)
+    }
+
+    func stop() async -> RemoteStatus {
+        AppModel.shared.stop()
+        return Self.makeStatus(AppModel.shared)
+    }
+
+    /// The checks every start has in common, with the messages the iPhone shows.
+    private static func requireReadyToStart(_ model: AppModel) throws {
         guard model.pmd != nil else {
             throw RemoteControlError("The Mac app can't find pymobiledevice3. Finish its setup on the Mac.")
         }
@@ -164,14 +227,6 @@ final class AppRemoteBridge: RemoteController {
         guard model.sessionState != .stopping else {
             throw RemoteControlError("Still restoring the real location. Try again in a moment.")
         }
-        model.mode = .teleport
-        model.teleport(to: point, name: request?.name ?? model.targetName)
-        return Self.makeStatus(model)
-    }
-
-    func stop() async -> RemoteStatus {
-        AppModel.shared.stop()
-        return Self.makeStatus(AppModel.shared)
     }
 
     static func makeStatus(_ model: AppModel) -> RemoteStatus {
@@ -181,6 +236,18 @@ final class AppRemoteBridge: RemoteController {
         let connected = device.map { d in model.devices.contains { $0.udid == d.udid } } ?? false
         var phase = SessionRemoteController.phase(for: model.sessionState)
         if model.isStarting && model.session == nil { phase = .starting }
+        // What the Mac is doing, so the iPhone can show the right controls.
+        var activity: String?
+        if model.remoteRoutePlanning {
+            activity = "planning"
+        } else if spoofing {
+            switch model.activity {
+            case .joystick: activity = "joystick"
+            case .routing: activity = "route"
+            default: activity = "hold"
+            }
+        }
+        let moving = activity == "joystick" || activity == "route"
         return RemoteStatus(
             connected: connected,
             spoofing: spoofing,
@@ -194,6 +261,12 @@ final class AppRemoteBridge: RemoteController {
                               connection: $0.isUSB ? "usb" : "network")
             },
             engine: model.sessionEngine?.label,
-            serverName: RemoteHost.shared.serverName)
+            serverName: RemoteHost.shared.serverName,
+            activity: activity,
+            speed: moving ? model.deviceSpeed : nil,
+            heading: moving ? model.deviceHeading : nil,
+            routeProgress: model.activity == .routing ? model.routeProgress?.fraction : nil,
+            routePaused: model.activity == .routing ? model.isPaused : nil,
+            autoStopAt: model.killswitchDeadline?.timeIntervalSince1970)
     }
 }

@@ -70,4 +70,22 @@ final class RouteRunnerTests: XCTestCase {
         XCTAssertThrowsError(try RouteRunner.build(from: RouteRequest(waypoints: [           // same spot twice
             .init(latitude: 1, longitude: 2), .init(latitude: 1, longitude: 2)])))
     }
+
+    func testProgressRunsFromZeroToOne() throws {
+        let runner = try RouteRunner.build(from: straightRequest(realistic: false, speed: 10))
+        XCTAssertEqual(runner.progress(at: 0), 0)
+        XCTAssertEqual(runner.progress(at: runner.duration / 2), 0.5, accuracy: 0.01)
+        XCTAssertEqual(runner.progress(at: runner.duration), 1, accuracy: 1e-9)
+        XCTAssertEqual(runner.progress(at: runner.duration * 10), 1, "a one-way route stays at the end")
+        for bad in [-5.0, .nan, .infinity, -.infinity] {
+            XCTAssertEqual(runner.progress(at: bad), 0, "\(bad) is not a time: it reads as the start, never a crash")
+        }
+    }
+
+    func testProgressStartsOverEachLapOfALoop() throws {
+        let runner = try RouteRunner.build(from: straightRequest(realistic: false, speed: 10, loop: "loop"))
+        XCTAssertEqual(runner.progress(at: runner.duration * 0.25), 0.25, accuracy: 0.01)
+        XCTAssertEqual(runner.progress(at: runner.duration * 1.25), 0.25, accuracy: 0.01)
+        XCTAssertEqual(runner.progress(at: runner.duration * 7.5), 0.5, accuracy: 0.01)
+    }
 }

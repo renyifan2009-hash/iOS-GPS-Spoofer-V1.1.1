@@ -53,6 +53,11 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
     private var route: RouteRunner?
     private var routeStartedAt: Date?
     private var routeTimer: DispatchSourceTimer?
+    private var routePausedAt: Date?
+    private var joystick: JoystickMotion?
+    private var joystickPoint: GeoPoint?
+    private var joystickTimer: DispatchSourceTimer?
+    private var lastJoystickTick: Date?
     private var position: GeoPoint?
     private var wantsLocation = false
     private var retryScheduled = false
@@ -80,6 +85,7 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
         let running = queue.sync { () -> SpoofSession? in
             wantsLocation = false
             cancelRoute()
+            cancelJoystick()
             monitor?.cancel()
             monitor = nil
             endKeepAwake()
@@ -98,6 +104,7 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
         try await onQueueThrowing {
             guard request.isValid else { throw RemoteControlError("That isn't a valid coordinate.", status: 400) }
             self.cancelRoute()   // a manual teleport ends any running route
+            self.cancelJoystick()
             self.target = request
             if self.wantsLocation, let session = self.session {
                 self.log(.info, "moving to \(Self.describe(request))")
@@ -110,6 +117,7 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
     public func start(_ request: LocationRequest?) async throws -> RemoteStatus {
         try await onQueueThrowing {
             self.cancelRoute()   // starting a plain hold ends any running route
+            self.cancelJoystick()
             if let request {
                 guard request.isValid else { throw RemoteControlError("That isn't a valid coordinate.", status: 400) }
                 self.target = request
@@ -151,8 +159,10 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
             if self.state == .stopping {
                 throw RemoteControlError("Still restoring the real location. Try again in a moment.")
             }
+            self.cancelJoystick()
             self.route = runner
             self.routeStartedAt = Date()
+            self.routePausedAt = nil
             let first = runner.start
             self.target = LocationRequest(latitude: first.latitude, longitude: first.longitude, name: runner.name)
             self.wantsLocation = true
@@ -178,11 +188,55 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
         await onQueue {
             self.wantsLocation = false
             self.cancelRoute()
+            self.cancelJoystick()
             self.endKeepAwake()
             if let session = self.session, self.state != .stopping {
                 self.log(.info, "stopping, restoring the real location…")
                 self.state = .stopping
                 session.stop()
+            }
+            return self.makeStatus()
+        }
+    }
+
+    public func joystick(_ request: JoystickRequest) async throws -> RemoteStatus {
+        try await onQueueThrowing {
+            guard request.isValid else {
+                throw RemoteControlError("The heading must be 0 up to 360 degrees and the speed 0 to 70 m/s.", status: 400)
+            }
+            guard self.wantsLocation, let session = self.session else {
+                throw RemoteControlError("Start a location first, then steer with the joystick.")
+            }
+            guard session.canStream else {
+                throw RemoteControlError("The joystick needs the live engine: every move would take a second or more here.")
+            }
+            let now = Date()
+            if self.joystick == nil {
+                // Taking over from a route or a held place: steer from where the iPhone is now.
+                self.cancelRoute()
+                self.joystickPoint = self.position ?? self.target.map { GeoPoint($0.latitude, $0.longitude) }
+                self.lastJoystickTick = now
+                self.log(.info, "joystick on")
+            }
+            self.joystick = JoystickMotion(request, receivedAt: now)
+            self.startJoystickTimer()
+            return self.makeStatus()
+        }
+    }
+
+    public func setPaused(_ request: PauseRequest) async throws -> RemoteStatus {
+        try await onQueueThrowing {
+            guard self.route != nil else { throw RemoteControlError("No route is running.") }
+            if request.paused {
+                if self.routePausedAt == nil {
+                    self.routePausedAt = Date()
+                    self.log(.info, "route paused")
+                }
+            } else if let pausedAt = self.routePausedAt {
+                // The clock the route plays by carries on from where it stopped.
+                self.routeStartedAt = self.routeStartedAt?.addingTimeInterval(Date().timeIntervalSince(pausedAt))
+                self.routePausedAt = nil
+                self.log(.info, "route resumed")
             }
             return self.makeStatus()
         }
@@ -213,7 +267,7 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
     /// Each second, move to where the route should be now. The point is kept as
     /// `target` too, so a dropped session reconnects to the right place.
     private func tickRoute() {
-        guard let route, let startedAt = routeStartedAt, wantsLocation else { return }
+        guard let route, let startedAt = routeStartedAt, wantsLocation, routePausedAt == nil else { return }
         let (point, finished) = route.position(at: Date().timeIntervalSince(startedAt))
         target = LocationRequest(latitude: point.latitude, longitude: point.longitude, name: route.name)
         if case .active = state, let session { session.move(to: point) }
@@ -229,6 +283,47 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
         routeTimer = nil
         route = nil
         routeStartedAt = nil
+        routePausedAt = nil
+    }
+
+    // MARK: - Joystick
+
+    /// Four times a second: move the way the iPhone is steering, and let go by itself when it goes quiet.
+    private func startJoystickTimer() {
+        guard joystickTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 0.25, repeating: 0.25)
+        timer.setEventHandler { [weak self] in self?.tickJoystick() }
+        joystickTimer = timer
+        timer.resume()
+    }
+
+    private func tickJoystick() {
+        guard let joystick, wantsLocation, let session, let from = joystickPoint else {
+            cancelJoystick()
+            return
+        }
+        let now = Date()
+        let dt = now.timeIntervalSince(lastJoystickTick ?? now)
+        lastJoystickTick = now
+        if joystick.isExpired(at: now) {
+            log(.info, "joystick off (no steering for \(RemoteAPI.joystickTimeout) s)")
+            cancelJoystick()
+            return
+        }
+        guard case .active = state, joystick.effectiveSpeed(at: now) > 0 else { return }
+        let next = joystick.step(from: from, dt: dt, now: now)
+        joystickPoint = next
+        target = LocationRequest(latitude: next.latitude, longitude: next.longitude, name: nil)
+        session.move(to: next)
+    }
+
+    private func cancelJoystick() {
+        joystickTimer?.cancel()
+        joystickTimer = nil
+        joystick = nil
+        joystickPoint = nil
+        lastJoystickTick = nil
     }
 
     private func chooseDevice() throws -> Device {
@@ -341,15 +436,33 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
             DeviceSummary(name: $0.deviceName, model: $0.modelName, iosVersion: $0.productVersion,
                           connection: $0.isUSB ? "usb" : "network")
         }
+        let spoofing = wantsLocation && session != nil
+        var activity: String? = spoofing ? "hold" : nil
+        var speed: Double?
+        var heading: Double?
+        var progress: Double?
+        var paused: Bool?
+        let now = Date()
+        if spoofing, let route, let started = routeStartedAt {
+            activity = "route"
+            progress = route.progress(at: (routePausedAt ?? now).timeIntervalSince(started))
+            paused = routePausedAt != nil
+        } else if spoofing, let joystick {
+            activity = "joystick"
+            speed = joystick.effectiveSpeed(at: now)
+            heading = joystick.heading
+        }
         return RemoteStatus(connected: deviceConnected || state.isEngaged,
-                            spoofing: wantsLocation && session != nil,
+                            spoofing: spoofing,
                             latitude: held?.latitude, longitude: held?.longitude,
                             placeName: placeName,
                             phase: Self.phase(for: state),
                             detail: Self.detail(for: state),
                             device: summary,
                             engine: engine?.label,
-                            serverName: options.serverName)
+                            serverName: options.serverName,
+                            activity: activity, speed: speed, heading: heading,
+                            routeProgress: progress, routePaused: paused)
     }
 
     public static func phase(for state: SessionState) -> SpoofPhase {

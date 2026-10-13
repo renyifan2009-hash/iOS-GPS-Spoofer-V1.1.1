@@ -14,6 +14,9 @@ import Foundation
 ///     POST /location   LocationRequest → RemoteStatus     (moves now if spoofing)
 ///     POST /start      LocationRequest? → RemoteStatus    (body optional)
 ///     POST /route      RouteRequest → RemoteStatus        (drives a route)
+///     POST /joystick   JoystickRequest → RemoteStatus     (steer: a heading and a speed)
+///     POST /pause      PauseRequest → RemoteStatus        (pause or resume a route)
+///     POST /autostop   AutoStopRequest → RemoteStatus     (stop by itself after N minutes)
 ///     POST /stop       → RemoteStatus                     (restores the real GPS)
 ///     POST /unpair     → RemoteStatus                     (revokes this token)
 ///
@@ -33,6 +36,9 @@ public enum RemoteAPI {
         public static let location = "/location"
         public static let start = "/start"
         public static let route = "/route"
+        public static let joystick = "/joystick"
+        public static let pause = "/pause"
+        public static let autoStop = "/autostop"
         public static let stop = "/stop"
     }
 
@@ -235,10 +241,24 @@ public struct RemoteStatus: Codable, Sendable, Equatable {
     /// "Live" or "Classic".
     public var engine: String?
     public var serverName: String
+    /// What the Mac is doing: "hold" (a place), "planning", "route" or "joystick". nil when idle.
+    /// Added after version 1: older Macs leave these out, and older iPhones ignore them.
+    public var activity: String?
+    /// Current movement speed, metres per second.
+    public var speed: Double?
+    /// Direction of travel, degrees clockwise from north.
+    public var heading: Double?
+    /// How far along the current lap of a route, 0...1.
+    public var routeProgress: Double?
+    public var routePaused: Bool?
+    /// When Auto-stop will put the real location back (seconds since 1970); nil when it is off.
+    public var autoStopAt: Double?
 
     public init(connected: Bool, spoofing: Bool, latitude: Double? = nil, longitude: Double? = nil,
                 placeName: String? = nil, phase: SpoofPhase, detail: String? = nil,
-                device: DeviceSummary? = nil, engine: String? = nil, serverName: String) {
+                device: DeviceSummary? = nil, engine: String? = nil, serverName: String,
+                activity: String? = nil, speed: Double? = nil, heading: Double? = nil,
+                routeProgress: Double? = nil, routePaused: Bool? = nil, autoStopAt: Double? = nil) {
         self.connected = connected
         self.spoofing = spoofing
         self.latitude = latitude
@@ -249,7 +269,69 @@ public struct RemoteStatus: Codable, Sendable, Equatable {
         self.device = device
         self.engine = engine
         self.serverName = serverName
+        self.activity = activity
+        self.speed = speed
+        self.heading = heading
+        self.routeProgress = routeProgress
+        self.routePaused = routePaused
+        self.autoStopAt = autoStopAt
     }
+}
+
+/// Where to steer, from the iPhone's joystick. The Mac keeps moving that way at that speed until the next
+/// request, and stops by itself if none arrives for `RemoteAPI.joystickTimeout` seconds, so a dropped
+/// connection can never leave the location running away. Resend about every half second while a direction
+/// is held. A speed of 0 stands still. The location must already be held (`POST /start` first).
+public struct JoystickRequest: Codable, Sendable, Equatable {
+    /// Degrees clockwise from true north, 0 up to (not including) 360.
+    public var heading: Double
+    /// Metres per second.
+    public var speed: Double
+
+    public static let maxSpeed = 70.0
+
+    public init(heading: Double, speed: Double) {
+        self.heading = heading
+        self.speed = speed
+    }
+
+    public var isValid: Bool {
+        heading.isFinite && speed.isFinite && heading >= 0 && heading < 360 && speed >= 0 && speed <= Self.maxSpeed
+    }
+
+    /// The same request with the heading wrapped into 0..<360 and the speed held to the limits.
+    public var normalized: JoystickRequest {
+        guard heading.isFinite, speed.isFinite else { return JoystickRequest(heading: 0, speed: 0) }
+        var h = heading.truncatingRemainder(dividingBy: 360)
+        if h < 0 { h += 360 }
+        return JoystickRequest(heading: h, speed: min(max(speed, 0), Self.maxSpeed))
+    }
+}
+
+extension RemoteAPI {
+    /// Seconds without a joystick request after which the Mac stops moving.
+    public static let joystickTimeout: TimeInterval = 1.5
+    /// The longest an Auto-stop may be: a day.
+    public static let maxAutoStopMinutes = 24 * 60
+}
+
+public struct PauseRequest: Codable, Sendable, Equatable {
+    public var paused: Bool
+
+    public init(paused: Bool) {
+        self.paused = paused
+    }
+}
+
+/// Stop by itself after this many minutes (0 turns it off). It counts from the request.
+public struct AutoStopRequest: Codable, Sendable, Equatable {
+    public var minutes: Int
+
+    public init(minutes: Int) {
+        self.minutes = minutes
+    }
+
+    public var isValid: Bool { (0...RemoteAPI.maxAutoStopMinutes).contains(minutes) }
 }
 
 public struct APIError: Codable, Sendable, Equatable, Error {

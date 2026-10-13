@@ -42,7 +42,7 @@ extension AppModel {
         let profile = MotionProfile.forSpeed(top)
         // Time-of-day traffic slows driving only (not walking or running), and
         // is re-read from the clock each time settings are rebuilt.
-        let traffic = (prefs.tripTimeOfDayTraffic && profile.kind == .drive) ? Congestion.factor(at: Date()) : 1
+        let traffic = ((remoteTrafficOverride ?? prefs.tripTimeOfDayTraffic) && profile.kind == .drive) ? Congestion.factor(at: Date()) : 1
         return TripSettings(topSpeed: top, profile: profile,
                             trafficLights: prefs.tripTrafficLights, stopSigns: prefs.tripStopSigns,
                             slowForTurns: prefs.tripSlowForTurns, speedLimits: prefs.tripSpeedLimits,

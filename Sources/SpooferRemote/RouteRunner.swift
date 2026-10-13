@@ -80,6 +80,14 @@ public struct RouteRunner: Sendable, Equatable {
         }
     }
 
+    /// How far along one pass or lap the route is `elapsed` seconds in, 0...1. A looping route starts over.
+    public func progress(at elapsed: TimeInterval) -> Double {
+        let total = duration
+        guard total > 0, elapsed.isFinite, elapsed > 0 else { return 0 }
+        if wraps { return elapsed.truncatingRemainder(dividingBy: total) / total }
+        return min(1, elapsed / total)
+    }
+
     /// The point to be at `elapsed` seconds in, and whether a one-way route has
     /// reached its destination (after which it holds there). A looping route
     /// wraps and never reports finished.
