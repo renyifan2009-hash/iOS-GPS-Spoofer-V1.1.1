@@ -44,7 +44,7 @@ final class InstalledSpoofRemoteTests: XCTestCase {
     func testAnOldBuildReadsAsOlderThanExpected() throws {
         set("FAKE_PMD_SPOOFREMOTE", "old")
         let version = try XCTUnwrap(try installed())
-        XCTAssertEqual(version, SpoofRemoteVersion(marketing: [1, 1], build: 2))
+        XCTAssertEqual(version, SpoofRemoteVersion(marketing: [1, 1], build: 3))   // what v2.3.0 shipped
         XCTAssertLessThan(version, SpoofRemote.expected)
     }
 
