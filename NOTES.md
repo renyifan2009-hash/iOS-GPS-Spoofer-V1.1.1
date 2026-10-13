@@ -182,6 +182,18 @@ run away when the zoom was computed from the span; it is now clamped (300 to 40,
 because the iPhone app now needs a Mac that has `/joystick`, `/pause` and `/autostop` (an older Mac answers 501 and the app says
 to update it). Nothing here has run on a real iPhone: `docs/DEVICE-TESTING.md`, section F.
 
+## Pairing secrets in diagnostics (2026-10-13)
+
+Prompted by a write-up that said a developer log had printed a private-key field: checked that our own logging and
+Copy Diagnostics can't do that. No log line mentions key material, the app sets up no verbose idevice logging, and no
+pairing file or key has ever been committed to this public repo (every branch checked). New
+`DiagnosticsRedactorPairingTests` builds fake records in the shapes they are printed in. **They failed first:** the
+redactor let through a plist's short keys (a 32-byte key is 44 characters of base64 and the long-blob rule starts at 48),
+the short last line of a wrapped key, a key in a JSON dump (JSON writes `/` as `\/`, which cut it into short pieces),
+key bytes as a Rust `[12, 200, ...]` list, and the host ID, iPhone identifier and Wi-Fi address. All covered now. **Still
+not covered:** a short base64 string with no field name or `<data>` tag before it. Not checked: what the idevice library
+prints on its own at its debug levels on the iPhone (we don't turn them on).
+
 ## SUMMARY (run closed 2026-10-12 about 05:35 PDT)
 
 **State.** Branch `overnight/anywhere-rebrand` is 77 commits ahead of `main` (156 files, +12.5k/−1k lines), pushed. CI on the last

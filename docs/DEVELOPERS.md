@@ -210,8 +210,11 @@ activity log.
   processes.
 - **Help ▸ Copy Diagnostics** copies versions, setup, device status and the
   recent log for a bug report. `DiagnosticsRedactor` (SpooferCore, tested) removes
-  UDIDs, key blocks, long encoded data, tokens, email addresses and the Mac
-  user name first. Places and coordinates stay on purpose.
+  UDIDs, key blocks, long encoded data, tokens, email addresses, hardware addresses and the Mac
+  user name first. A pairing record is covered in the shapes it is printed in: a plist
+  (every `<data>` field goes, whole), JSON, a Python dict, and key bytes as a Rust or `\x` byte list
+  (`DiagnosticsRedactorPairingTests` builds made-up records for this). Not covered: a short base64
+  string with no field name or tag in front of it. Places and coordinates stay on purpose.
 - **Auto-stop** (`Killswitch` in SpooferCore holds the rules and tests;
   `AppModel+Killswitch.swift` runs it). The preference `autoStopMinutes` (0 = never) is armed
   when a session is created and counts from then; changing it mid-session counts from
