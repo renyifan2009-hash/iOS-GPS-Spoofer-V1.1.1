@@ -69,7 +69,7 @@ targets:
         PRODUCT_NAME: AnyWhere
         PRODUCT_BUNDLE_IDENTIFIER: com.iosgpsspoof.remote
         MARKETING_VERSION: "1.1"
-        CURRENT_PROJECT_VERSION: "5"
+        CURRENT_PROJECT_VERSION: "6"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: YES

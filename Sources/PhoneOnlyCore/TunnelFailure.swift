@@ -159,8 +159,9 @@ public struct TunnelFailure: Error, Equatable, Sendable, LocalizedError {
     }
 
     /// Also the message when nothing answers before a connection is tried.
-    public static let unreachableExplanation = "Can't reach this iPhone's developer services. Open LocalDevVPN and "
-        + "tap Connect. If it's on, allow AnyWhere in Settings ▸ Privacy & Security ▸ Local Network."
+    public static let unreachableExplanation = "Can't reach this iPhone's developer services at 10.7.0.1. This does not mean LocalDevVPN is off. "
+        + "Check its Device IP and AnyWhere's Local Network permission. If this happens after switching "
+        + "cellular or Wi-Fi, reconnect LocalDevVPN and try again. The last simulated location may remain."
 
     /// The small print: enough for a bug report to say exactly what failed,
     /// one line for each route tried.

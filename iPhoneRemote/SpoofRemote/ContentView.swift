@@ -977,7 +977,7 @@ private struct PhonePill: View {
         case .connecting: return ("Connecting · This iPhone", Brand.sky, false)
         case .stopping: return ("Stopping · This iPhone", Brand.warning, false)
         case .idle:
-            if phone.loopbackReachable == false { return ("Turn on LocalDevVPN", Brand.warning, false) }
+            if phone.loopbackReachable == false { return ("Developer connection unavailable", Brand.warning, false) }
             if phone.pairingFileIsTooOld { return ("Needs a new pairing file", Brand.warning, false) }
             return ("Ready · This iPhone", Brand.live, false)
         }

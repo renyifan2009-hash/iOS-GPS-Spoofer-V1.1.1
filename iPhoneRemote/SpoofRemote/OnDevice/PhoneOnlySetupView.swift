@@ -217,9 +217,9 @@ struct PhoneOnlySetupView: View {
         let reachable = phone.loopbackReachable
         return step(done: phone.checkingLoopback ? nil : reachable,
                     symbol: "network.badge.shield.half.filled",
-                    title: reachable == true ? "LocalDevVPN is on" : "Turn on LocalDevVPN",
+                    title: reachable == true ? "Developer services reachable" : "Check developer connection",
                     detail: reachable == true
-                        ? "It lets this app reach the iPhone's own developer services."
+                        ? "The iPhone’s developer port answered through the local tunnel."
                         : "Get the free LocalDevVPN app, open it and tap Connect. It lets this app reach the iPhone's own developer services, and leaves your other traffic alone.") {
             // Side by side when they fit, one above the other when not.
             ViewThatFits(in: .horizontal) {

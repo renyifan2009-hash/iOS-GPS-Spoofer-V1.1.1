@@ -10,12 +10,19 @@ private final class FakeDevice: OnDeviceOperations, @unchecked Sendable {
     private var writes: [(Double, Double)] = []
     var confirmsClear = true
     var failSet = false
+    var transportFailures = 0
+    var attempts = 0
     var clearDelay: Duration?
     var route: TunnelRoute? { .lockdown }
     var count: Int { lock.withLock { writes.count } }
     func onAbandonedCallEnded(_ handler: @escaping @Sendable () -> Void) {}
     func takeRenewedPairing() -> PairingRecord? { nil }
     func set(latitude: Double, longitude: Double, pairing: PairingRecord, routes: [TunnelRoute], developerImage: URL?) async throws {
+        attempts += 1
+        if transportFailures > 0 {
+            transportFailures -= 1
+            throw TunnelFailure(step: .reach, code: 1, message: "Connection refused")
+        }
         if failSet { throw TunnelFailure(step: .setLocation, message: "Fake disconnected device") }
         lock.withLock { writes.append((latitude, longitude)) }
     }
@@ -63,6 +70,46 @@ final class StandaloneControlTests: XCTestCase {
     private func phone(_ engine: FakeDevice, probe: (@Sendable () async -> DeveloperPorts)? = nil) throws -> OnDeviceController {
         OnDeviceController(engine: engine, pairing: try pairing(), keepAlive: FakeBackground(),
                            developerPortProbe: probe ?? { DeveloperPorts(lockdown: true) })
+    }
+
+    func testTransientTransportFailureRecovers() async throws {
+        let engine = FakeDevice()
+        engine.transportFailures = 1
+        let phone = OnDeviceController(engine: engine, pairing: try pairing(), keepAlive: FakeBackground(),
+                                       developerPortProbe: { DeveloperPorts(lockdown: true) },
+                                       recoveryDelay: .milliseconds(10))
+        let started = await phone.set(.init(latitude: 0, longitude: 0), name: "Test")
+        XCTAssertTrue(started)
+        XCTAssertEqual(engine.attempts, 2)
+        XCTAssertNil(phone.lastError)
+        await phone.stop()
+    }
+
+    func testPersistentTransportFailureHasBoundedRetries() async throws {
+        let engine = FakeDevice()
+        engine.transportFailures = 10
+        let phone = OnDeviceController(engine: engine, pairing: try pairing(), keepAlive: FakeBackground(),
+                                       developerPortProbe: { DeveloperPorts(lockdown: true) },
+                                       recoveryDelay: .milliseconds(10))
+        let started = await phone.set(.init(latitude: 0, longitude: 0), name: "Test")
+        XCTAssertFalse(started)
+        XCTAssertEqual(engine.attempts, 3)
+        XCTAssertFalse(phone.isSpoofing)
+    }
+
+    func testStopDuringRecoveryPreventsRestart() async throws {
+        let engine = FakeDevice()
+        engine.transportFailures = 1
+        let phone = OnDeviceController(engine: engine, pairing: try pairing(), keepAlive: FakeBackground(),
+                                       developerPortProbe: { DeveloperPorts(lockdown: true) },
+                                       recoveryDelay: .milliseconds(200))
+        let start = Task { await phone.set(.init(latitude: 0, longitude: 0), name: "Test") }
+        while phone.lastError == nil { await Task.yield() }
+        await phone.stop()
+        let started = await start.value
+        XCTAssertFalse(started)
+        XCTAssertEqual(engine.count, 0)
+        XCTAssertEqual(engine.attempts, 1)
     }
 
     func testStopDuringVPNProbePreventsAnyLocationCommand() async throws {

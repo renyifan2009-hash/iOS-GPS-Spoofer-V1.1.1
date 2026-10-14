@@ -8,7 +8,7 @@ on the iPhone, and your real location comes back when you press **Stop**.
 
 The iPhone app, AnyWhere, steers the Mac from your pocket:
 
-**Standalone beta (iPhone build 5):** choose **This iPhone** to execute teleport, joystick, routes and
+**Standalone beta (iPhone build 6):** choose **This iPhone** to execute teleport, joystick, routes and
 automatic stop locally with the Mac powered off after setup. You can import Apple developer-image
 files for loading support after a restart. This targets iOS 17+, but compatibility on every version
 is **not verified**; iOS 17.0–17.3 is an experimental Remote Pairing attempt. The published v2.4.0 IPA

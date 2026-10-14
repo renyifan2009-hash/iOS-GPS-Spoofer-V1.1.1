@@ -1,6 +1,6 @@
 # Test phone-only GPS control
 
-Use iPhone app **1.1, build 5**, built from this branch. The older v2.4.0 release asset is build 4 and does not contain these changes. The app is unsigned until your sideloading tool signs it.
+Use iPhone app **1.1, build 6**, built from this branch. The older v2.4.0 release asset is build 4 and does not contain these changes. The app is unsigned until your sideloading tool signs it.
 
 ## Compatibility status
 
@@ -50,3 +50,13 @@ Record the model, exact iOS version/build, app build, developer-image build, out
 - [Pinned idevice Cryptex FFI](https://github.com/jkcoxson/idevice/blob/v0.1.68/ffi/src/cryptexd.rs)
 - [StikDebug compatibility](https://github.com/StikDebug/StikDebug#compatibility) — upstream lists 17.4+, not all iOS versions. Our 17.0–17.3 attempt remains unverified.
 - [Apple background location guidance](https://developer.apple.com/documentation/corelocation/handling-location-updates-in-the-background) — background authorization/session management does not guarantee perpetual execution.
+
+## Cellular transition regression (build 6)
+
+Reported on iOS 26.6: cellular enabled blocks Start; starting with cellular disabled and enabling it afterwards loses control after approximately 40 seconds. LocalDevVPN reports connected with Device IP 10.7.0.1/32 and Tunnel IP 10.7.1.1/32. The device address matches the app; this is not evidence the VPN is off.
+
+Build 6 lets a Network.framework waiting probe recover until its deadline, rechecks initial negative reachability once, and makes at most two additional transport-only connection attempts with fresh port discovery and a two-second delay. Pairing and developer-image failures are not automatically retried. Stop invalidates pending recovery. The UI reports developer reachability rather than claiming to know another app's VPN state.
+
+The native idevice sockets remain ordinary TCP sockets. Recovery cannot repair a persistent iOS/LocalDevVPN routing or permission problem. The actual cellular failure cause and physical-device fix remain unverified.
+
+Test with AnyWhere foreground and unlocked, cellular enabled before Start, then repeat cellular off/on transitions. Record VPN status, time until failure, exact iOS build, and error detail. Check Settings > Cellular > AnyWhere is enabled as well as Local Network permission. Confirm actual position in a separate location display. Test for 10 minutes first, then extend to the two-hour endurance plan.

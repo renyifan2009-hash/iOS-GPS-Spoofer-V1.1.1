@@ -76,6 +76,7 @@ final class OnDeviceController {
     private let engine: any OnDeviceOperations
     private let keepAlive: any BackgroundHolding
     @ObservationIgnored private let developerPortProbe: (@Sendable () async -> DeveloperPorts)?
+    @ObservationIgnored private let recoveryDelay: Duration
     @ObservationIgnored private let heartbeatInterval: Duration
     /// Counts calls to `stop()`. A `set` that was still running when one came
     /// in must not put its location back on screen: the stop cleared it.
@@ -89,12 +90,13 @@ final class OnDeviceController {
 
     init(engine: any OnDeviceOperations, pairing: PairingFile?, keepAlive: any BackgroundHolding,
          developerPortProbe: (@Sendable () async -> DeveloperPorts)? = nil,
-         heartbeatInterval: Duration = .seconds(15)) {
+         heartbeatInterval: Duration = .seconds(15), recoveryDelay: Duration = .seconds(2)) {
         self.engine = engine
         self.pairing = pairing
         self.keepAlive = keepAlive
         self.developerPortProbe = developerPortProbe
         self.heartbeatInterval = heartbeatInterval
+        self.recoveryDelay = recoveryDelay
         engine.onAbandonedCallEnded { [weak self] in
             Task { @MainActor in await self?.holdAgain() }
         }
@@ -286,6 +288,12 @@ final class OnDeviceController {
             // Without LocalDevVPN the connection would wait a long time
             // before failing, so check first; it takes a moment.
             await checkLoopback()
+            // A cellular/Wi-Fi transition can temporarily remove the VPN route.
+            if ports?.anyAnswered != true {
+                do { try await Task.sleep(for: recoveryDelay) } catch { return giveUp(nil) }
+                guard stops == stopsBefore else { return false }
+                await checkLoopback()
+            }
             guard stops == stopsBefore else { return false }
             switch TunnelPlan.readiness(for: pairing.record, ports: ports ?? DeveloperPorts(),
                                         allowLockdown: Self.allowLockdown) {
@@ -302,7 +310,8 @@ final class OnDeviceController {
             keepAlive.start()
         }
         do {
-            try await connect(coordinate, pairing: pairing.record, routes: routes)
+            try await connectWithRecovery(coordinate, pairing: pairing.record, routes: routes,
+                                          stopsBefore: stopsBefore)
             adoptRenewedPairing()
             settleRemotePairingPort()
             // Stopped meanwhile (Stop, or the pairing file removed): the stop
@@ -331,6 +340,33 @@ final class OnDeviceController {
                     + "for a while. If it stays, close AnyWhere and open it again."
             }
             return giveUp(nil)
+        }
+    }
+
+    /// Retry only transport failures, with fresh discovery. Never retry pairing/image failures
+    /// or restart a location after Stop. Persistent loss still ends the session visibly.
+    private func connectWithRecovery(_ coordinate: CLLocationCoordinate2D, pairing: PairingRecord,
+                                     routes: [TunnelRoute], stopsBefore: Int) async throws {
+        var candidates = routes
+        for attempt in 0...2 {
+            do {
+                try Task.checkCancellation()
+                guard stops == stopsBefore else { throw CancellationError() }
+                try await connect(coordinate, pairing: self.pairing?.record ?? pairing, routes: candidates)
+                return
+            } catch let failure as TunnelFailure {
+                let failures = [failure] + failure.others
+                guard attempt < 2, failures.allSatisfy({ $0.isUnreachable || $0.wasCutOff }),
+                      stops == stopsBefore else { throw failure }
+                lastError = "Developer connection interrupted. Retrying…"
+                lastErrorDetail = failure.detail
+                try await Task.sleep(for: recoveryDelay)
+                guard stops == stopsBefore else { throw CancellationError() }
+                rememberRemotePairingPort(nil)
+                await checkLoopback()
+                guard stops == stopsBefore else { throw CancellationError() }
+                candidates = knownRoutes(for: self.pairing?.record ?? pairing)
+            }
         }
     }
 
@@ -712,7 +748,8 @@ enum LoopbackProbe {
             connection.stateUpdateHandler = { state in
                 switch state {
                 case .ready: finish(true)
-                case .failed, .waiting: finish(false)
+                case .failed: finish(false)
+                case .waiting: break // Network.framework may recover before our deadline.
                 default: break
                 }
             }
