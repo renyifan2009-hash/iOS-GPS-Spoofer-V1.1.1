@@ -17,6 +17,8 @@ final class PhoneMotionController: ControlTarget {
     private(set) var deadline: Date?
     private(set) var lastError: String?
     private(set) var planning = false
+    /// While a route stands at one of its stops: which, and for how long (shown as "Leaving in 29:41").
+    private(set) var routeWait: RouteWait?
     private var heading = 0.0
     private var input = JoystickInput.idle
     private var inputAt = Date.distantPast
@@ -40,7 +42,8 @@ final class PhoneMotionController: ControlTarget {
                      phase: phone.phase == .stopping ? .stopping : (isWorking ? .starting : (isSpoofing ? .active : .idle)),
                      serverName: "This iPhone", activity: planning ? "planning" : activity,
                      speed: speed, heading: heading, routeProgress: activity == "route" ? progress : nil,
-                     routePaused: paused, autoStopAt: deadline?.timeIntervalSince1970)
+                     routePaused: paused, autoStopAt: deadline?.timeIntervalSince1970,
+                     routeWait: activity == "route" ? routeWait : nil)
     }
 
     @discardableResult
@@ -48,8 +51,9 @@ final class PhoneMotionController: ControlTarget {
         guard !isWorking else { return false }
         cancelMotion()
         let token = generation
-        guard await phone.stop() else { lastError = phone.lastError; return false }
-        guard token == generation else { return false }
+        // Move straight to the new place. Stopping first would put the real location back on the iPhone
+        // until the new one is set: seconds, or longer if the connection has to be made again.
+        guard await settle(), token == generation else { return false }
         guard await phone.set(coordinate, name: name), token == generation else { return false }
         activity = joystick ? "joystick" : "hold"
         lastError = nil
@@ -109,8 +113,8 @@ final class PhoneMotionController: ControlTarget {
         let token = generation
         planning = true
         defer { if token == generation { planning = false } }
-        guard await phone.stop() else { lastError = phone.lastError; return false }
-        guard token == generation else { return false }
+        // Plan first, while the place being held stays held; then move to the route's start. (Stopping first
+        // would show the real location for as long as the road directions take.)
         do {
             var waypoints = request.waypoints
             if request.loopMode == "loop", let first = waypoints.first, let last = waypoints.last,
@@ -132,6 +136,7 @@ final class PhoneMotionController: ControlTarget {
                                             speed: request.speed, repeatMode: request.loopMode)
             guard token == generation else { return false }
             let first = route.start
+            guard await settle(), token == generation else { return false }
             guard await phone.set(.init(latitude: first.latitude, longitude: first.longitude), name: request.name),
                   token == generation else { return false }
             activity = "route"; progress = 0; paused = false; lastError = nil
@@ -189,7 +194,9 @@ final class PhoneMotionController: ControlTarget {
                 }
                 elapsed = next; self.progress = sample.progress
                 self.speed = sample.moving ? route.speed : 0
-                if sample.finished { self.activity = "hold"; self.speed = 0; return }
+                let wait = route.waiting(at: next).map { RouteWait(reason: "stop", stop: $0.stop, remaining: $0.remaining) }
+                if wait != self.routeWait { self.routeWait = wait }
+                if sample.finished { self.activity = "hold"; self.speed = 0; self.routeWait = nil; return }
             }
         }
     }
@@ -233,7 +240,16 @@ final class PhoneMotionController: ControlTarget {
         generation += 1
         runner?.cancel(); runner = nil
         directions?.cancel(); directions = nil
-        input = .idle; inputAt = .distantPast; speed = 0; paused = false
+        input = .idle; inputAt = .distantPast; speed = 0; paused = false; routeWait = nil
+    }
+
+    /// A joystick or route step may still be sending its last point, and a new place can't be set while one is
+    /// in flight. Wait for it (up to five seconds) instead of stopping the location.
+    private func settle() async -> Bool {
+        for _ in 0..<50 where phone.isUpdatingLocation {
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return false }
+        }
+        return !phone.isUpdatingLocation
     }
 }
 

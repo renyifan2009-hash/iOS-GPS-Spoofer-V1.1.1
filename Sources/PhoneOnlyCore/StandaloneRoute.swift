@@ -17,6 +17,8 @@ public struct StandaloneRoute: Sendable {
         var to: Point
         var start: Double
         var end: Double
+        /// Which waypoint a wait is at (0 is the start); nil while travelling.
+        var stop: Int? = nil
     }
     private let segments: [Segment]
     public let duration: Double
@@ -40,9 +42,9 @@ public struct StandaloneRoute: Sendable {
         for i in 1..<legs.count where legs[i - 1].last != legs[i].first { throw Problem.invalid }
         var segments: [Segment] = []
         var elapsed = 0.0
-        func add(_ from: Point, _ to: Point, _ seconds: Double) {
+        func add(_ from: Point, _ to: Point, _ seconds: Double, stop: Int? = nil) {
             guard seconds > 0 else { return }
-            segments.append(Segment(from: from, to: to, start: elapsed, end: elapsed + seconds))
+            segments.append(Segment(from: from, to: to, start: elapsed, end: elapsed + seconds, stop: stop))
             elapsed += seconds
         }
         func travel(_ points: [Point]) {
@@ -51,17 +53,17 @@ public struct StandaloneRoute: Sendable {
             }
         }
         let first = legs[0][0]
-        add(first, first, waits[0])
+        add(first, first, waits[0], stop: 0)
         for (i, leg) in legs.enumerated() {
             travel(leg)
             let end = leg[leg.count - 1]
-            add(end, end, waits[i + 1])
+            add(end, end, waits[i + 1], stop: i + 1)
         }
         if repeatMode == "pingPong" {
             for i in legs.indices.reversed() {
                 let reverse = Array(legs[i].reversed())
                 travel(reverse)
-                if i > 0 { add(reverse.last!, reverse.last!, waits[i]) }
+                if i > 0 { add(reverse.last!, reverse.last!, waits[i], stop: i) }
             }
         }
         // Loop callers supply a road leg back to the starting point. Refuse a discontinuous jump.
@@ -88,6 +90,16 @@ public struct StandaloneRoute: Sendable {
         let p = PhoneGeo.moved(latitude: segment.from.latitude, longitude: segment.from.longitude,
                                meters: meters * fraction, bearing: Self.bearing(segment.from, segment.to))
         return (Point(p.latitude, p.longitude), t / duration, false, true)
+    }
+
+    /// While the route stands at one of its waypoints `elapsed` seconds in: which one (0 is the start, so a wait
+    /// there is "leaving in") and how long is left. nil while travelling or after a one-way route ends.
+    public func waiting(at elapsed: Double) -> (stop: Int, remaining: Double)? {
+        var t = elapsed.isFinite ? max(0, elapsed) : 0
+        if repeats { t.formTruncatingRemainder(dividingBy: duration) }
+        guard t < duration else { return nil }
+        guard let segment = segments.first(where: { t >= $0.start && t < $0.end }), let stop = segment.stop else { return nil }
+        return (stop, segment.end - t)
     }
 
     public static func distance(_ a: Point, _ b: Point) -> Double {

@@ -1,6 +1,6 @@
 # Test phone-only GPS control
 
-Use iPhone app **1.1, build 6**, built from this branch. The older v2.4.0 release asset is build 4 and does not contain these changes. The app is unsigned until your sideloading tool signs it.
+Use the iPhone app built from `main` (these changes come in the release after 2.5.0; the published 2.5.0 iPhone app, 1.2 build 5, does not have them). The app is unsigned until your sideloading tool signs it.
 
 ## Compatibility status
 
@@ -51,7 +51,7 @@ Record the model, exact iOS version/build, app build, developer-image build, out
 - [StikDebug compatibility](https://github.com/StikDebug/StikDebug#compatibility) — upstream lists 17.4+, not all iOS versions. Our 17.0–17.3 attempt remains unverified.
 - [Apple background location guidance](https://developer.apple.com/documentation/corelocation/handling-location-updates-in-the-background) — background authorization/session management does not guarantee perpetual execution.
 
-## Cellular transition regression (build 6)
+## Cellular transition regression
 
 Reported on iOS 26.6: cellular enabled blocks Start; starting with cellular disabled and enabling it afterwards loses control after approximately 40 seconds. LocalDevVPN reports connected with Device IP 10.7.0.1/32 and Tunnel IP 10.7.1.1/32. The device address matches the app; this is not evidence the VPN is off.
 

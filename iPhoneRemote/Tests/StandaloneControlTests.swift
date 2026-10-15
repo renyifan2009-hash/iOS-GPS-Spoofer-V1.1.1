@@ -13,6 +13,8 @@ private final class FakeDevice: OnDeviceOperations, @unchecked Sendable {
     var transportFailures = 0
     var attempts = 0
     var clearDelay: Duration?
+    /// How many times the real location was put back.
+    var clears = 0
     var route: TunnelRoute? { .lockdown }
     var count: Int { lock.withLock { writes.count } }
     func onAbandonedCallEnded(_ handler: @escaping @Sendable () -> Void) {}
@@ -27,6 +29,7 @@ private final class FakeDevice: OnDeviceOperations, @unchecked Sendable {
         lock.withLock { writes.append((latitude, longitude)) }
     }
     func clear() async -> Bool {
+        clears += 1
         if let clearDelay { try? await Task.sleep(for: clearDelay) }
         return confirmsClear
     }
@@ -155,6 +158,50 @@ final class StandaloneControlTests: XCTestCase {
         let count = engine.count
         try await Task.sleep(for: .milliseconds(350))
         XCTAssertEqual(engine.count, count)
+        _ = await controls.stop()
+    }
+
+    /// "Move Here" while holding a place goes straight there: the real location must never show in between.
+    func testMovingWhileHoldingNeverPutsTheRealLocationBack() async throws {
+        let engine = FakeDevice(), phone = try phone(engine)
+        let controls = PhoneMotionController(phone: phone)
+        let first = await controls.start(at: .init(latitude: 1, longitude: 1), name: "A")
+        XCTAssertTrue(first)
+        let moved = await controls.start(at: .init(latitude: 2, longitude: 2), name: "B")
+        XCTAssertTrue(moved)
+        XCTAssertEqual(engine.clears, 0, "no clear between the two places")
+        XCTAssertEqual(phone.current?.latitude ?? 0, 2, accuracy: 1e-9)
+        _ = await controls.stop()
+        XCTAssertEqual(engine.clears, 1, "Stop still puts the real location back")
+    }
+
+    /// Driving a route from a held place plans first and moves to the start; no clear on the way.
+    func testDrivingARouteFromAHoldNeverPutsTheRealLocationBack() async throws {
+        let engine = FakeDevice(), phone = try phone(engine)
+        let controls = PhoneMotionController(phone: phone)
+        _ = await controls.start(at: .init(latitude: 0.5, longitude: 0.5), name: "Home")
+        let request = RouteRequest(waypoints: [.init(latitude: 0, longitude: 0), .init(latitude: 0, longitude: 0.001)],
+                                   followRoads: false, speed: 10, realistic: false)
+        let started = await controls.driveRoute(request)
+        XCTAssertTrue(started)
+        XCTAssertEqual(engine.clears, 0)
+        _ = await controls.stop()
+    }
+
+    /// "Leave in …" on this iPhone: the route stands at the start and says so.
+    func testAWaitBeforeLeavingIsReportedAsStopZero() async throws {
+        let engine = FakeDevice(), phone = try phone(engine)
+        let controls = PhoneMotionController(phone: phone)
+        let request = RouteRequest(waypoints: [.init(latitude: 0, longitude: 0, wait: 60), .init(latitude: 0, longitude: 0.001)],
+                                   followRoads: false, speed: 10, realistic: false)
+        let started = await controls.driveRoute(request)
+        XCTAssertTrue(started)
+        try await Task.sleep(for: .milliseconds(600))
+        let wait = controls.status?.routeWait
+        XCTAssertEqual(wait?.reason, "stop")
+        XCTAssertEqual(wait?.stop, 0)
+        XCTAssertGreaterThan(wait?.remaining ?? 0, 55)
+        XCTAssertEqual(phone.current?.longitude ?? -1, 0, accuracy: 1e-9, "still at the start")
         _ = await controls.stop()
     }
 

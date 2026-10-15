@@ -62,4 +62,19 @@ final class StandaloneRouteTests: XCTestCase {
         XCTAssertEqual(route.sample(at: -.infinity).point, a)
         XCTAssertEqual(route.sample(at: .nan).point, a)
     }
+
+    func testItSaysWhichStopItIsWaitingAtAndForHowLong() throws {
+        let a = StandaloneRoute.Point(0, 0), b = StandaloneRoute.Point(0, 0.001), c = StandaloneRoute.Point(0, 0.002)
+        let route = try StandaloneRoute(legs: [[a, b], [b, c]], waits: [30, 20, 0], speed: 10, repeatMode: "once")
+        let start = try XCTUnwrap(route.waiting(at: 10))
+        XCTAssertEqual(start.stop, 0)                           // before leaving
+        XCTAssertEqual(start.remaining, 20, accuracy: 1e-9)
+        XCTAssertNil(route.waiting(at: 35), "travelling")
+        let leg = StandaloneRoute.distance(a, b) / 10
+        let rest = try XCTUnwrap(route.waiting(at: 30 + leg + 5))
+        XCTAssertEqual(rest.stop, 1)
+        XCTAssertEqual(rest.remaining, 15, accuracy: 1e-6)
+        XCTAssertNil(route.waiting(at: route.duration + 10), "arrived")
+        XCTAssertEqual(route.waiting(at: .nan)?.stop, 0, "a time that isn't a number reads as the start, like sample(at:)")
+    }
 }

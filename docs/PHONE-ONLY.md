@@ -2,7 +2,7 @@
 
 The iPhone app can execute teleport, joystick and routes locally with the Mac powered off after setup. This implementation targets iOS 17+, but **has not been verified across physical devices or all iOS versions**. iOS 17.0–17.3 only attempts Remote Pairing; its local tunnel is unverified. iOS 17.4+ also has a lockdown/CoreDeviceProxy fallback when that service is reachable.
 
-Use **iPhone app 1.1, build 6** built from this branch. Published v2.4.0 carries build 4 and lacks these standalone additions. A compiled IPA still needs signing through your existing sideloading tool.
+These standalone additions are on `main` and come in the next release; the published 2.5.0 iPhone app (1.2, build 5) doesn't have them yet. Until then, build the iPhone app from `main`. A compiled IPA still needs signing through your sideloading tool.
 
 ## Set up once
 
