@@ -267,6 +267,23 @@ final class AppRemoteBridge: RemoteController {
             heading: moving ? model.deviceHeading : nil,
             routeProgress: model.activity == .routing ? model.routeProgress?.fraction : nil,
             routePaused: model.activity == .routing ? model.isPaused : nil,
-            autoStopAt: model.killswitchDeadline?.timeIntervalSince1970)
+            autoStopAt: model.killswitchDeadline?.timeIntervalSince1970,
+            routeWait: routeWait(model))
+    }
+
+    /// Why a running route is standing still, in the protocol's words.
+    static func routeWait(_ model: AppModel) -> RouteWait? {
+        guard model.activity == .routing, case let .stopped(reason, remaining) = model.tripStatus else { return nil }
+        let left = remaining.flatMap { $0.isFinite ? max(0, $0) : nil }
+        switch reason {
+        case .waypoint(let index): return RouteWait(reason: "stop", stop: index, remaining: left)
+        case .redLight: return RouteWait(reason: "light", remaining: left)
+        case .stopSign: return RouteWait(reason: "sign", remaining: left)
+        case .giveWay: return RouteWait(reason: "yield", remaining: left)
+        case .crossing: return RouteWait(reason: "crossing", remaining: left)
+        case .rest, .pause: return RouteWait(reason: "break", remaining: left)
+        case .turnaround: return RouteWait(reason: "turnaround", remaining: left)
+        case .destination: return RouteWait(reason: "arrived")
+        }
     }
 }

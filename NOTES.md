@@ -182,6 +182,31 @@ run away when the zoom was computed from the span; it is now clamped (300 to 40,
 because the iPhone app now needs a Mac that has `/joystick`, `/pause` and `/autostop` (an older Mac answers 501 and the app says
 to update it). Nothing here has run on a real iPhone: `docs/DEVICE-TESTING.md`, section F.
 
+## Trips with rest stops, "leave after", and miles (2026-10-14, branch `feature/trip-waits`)
+
+Asked for: plan a trip A to B with rest stops in between, each with a time you can type; a wait at the start before
+leaving ("wait half an hour, then drive to a friend's house"); and miles instead of km on the iPhone app.
+
+- **Engine.** A wait at the first stop now happens before the route leaves (`TripPlanner.lapPlan`, first lap; a loop or
+  there-and-back still waits there each time it comes back). Before, a one-way route dropped that wait on purpose. The Mac
+  app and `iosgpsspoof serve` both honour waits with "Drive like a real person" off too (a plain trip with only the
+  waits); before, waits silently did nothing with it off. `DepartureWaitTests`, `RouteRunnerTests`.
+- **Typed times.** `WaitDuration` (PhoneOnlyCore, tested) reads "45", "20 min", "1h 30m", "1:30", "half an hour"; a bare
+  number is minutes; up to 24 hours (`RemoteAPI.maxWaitSeconds`, checked equal in a test; longer is a 400).
+- **iPhone.** Route card: a **Leave** row (now / in N min), rests and total time in the summary, wait badges on the pins.
+  Stops sheet: tap a stop's time for an editor (type or quick pick). Progress card: "Leaving in 29:41", "Resting at stop
+  2 · 12:03 left", "Paused · leaves in …" (`RouteWaitText`, tested) from the new optional `routeWait` status field.
+- **Mac.** Route panel: the start of a one-way route now has a timer ("Leaves after 30 min"); every timer menu has
+  **Custom…** (`WaitEntrySheet`). The HUD says "Leaving in" for the start.
+- **Miles.** The iPhone route speed label was hard-coded "km/h". `SpeedUnits` (PhoneOnlyCore, tested) follows the region
+  (US and UK: mph) and the sliders step in that unit (5 mph). The Mac's default units now treat the UK as mph too.
+- Checked: 661+ Swift tests; `scripts/test-remote-bridge.py` now also checks "wait at the start, then go" against the real
+  Mac app with realistic trips on and off; simulator run against the real Mac app (screenshots in the README). Not run on a
+  real iPhone: `docs/DEVICE-TESTING.md` F10–F11.
+- Note: two `ReleaseInstallTests` failed once while the simulator booted (a leftover test disk image named `test.dmg`
+  stayed attached; the test checks the name only). Detached it; they pass. The test's check is name-based and could be
+  made path-based.
+
 ## Pairing secrets in diagnostics (2026-10-13)
 
 Prompted by a write-up that said a developer log had printed a private-key field: checked that our own logging and

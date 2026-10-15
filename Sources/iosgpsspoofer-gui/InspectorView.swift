@@ -1,4 +1,5 @@
 import AppKit
+import PhoneOnlyCore
 import SpooferCore
 import SwiftUI
 
@@ -512,16 +513,31 @@ struct RealisticTripCard: View {
 struct WaypointTimeline: View {
     @Environment(AppModel.self) private var model
     @State private var hovered: UUID?
+    /// The stop whose wait is being typed in.
+    @State private var customWait: CustomWait?
+
+    private struct CustomWait: Identifiable {
+        let id: UUID
+        let title: String
+        let seconds: TimeInterval
+    }
 
     var body: some View {
         let count = model.waypoints.count
-        if count > 8 {
-            ScrollView {
+        Group {
+            if count > 8 {
+                ScrollView {
+                    rows(count)
+                }
+                .frame(height: 330)
+            } else {
                 rows(count)
             }
-            .frame(height: 330)
-        } else {
-            rows(count)
+        }
+        .sheet(item: $customWait) { target in
+            WaitEntrySheet(title: target.title, initial: target.seconds) { seconds in
+                model.setWait(seconds, forWaypoint: target.id)
+            }
         }
     }
 
@@ -538,7 +554,8 @@ struct WaypointTimeline: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                         if waypoint.wait > 0, waitApplies(index: index, count: count) {
-                            Label("Waits \(Self.waitText(waypoint.wait))", systemImage: "timer")
+                            Label(index == 0 ? "Leaves after \(Self.waitText(waypoint.wait))"
+                                             : "Waits \(Self.waitText(waypoint.wait))", systemImage: "timer")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(Brand.accent)
                                 .labelStyle(.titleAndIcon)
@@ -560,19 +577,15 @@ struct WaypointTimeline: View {
                                 .accessibilityLabel("Insert a stop after this one")
                             if waitApplies(index: index, count: count) {
                                 Menu {
-                                    ForEach(Self.waitChoices, id: \.self) { seconds in
-                                        Button(seconds == 0 ? "No Wait" : "Wait \(Self.waitText(seconds))") {
-                                            model.setWait(seconds, forWaypoint: waypoint.id)
-                                        }
-                                    }
+                                    waitMenuItems(waypoint, index: index, count: count)
                                 } label: {
                                     Image(systemName: waypoint.wait > 0 ? "timer.circle.fill" : "timer")
                                 }
                                 .menuStyle(.borderlessButton)
                                 .menuIndicator(.hidden)
                                 .fixedSize()
-                                .help("Wait here before carrying on")
-                                .accessibilityLabel("Wait here before carrying on")
+                                .help(index == 0 ? "Wait here before leaving" : "Wait here before carrying on")
+                                .accessibilityLabel(index == 0 ? "Wait here before leaving" : "Wait here before carrying on")
                             }
                             Button { model.focus(on: waypoint.point) } label: { Image(systemName: "scope") }
                                 .help("Show on map")
@@ -620,6 +633,9 @@ struct WaypointTimeline: View {
                 .accessibilityAction(named: Text("No wait here"), if: waypoint.wait > 0 && waitApplies(index: index, count: count)) {
                     model.setWait(0, forWaypoint: waypoint.id)
                 }
+                .accessibilityAction(named: Text("Type how long to wait here"), if: waitApplies(index: index, count: count)) {
+                    customWait = CustomWait(id: waypoint.id, title: waitTitle(index, count), seconds: waypoint.wait)
+                }
                 .accessibilityAction(named: Text("Remove this stop")) { model.removeWaypoint(id: waypoint.id) }
             }
         }
@@ -628,7 +644,9 @@ struct WaypointTimeline: View {
     /// What a screen reader says for a row: "Stop 2, 37.33180, -122.03120, waits 2 min".
     private func rowDescription(_ waypoint: Waypoint, index: Int, count: Int) -> String {
         var text = "\(label(index, count)), \(Format.coordinate(waypoint.point, precision: 5))"
-        if waypoint.wait > 0, waitApplies(index: index, count: count) { text += ", waits \(Self.waitText(waypoint.wait))" }
+        if waypoint.wait > 0, waitApplies(index: index, count: count) {
+            text += index == 0 ? ", leaves after \(Self.waitText(waypoint.wait))" : ", waits \(Self.waitText(waypoint.wait))"
+        }
         return text
     }
 
@@ -639,12 +657,8 @@ struct WaypointTimeline: View {
         Button("Move Down") { model.moveWaypoint(id: waypoint.id, by: 1) }.disabled(index == count - 1)
         Button("Insert a Stop After") { model.insertMidpoint(after: waypoint.id) }
         if waitApplies(index: index, count: count) {
-            Menu("Wait Here") {
-                ForEach(Self.waitChoices, id: \.self) { seconds in
-                    Button(seconds == 0 ? "No Wait" : "Wait \(Self.waitText(seconds))") {
-                        model.setWait(seconds, forWaypoint: waypoint.id)
-                    }
-                }
+            Menu(index == 0 ? "Wait Before Leaving" : "Wait Here") {
+                waitMenuItems(waypoint, index: index, count: count)
             }
         }
         Divider()
@@ -666,18 +680,34 @@ struct WaypointTimeline: View {
         .frame(width: 18)
     }
 
-    static let waitChoices: [TimeInterval] = [0, 30, 60, 120, 300, 600, 1800]
+    static let waitChoices: [TimeInterval] = WaitDuration.presets
 
-    /// "30 s", "5 min".
-    static func waitText(_ seconds: TimeInterval) -> String {
-        seconds < 60 ? "\(Int(seconds)) s" : "\(Int((seconds / 60).rounded())) min"
+    /// "45 sec", "5 min", "1 h 30 min".
+    static func waitText(_ seconds: TimeInterval) -> String { WaitDuration.format(seconds) }
+
+    /// The quick choices, then a typed one.
+    @ViewBuilder
+    private func waitMenuItems(_ waypoint: Waypoint, index: Int, count: Int) -> some View {
+        ForEach(Self.waitChoices, id: \.self) { seconds in
+            Button(seconds == 0 ? "No Wait" : "Wait \(Self.waitText(seconds))") {
+                model.setWait(seconds, forWaypoint: waypoint.id)
+            }
+        }
+        Divider()
+        Button("Custom…") {
+            customWait = CustomWait(id: waypoint.id, title: waitTitle(index, count), seconds: waypoint.wait)
+        }
     }
 
-    /// A wait means nothing at the end of a one-way route (it stays there), or
-    /// at the start of one (it's just leaving).
+    private func waitTitle(_ index: Int, _ count: Int) -> String {
+        index == 0 ? "Wait at the start before leaving" : "Wait at \(label(index, count).lowercased())"
+    }
+
+    /// A wait at the start means "leave after this long". It means nothing at the end of a one-way route,
+    /// which stays there anyway.
     private func waitApplies(index: Int, count: Int) -> Bool {
         guard model.loopMode == .once else { return true }
-        return index > 0 && index < count - 1
+        return index < count - 1
     }
 
     private func label(_ index: Int, _ count: Int) -> String {

@@ -59,10 +59,10 @@ extension AppModel {
                 if pb.isFinished, tripStatus != .moving { tripStatus = .moving }
                 return
             }
-            // Realistic trips switched on or off mid-route.
-            if prefs.realisticTrips, trip == nil {
+            // Realistic trips, or the waits that need the trip engine, switched on or off mid-route.
+            if usesTripEngine, trip == nil {
                 trip = makeTrip(for: pb, speed: deviceSpeed)
-            } else if !prefs.realisticTrips, trip != nil {
+            } else if !usesTripEngine, trip != nil {
                 trip = nil
                 tripStatus = .moving
             }

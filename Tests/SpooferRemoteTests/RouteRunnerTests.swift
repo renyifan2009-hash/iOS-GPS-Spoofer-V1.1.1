@@ -53,6 +53,28 @@ final class RouteRunnerTests: XCTestCase {
         XCTAssertGreaterThan(withWait.duration, without.duration + 250)
     }
 
+    /// "Leave after 30 s": the route holds the start, then goes. With realistic trips off too.
+    func testAWaitAtTheStartHoldsTheStartFirst() throws {
+        for realistic in [true, false] {
+            var request = straightRequest(realistic: realistic)
+            request.waypoints[0].wait = 30
+            let runner = try RouteRunner.build(from: request)
+            let start = runner.position(at: 0).point
+            for t in [5.0, 15, 28] {
+                XCTAssertLessThan(runner.position(at: t).point.distance(to: start), 1,
+                                  "realistic \(realistic): still at the start after \(t) s")
+            }
+            XCTAssertGreaterThan(runner.position(at: 60).point.distance(to: start), 50,
+                                 "realistic \(realistic): on its way a while after the wait")
+            // The wait, plus (with realistic trips off) a few seconds of speeding up and braking that the
+            // plain constant-speed run doesn't have.
+            let plain = try RouteRunner.build(from: straightRequest(realistic: realistic))
+            let extra = runner.duration - plain.duration
+            XCTAssertGreaterThanOrEqual(extra, 29.5, "realistic \(realistic)")
+            XCTAssertLessThan(extra, 40, "realistic \(realistic)")
+        }
+    }
+
     func testLoopWrapsAndNeverFinishes() throws {
         let runner = try RouteRunner.build(from: straightRequest(realistic: false, speed: 10, loop: "loop"))
         XCTAssertTrue(runner.wraps)

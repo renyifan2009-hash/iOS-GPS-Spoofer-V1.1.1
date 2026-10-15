@@ -8,9 +8,9 @@ on the iPhone, and your real location comes back when you press **Stop**.
 
 The iPhone app, AnyWhere, steers the Mac from your pocket:
 
-| Joystick | Build a route | Route driving |
+| Joystick | Plan a trip | Waiting to leave |
 |:---:|:---:|:---:|
-| ![The iPhone app with the joystick pad, a pace picker and a stop-after timer](img/iphone-joystick.png) | ![The iPhone app with a three-stop route on the map, with travel, repeat and speed options](img/iphone-route.png) | ![The iPhone app showing a route at 4 percent with Pause and Stop buttons](img/iphone-route-progress.png) |
+| ![The iPhone app with the joystick pad, a pace picker and a stop-after timer](img/iphone-joystick.png) | ![The iPhone app with a three-stop trip: leave in 30 minutes, a 1 hour 15 minute rest at stop 2, 1.2 miles, about 1 hour 47 minutes](img/iphone-route.png) | ![The iPhone app driving a trip that says Leaving in 29:51, with Pause and Stop buttons](img/iphone-route-progress.png) |
 
 ## What you need
 
@@ -109,7 +109,12 @@ The app shows a checklist. Each step gets a green tick when it's done.
   pause now and then. While it's stopped, the status panel says why ("Red
   light 0:26").
 - **Wait at a stop:** hover over a stop in the route panel, click the timer
-  and pick how long, from 30 seconds to 30 minutes.
+  and pick how long, or choose **Custom…** and type it ("45", "20 min",
+  "1h 30m" or "1:30"; a number on its own is minutes; up to 24 hours). A wait
+  at the **start** means "leave after this long": the route sits at the start,
+  counts down ("Leaving in 29:41"), then sets off. That's how you plan "wait
+  half an hour at home, then drive to a friend's house, resting on the way".
+  Waits work with **Drive like a real person** on or off.
 - **Joystick:** click **Joystick**, then **Start Joystick**. Steer with
   **W A S D** or the arrow keys. Hold **Shift** to go faster.
 - **Stop:** click **Stop** to get your real location back. Quitting the app does
@@ -123,10 +128,14 @@ The app shows a checklist. Each step gets a green tick when it's done.
 - **From the iPhone:** with the iPhone app paired to the Mac (see
   [docs/IPHONE-REMOTE.md](docs/IPHONE-REMOTE.md)), the iPhone can do all of
   this too. Tap the map and **Start**, then pick **Joystick** to steer with
-  your thumb at walking, cycling or driving pace. Pick **Route** to tap out
-  stops, set a wait at any stop, reverse or reorder them, and **Drive Route**.
-  A running route shows how far along it is, with **Pause**, **Resume** and
-  **Stop**. Routes you like can be saved on the iPhone. A **stop after** timer
+  your thumb at walking, cycling or driving pace. Pick **Route** to tap out a
+  trip: the start, any rest stops, the destination. **Leave** sets how long to
+  wait at the start before setting off, and **Stops** lets you type how long to
+  rest at each stop, reorder them or reverse the trip. Then **Drive Route**.
+  A running route shows how far along it is or how long it is waiting
+  ("Leaving in 29:41", "Resting at stop 2 · 12:03 left"), with **Pause**,
+  **Resume** and **Stop**. Speeds and distances are in miles where your
+  iPhone's region uses them. Routes you like can be saved on the iPhone. A **stop after** timer
   (15 minutes up to 4 hours) puts your real location back by itself. The Mac
   does the moving, so keep it on and connected. If the iPhone locks, goes to
   the background or loses the connection, the joystick stops after about a

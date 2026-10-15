@@ -2,9 +2,10 @@ import PhoneOnlyCore
 import RemoteAPI
 import SwiftUI
 
-/// A numbered pin for a route waypoint on the map.
+/// A numbered pin for a route waypoint on the map, with how long it waits there.
 struct RouteStopPin: View {
     let number: Int
+    var wait: Double = 0
 
     var body: some View {
         ZStack {
@@ -17,7 +18,21 @@ struct RouteStopPin: View {
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
         }
-        .accessibilityLabel("Stop \(number)")
+        .overlay(alignment: .bottom) {
+            if wait > 0 {
+                Label(WaitDuration.short(wait), systemImage: "pause.fill")
+                    .labelStyle(.titleAndIcon)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1.5)
+                    .background(Capsule().fill(Brand.indigo))
+                    .foregroundStyle(.white)
+                    .fixedSize()
+                    .offset(y: 15)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(wait > 0 ? "Stop \(number), waits \(WaitDuration.format(wait))" : "Stop \(number)")
     }
 }
 
@@ -35,15 +50,13 @@ enum RouteText {
         return total < 60 ? "under a minute" : "\(max(1, m)) min"
     }
 
-    /// Km/h or mph, by region.
+    /// Mph or km/h, by region.
     static func speed(_ metersPerSecond: Double) -> String {
-        SpeedText.format(metersPerSecond: metersPerSecond, imperial: Locale.current.measurementSystem == .us)
+        SpeedUnits.current.text(metersPerSecond: metersPerSecond)
     }
 
-    /// "30 sec", "2 min".
-    static func wait(_ seconds: Double) -> String {
-        seconds < 60 ? "\(Int(seconds)) sec" : "\(Int(seconds / 60)) min"
-    }
+    /// "45 sec", "30 min", "1 h 30 min".
+    static func wait(_ seconds: Double) -> String { WaitDuration.format(seconds) }
 }
 
 // MARK: - Build a route
@@ -56,11 +69,17 @@ struct RouteCardView: View {
 
     @State private var showStops = false
     @State private var showHistory = false
+    @State private var editStartWait = false
     @State private var askName = false
     @State private var nameText = ""
 
-    private var speedRange: ClosedRange<Double> { route.driving ? 10...120 : 1...10 }
-    private var speedStep: Double { route.driving ? 5 : 1 }
+    private var units: SpeedUnits { .current }
+
+    /// The slider moves in the shown unit (5 mph steps where miles are used); the route keeps km/h.
+    private var speedInShownUnits: Binding<Double> {
+        Binding(get: { units.display(kmh: route.speedKmh) },
+                set: { route.speedKmh = units.kmh(fromDisplay: $0) })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -78,6 +97,12 @@ struct RouteCardView: View {
         }
         .sheet(isPresented: $showHistory) {
             RouteHistorySheet(route: route, library: library)
+        }
+        .sheet(isPresented: $editStartWait) {
+            WaitEditorSheet(title: "Leave after", prompt: "How long to wait at the start before leaving.",
+                            initial: route.startWait, zeroLabel: "Leave now") { seconds in
+                withAnimation(Brand.snappy) { route.setStartWait(seconds) }
+            }
         }
         .alert("Save this route", isPresented: $askName) {
             TextField("Name", text: $nameText)
@@ -141,8 +166,8 @@ struct RouteCardView: View {
                 Label(RouteText.duration(seconds) == "under a minute" ? "under a minute" : "about \(RouteText.duration(seconds))",
                       systemImage: "clock")
             }
-            if route.stops.contains(where: { $0.wait > 0 }) {
-                Label("waits", systemImage: "pause.circle")
+            if route.restCount > 0 {
+                Label("\(route.restCount) rest\(route.restCount == 1 ? "" : "s")", systemImage: "pause.circle")
             }
             Spacer(minLength: 0)
         }
@@ -154,6 +179,8 @@ struct RouteCardView: View {
 
     private var options: some View {
         VStack(alignment: .leading, spacing: 12) {
+            leaveRow
+
             Picker("Travel", selection: $route.driving) {
                 Text("Driving").tag(true)
                 Text("Walking").tag(false)
@@ -172,17 +199,51 @@ struct RouteCardView: View {
 
             HStack(spacing: 12) {
                 Text("Speed")
-                Slider(value: $route.speedKmh, in: speedRange, step: speedStep)
+                Slider(value: speedInShownUnits, in: units.routeRange(driving: route.driving),
+                       step: units.routeStep(driving: route.driving))
                     .accessibilityLabel("Top speed")
-                Text("\(Int(route.speedKmh.rounded())) km/h")
+                    .accessibilityValue(units.text(kmh: route.speedKmh))
+                Text(units.text(kmh: route.speedKmh))
                     .font(.system(.subheadline, design: .rounded).monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .frame(minWidth: 58, alignment: .trailing)
             }
         }
         .font(.subheadline)
         .onChange(of: route.driving) { _, driving in
-            route.speedKmh = driving ? 50 : 5
+            route.speedKmh = units.defaultKmh(driving: driving)
         }
+    }
+
+    /// When to leave the start: now, or after a wait you type ("leave in half an hour").
+    private var leaveRow: some View {
+        Button {
+            editStartWait = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: route.startWait > 0 ? "clock.badge.checkmark" : "clock")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Brand.indigo)
+                    .frame(width: 22)
+                Text("Leave")
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(route.startWait > 0 ? "in \(RouteText.wait(route.startWait))" : "Now")
+                    .foregroundStyle(route.startWait > 0 ? Brand.indigo : Color.secondary)
+                    .fontWeight(route.startWait > 0 ? .semibold : .regular)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 44)
+            .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Leave")
+        .accessibilityValue(route.startWait > 0 ? "after \(RouteText.wait(route.startWait))" : "now")
+        .accessibilityHint("Wait at the start for a while before the route sets off")
     }
 
     private var toolRow: some View {
@@ -227,11 +288,15 @@ struct RouteProgressCardView: View {
     private var status: RemoteStatus? { connection.status }
     private var planning: Bool { status?.activity == "planning" }
     private var paused: Bool { status?.routePaused ?? false }
+    /// Waiting at one of your stops (the start included), as opposed to a light or a sign.
+    private var restingAtStop: Bool { status?.routeWait?.reason == "stop" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                IconTile(symbol: planning ? "map.fill" : (paused ? "pause.fill" : "point.topleft.down.to.point.bottomright.curvepath.fill"),
+                IconTile(symbol: planning ? "map.fill"
+                            : (paused ? "pause.fill"
+                                : (restingAtStop ? "clock.fill" : "point.topleft.down.to.point.bottomright.curvepath.fill")),
                          colors: paused ? [Brand.warning, Brand.warning.opacity(0.7)] : [Brand.indigo, Brand.sky], size: 42)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(route.name ?? "Route").font(Brand.rounded(.title3)).lineLimit(1)
@@ -278,6 +343,11 @@ struct RouteProgressCardView: View {
 
     private var subtitle: String {
         if planning { return "Planning the route on the Mac…" }
+        if let wait = status?.routeWait,
+           let text = RouteWaitText.describe(reason: wait.reason, stop: wait.stop, remaining: wait.remaining,
+                                             paused: paused) {
+            return text
+        }
         var parts: [String] = []
         if let progress = status?.routeProgress { parts.append("\(Int((progress * 100).rounded()))%") }
         if paused {

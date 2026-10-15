@@ -62,30 +62,30 @@ def wait_for(condition, timeout=15.0, step=0.2):
     return None
 
 
-def main():
-    if not os.path.exists(EXE):
-        sys.exit("Build first: swift build")
-    home = tempfile.mkdtemp(prefix="anywhere-bridge-")
-    log = os.path.join(home, "fake.log")
-    env = dict(os.environ, HOME=home, SPOOFER_APP_DIR=os.path.join(home, "apps"), PYMOBILEDEVICE3=FAKE,
-               FAKE_PMD_LOG=log, SPOOFER_SNAPSHOT="1", SPOOFER_PRINT_PAIRING="1")
-    app = subprocess.Popen([EXE, "-remoteControlEnabled", "YES"], env=env, stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, text=True)
-    code = {}
+class MacApp:
+    """A debug build of the Mac app with the remote server on, a temporary HOME and the pretend iPhone."""
 
-    def read_output():
-        for line in app.stdout:
+    def __init__(self, *extra_args):
+        self.home = tempfile.mkdtemp(prefix="anywhere-bridge-")
+        self.log = os.path.join(self.home, "fake.log")
+        env = dict(os.environ, HOME=self.home, SPOOFER_APP_DIR=os.path.join(self.home, "apps"), PYMOBILEDEVICE3=FAKE,
+                   FAKE_PMD_LOG=self.log, SPOOFER_SNAPSHOT="1", SPOOFER_PRINT_PAIRING="1")
+        self.proc = subprocess.Popen([EXE, "-remoteControlEnabled", "YES", *extra_args], env=env,
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        self.code = {}
+        threading.Thread(target=self._read_output, daemon=True).start()
+
+    def _read_output(self):
+        for line in self.proc.stdout:
             m = re.match(r"PAIRING-CODE (\d{6})", line)
             if m:
-                code["value"] = m.group(1)
+                self.code["value"] = m.group(1)
 
-    threading.Thread(target=read_output, daemon=True).start()
-
-    def sets():
+    def sets(self):
         """Every location the phone was told to take, in order, as (lat, lon)."""
         out = []
         try:
-            for line in open(log):
+            for line in open(self.log):
                 if "simulate-location set" in line and " -- " in line:
                     parts = line.strip().split(" -- ")[-1].split()
                     if len(parts) == 2:
@@ -94,22 +94,78 @@ def main():
             pass
         return out
 
-    def cleared():
+    def cleared(self):
         try:
-            return any("simulate-location clear" in line for line in open(log))
+            return any("simulate-location clear" in line for line in open(self.log))
         except FileNotFoundError:
             return False
 
+    def pair(self):
+        if not wait_for(lambda: self.code.get("value"), 30):
+            sys.exit("The app never printed a pairing code (is the port in use?).")
+        status, paired = call("POST", "/pair", {"code": self.code["value"], "clientName": "Test", "clientID": "test-1"})
+        check(status == 200 and paired and paired.get("token"), "pairing with the code works")
+        return paired["token"]
+
+    def quit(self):
+        self.proc.send_signal(signal.SIGTERM)
+        try:
+            self.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+
+
+def status_of(token):
+    return call("GET", "/status", None, token)[1] or {}
+
+
+def hold(app, token, place=(37.3349, -122.0090)):
+    if not wait_for(lambda: status_of(token).get("connected"), 20):
+        sys.exit("The Mac never saw the pretend iPhone.")
+    status, _ = call("POST", "/start", {"latitude": place[0], "longitude": place[1], "name": "Home"}, token)
+    check(status == 200, "POST /start is accepted")
+    return wait_for(lambda: (lambda s: s if s.get("phase") == "active" else None)(status_of(token)))
+
+
+def check_waits_before_leaving(app, token, label):
+    """A route whose first stop waits 4 s: it sits at the start, says so, then goes."""
+    start = (37.3349, -122.0090)
+    route = {"waypoints": [{"latitude": start[0], "longitude": start[1], "wait": 4},
+                           {"latitude": 37.3349, "longitude": -122.0050}],
+             "followRoads": False, "travelMode": "walking", "loopMode": "once", "speed": 5, "realistic": True,
+             "name": "Friend's house"}
+    status, _ = call("POST", "/route", route, token)
+    check(status == 200, "%s: a route that waits before leaving is accepted (%s)" % (label, status))
+    sent_at = time.time()
+    first = len(app.sets())
+    waiting = wait_for(lambda: (lambda s: s if (s.get("routeWait") or {}).get("reason") == "stop" else None)(status_of(token)), 10)
+    wait_info = (waiting or {}).get("routeWait") or {}
+    check(wait_info.get("stop") == 0, "%s: the Mac says it is waiting at the start (%s)" % (label, wait_info))
+    left = wait_info.get("remaining")
+    check(left is not None and 0 < left <= 4.01, "%s: with the time left (%s s)" % (label, left))
+    time.sleep(2.0)
+    during = app.sets()[first:]
+    far = [p for p in during if abs(p[1] - start[1]) > 0.0001]
+    check(not far, "%s: the phone stays at the start while it waits (%d of %d points moved)" % (label, len(far), len(during)))
+    moved = wait_for(lambda: any(p[1] > start[1] + 0.0002 for p in app.sets()[first:]), 20, 0.1)
+    went = time.time() - sent_at
+    check(bool(moved), "%s: then it sets off east" % label)
+    check(went >= 3.5, "%s: and not before the wait is over (%.1f s after sending)" % (label, went))
+    st = status_of(token)
+    check((st.get("routeWait") or {}).get("reason") != "stop", "%s: and the wait is no longer reported (%s)" % (label, st.get("routeWait")))
+
+
+def main():
+    if not os.path.exists(EXE):
+        sys.exit("Build first: swift build")
+    app = MacApp()
+    sets, cleared = app.sets, app.cleared
     try:
         print("Starting the Mac app with the remote server on...")
-        if not wait_for(lambda: code.get("value"), 30):
-            sys.exit("The app never printed a pairing code (is the port in use?).")
+        wait_for(lambda: app.code.get("value"), 30)
         status, info = call("GET", "/info")
         check(status == 200, "GET /info answers without a token")
-
-        status, paired = call("POST", "/pair", {"code": code["value"], "clientName": "Test", "clientID": "test-1"})
-        check(status == 200 and paired and paired.get("token"), "pairing with the code works")
-        token = paired["token"]
+        token = app.pair()
 
         print("Errors before anything is held:")
         status, _ = call("POST", "/joystick", {"heading": 90, "speed": 3}, token)
@@ -174,6 +230,9 @@ def main():
         c = call("GET", "/status", None, token)[1].get("routeProgress")
         check(c is not None and b is not None and c > b, "and it carries on (%s -> %s)" % (b, c))
 
+        print("Wait before leaving (realistic trips on):")
+        check_waits_before_leaving(app, token, "realistic on")
+
         print("Auto-stop:")
         status, st = call("POST", "/autostop", {"minutes": 5}, token)
         left = (st or {}).get("autoStopAt", 0) - time.time()
@@ -190,11 +249,16 @@ def main():
         st = wait_for(lambda: (lambda s: s if not s.get("spoofing") else None)(call("GET", "/status", None, token)[1]), 10)
         check(bool(st), "status says nothing is held any more")
     finally:
-        app.send_signal(signal.SIGTERM)
-        try:
-            app.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            app.kill()
+        app.quit()
+
+    print("Wait before leaving with \"Drive like a real person\" off:")
+    plain = MacApp("-realisticTrips", "NO")
+    try:
+        token = plain.pair()
+        check(bool(hold(plain, token)), "the session comes up")
+        check_waits_before_leaving(plain, token, "realistic off")
+    finally:
+        plain.quit()
 
     print()
     if failures:

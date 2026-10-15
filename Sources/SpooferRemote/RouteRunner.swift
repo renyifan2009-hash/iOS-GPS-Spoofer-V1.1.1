@@ -49,15 +49,21 @@ public struct RouteRunner: Sendable, Equatable {
         guard path.length > 0 else { throw RouteRunnerError.degenerate }
 
         let track: [RoutePoint]
-        if request.realistic {
+        // Waits need the trip engine, so a route with any runs on it even with realistic trips off
+        // (then without lights, turns or breaks: just the waits).
+        let hasWaits = request.waypoints.contains { ($0.wait ?? 0) > 0 }
+        if request.realistic || hasWaits {
             let top = max(0.1, request.speed)
             let profile = MotionProfile.forSpeed(top)
             // Time-of-day traffic slows driving only.
             let traffic = (request.timeOfDayTraffic && profile.kind == .drive) ? Congestion.factor(at: now) : 1
-            let settings = TripSettings(topSpeed: top, profile: profile, trafficFactor: traffic,
-                                        // No OSM data here: let sharp turns stand in for junctions
-                                        // when the user asked to follow roads.
-                                        guessJunctions: request.followRoads)
+            let settings = request.realistic
+                ? TripSettings(topSpeed: top, profile: profile, trafficFactor: traffic,
+                               // No OSM data here: let sharp turns stand in for junctions
+                               // when the user asked to follow roads.
+                               guessJunctions: request.followRoads)
+                : TripSettings(topSpeed: top, profile: profile, trafficLights: false, stopSigns: false,
+                               slowForTurns: false, speedLimits: false, breaks: false)
             let played = RoutePlayback(path: path, loopMode: loop).path
             let stops = waypointStops(points: points, path: path, waits: request.waypoints.map(\.wait))
             let planner = TripPlanner(path: played, loopMode: loop, settings: settings,

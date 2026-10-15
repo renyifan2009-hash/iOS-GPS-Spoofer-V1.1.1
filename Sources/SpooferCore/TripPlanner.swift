@@ -170,12 +170,15 @@ public struct TripPlanner: Sendable, Equatable {
         for waypoint in waypointStops where waypoint.wait > 0 {
             var places = passes(waypoint.distance)
             if waypoint.distance < 0.5 {
-                // The start: you've just left; the wait happens when the route comes back to it.
+                // The start. The first time, the trip waits here before it leaves ("leave in half an hour");
+                // a loop or a back-and-forth waits here again each time it comes back round.
                 switch loopMode {
                 case .once: places = []
                 case .loop: places = [length]
                 case .pingPong: places = [cycle]
                 }
+                // A one-way trip has only the one lap (`expectedLapTime` samples others for its average).
+                if lap == 0 || loopMode == .once { places.insert(0, at: 0) }
             } else if loopMode == .once, waypoint.distance >= length - 0.5 {
                 places = []   // the destination: the trip stays there anyway
             }
@@ -244,7 +247,9 @@ public struct TripPlanner: Sendable, Equatable {
     public func expectedLapTime(seed: UInt64 = 0x5EED, samples: Int = 8) -> TimeInterval {
         guard samples > 0, path.length > 0 else { return 0 }
         var total = 0.0
-        for lap in 0..<samples {
+        // A loop's first lap has the one-off wait before leaving; a lap's time is the ones after it.
+        let first = loopMode == .once ? 0 : 1
+        for lap in first..<(first + samples) {
             total += TripTiming.time(plan: lapPlan(lap: lap, seed: seed), from: 0, speed: 0,
                                      settings: settings, firstStop: 0)
         }

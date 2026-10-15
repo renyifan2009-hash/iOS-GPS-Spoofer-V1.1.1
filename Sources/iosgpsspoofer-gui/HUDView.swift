@@ -293,7 +293,7 @@ struct TripText {
         case .giveWay: return "Yield"
         case .crossing: return "Crosswalk"
         case .waypoint(let index):
-            if index == 0 { return "At the start" }
+            if index == 0 { return "Leaving in" }
             if index == waypointCount - 1 { return "At the destination" }
             return "At stop \(index)"
         case .destination: return "Arrived"

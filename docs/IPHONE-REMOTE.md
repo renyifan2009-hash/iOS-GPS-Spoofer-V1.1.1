@@ -43,16 +43,24 @@ No jailbreak, private entitlement, or system modification is used or needed.
   animated first-run introduction. Liquid Glass design on iOS 26 and later;
   it still runs on iOS 17.
 - **Joystick**: a thumb pad that steers the Mac's location at walking, cycling
-  or driving pace (or a custom top speed up to 120 km/h). Up on the pad can
+  or driving pace (or a custom top speed up to 75 mph / 120 km/h, in your
+  region's unit). Up on the pad can
   mean north or up on the screen as the map is turned. VoiceOver gets
   Move north/east/south/west actions instead of dragging.
-- **Route builder**: tap stops on the map, drag to reorder, set a wait at any
-  stop (30 seconds to 30 minutes), reverse the route, choose walking or
-  driving, once / loop / there and back, follow roads, rush-hour slowdowns
-  and a top speed, then **Drive Route**. Routes can be saved by name or picked
-  from the last few driven. They live on the iPhone only.
-- **While a route runs**: how far along it is, the current speed, **Pause**,
-  **Resume** and **Stop**.
+- **Trip planner**: tap the start, any rest stops and the destination on the
+  map. **Leave** sets how long to wait at the start before setting off ("leave
+  in 30 min"). **Stops** lets you drag to reorder, reverse the trip, and tap a
+  stop's time to type how long to rest there: "45", "20 min", "1h 15m",
+  "1:30" or "half an hour" (a number on its own is minutes, up to 24 hours),
+  or tap a quick pick. Pins on the map show each wait. Choose walking or
+  driving, once / loop / there and back, follow roads, rush-hour slowdowns and
+  a top speed (in mph or km/h by region), then **Drive Route**. Routes can be
+  saved by name or picked from the last few driven. They live on the iPhone
+  only.
+- **While a route runs**: how far along it is, the current speed, or why it
+  is standing still ("Leaving in 29:41", "Resting at stop 2 · 12:03 left",
+  "Red light · 0:26"), with **Pause**, **Resume** and **Stop**. Pausing freezes
+  a wait's countdown too.
 - **Stop after**: a timer (15 minutes up to 4 hours) that puts the real
   location back by itself, set from the iPhone.
 - **A newer-release notice**: AnyWhere doesn't update itself, so at most
@@ -195,9 +203,22 @@ GET  /info        → {"serverID": "…", "name": "MacBook Air", "version": 1}
 
 While a route or the joystick is running, `/status` also has `activity`
 (`hold`, `planning`, `route` or `joystick`), `speed` (m/s), `heading`
-(degrees), `routeProgress` (0 to 1), `routePaused` and `autoStopAt` (when the
-stop-after timer fires, in seconds since 1970). These are all optional: a Mac
-from before they existed leaves them out, and the iPhone app copes.
+(degrees), `routeProgress` (0 to 1), `routePaused`, `autoStopAt` (when the
+stop-after timer fires, in seconds since 1970) and, while a route stands still,
+`routeWait`: `{"reason": "stop", "stop": 0, "remaining": 1781}`. `reason` is
+`stop` (one of your stops; `stop` counts the start as 0), `light`, `sign`,
+`yield`, `crossing`, `break`, `turnaround` or `arrived`; `remaining` is seconds
+left (none when arrived). These are all optional: a Mac from before they
+existed leaves them out, and the iPhone app copes. The headless
+`iosgpsspoof serve` doesn't send `routeWait` yet; its routes still wait,
+with realistic trips on or off.
+
+**Waits.** A waypoint's `wait` is seconds to stand still there, up to 86,400 (a
+day); longer is a 400. A wait on the **first** waypoint means "leave after":
+the route holds the start for that long before it sets off (a loop or a
+there-and-back also waits there each time it comes back round). A wait on the
+last waypoint of a one-way route does nothing, since the route stays there.
+The Mac honours waits whether or not "Drive like a real person" is on.
 
 **The joystick is a dead-man switch.** The iPhone keeps sending `/joystick`
 about three times a second while the thumb is down. If nothing arrives for
@@ -209,8 +230,8 @@ engine, so on the classic engine it answers 409 with the reason.
 
 `POST /route` plans the legs on the Mac (it can take a while with roads on; the
 status says `planning`) and returns as soon as the route is accepted. A bad
-route (fewer than two points, a point off the planet, a negative wait) is a
-400. A Mac from before routes existed answers 501, and the iPhone app says to
+route (fewer than two points, a point off the planet, a negative wait or one
+longer than a day) is a 400. A Mac from before routes existed answers 501, and the iPhone app says to
 update the Mac app. Errors are a non-2xx status with `{"error": "message"}`: 400 bad
 input, 401 not paired, 403 wrong code, 409 can't do that now (no iPhone,
 still stopping), 429 too many wrong codes.

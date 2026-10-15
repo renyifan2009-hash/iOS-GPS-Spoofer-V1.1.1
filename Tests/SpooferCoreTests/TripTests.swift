@@ -351,7 +351,8 @@ final class LoopStopTests: XCTestCase {
             }
         }
         XCTAssertEqual(playback.lap, 2)
-        XCTAssertEqual(waitedAtStart, 40, accuracy: 2)       // 20 s at the end of each of two laps
+        // 20 s before leaving, then 20 s at the end of each of two laps.
+        XCTAssertEqual(waitedAtStart, 60, accuracy: 2)
     }
 
     func testGuessesOnlyWithoutMapData() {

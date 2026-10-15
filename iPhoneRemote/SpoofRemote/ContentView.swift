@@ -274,7 +274,7 @@ struct ContentView: View {
                 if routeMode {
                     ForEach(Array(route.stops.enumerated()), id: \.element.id) { index, stop in
                         Annotation("Stop \(index + 1)", coordinate: stop.coordinate, anchor: .center) {
-                            RouteStopPin(number: index + 1)
+                            RouteStopPin(number: index + 1, wait: route.effectiveWait(at: index))
                         }
                         .annotationTitles(.hidden)
                     }

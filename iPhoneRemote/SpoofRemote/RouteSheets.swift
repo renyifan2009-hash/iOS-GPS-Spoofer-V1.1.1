@@ -9,8 +9,8 @@ struct RouteStopsSheet: View {
     @Bindable var route: RouteDraft
     @Environment(\.dismiss) private var dismiss
 
-    /// The waits to pick from, seconds.
-    private let waits: [Double] = [0, 30, 60, 120, 300, 600, 1800]
+    /// The stop whose wait is being set.
+    @State private var editing: RouteDraft.Stop?
 
     var body: some View {
         NavigationStack {
@@ -26,7 +26,8 @@ struct RouteStopsSheet: View {
                         .onMove { route.move(from: $0, to: $1) }
                         .onDelete { route.remove(at: $0) }
                     } footer: {
-                        Text("Drag to reorder. A wait makes the route stop there, like a red light or a visit.")
+                        Text("Drag to reorder. Tap a time to choose how long to stop there, like a rest or a visit. "
+                             + "At the start, it's how long to wait before leaving.")
                     }
                     if route.stops.count >= 2 {
                         Section {
@@ -48,6 +49,15 @@ struct RouteStopsSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .sheet(item: $editing) { stop in
+            let index = route.stops.firstIndex { $0.id == stop.id } ?? 0
+            WaitEditorSheet(title: index == 0 ? "Leave after" : "Stop \(index + 1)",
+                            prompt: index == 0 ? "How long to wait at the start before leaving."
+                                               : "How long to stop here before carrying on.",
+                            initial: stop.wait, zeroLabel: index == 0 ? "Leave now" : "No stop") { seconds in
+                withAnimation(Brand.snappy) { route.setWait(seconds, for: stop.id) }
+            }
+        }
     }
 
     private func row(index: Int, stop: RouteDraft.Stop) -> some View {
@@ -58,23 +68,38 @@ struct RouteStopsSheet: View {
                 Text(String(format: "%.5f, %.5f", stop.latitude, stop.longitude))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
+            .layoutPriority(-1)   // the coordinates give way before the time does
             Spacer(minLength: 8)
-            Menu {
-                Picker("Wait here", selection: Binding(get: { stop.wait }, set: { route.setWait($0, for: stop.id) })) {
-                    ForEach(waits, id: \.self) { seconds in
-                        Text(seconds == 0 ? "Don't wait" : RouteText.wait(seconds)).tag(seconds)
-                    }
+            if route.waitApplies(at: index) {
+                Button {
+                    editing = stop
+                } label: {
+                    Label(waitLabel(index: index, stop: stop),
+                          systemImage: stop.wait > 0 ? (index == 0 ? "clock.fill" : "pause.circle.fill")
+                                                     : (index == 0 ? "clock" : "pause.circle"))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(stop.wait > 0 ? Brand.indigo : Color.secondary)
+                        .labelStyle(.titleAndIcon)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .background(Color.primary.opacity(0.06), in: Capsule())
                 }
-            } label: {
-                Label(stop.wait > 0 ? RouteText.wait(stop.wait) : "No wait", systemImage: stop.wait > 0 ? "pause.circle.fill" : "pause.circle")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(stop.wait > 0 ? Brand.indigo : Color.secondary)
+                .buttonStyle(.borderless)
+                .accessibilityLabel(index == 0 ? "Leave" : "Stop at stop \(index + 1)")
+                .accessibilityValue(stop.wait > 0 ? RouteText.wait(stop.wait) : (index == 0 ? "now" : "no stop"))
+                .accessibilityHint("Choose how long")
             }
-            .accessibilityLabel("Wait at stop \(index + 1)")
-            .accessibilityValue(stop.wait > 0 ? RouteText.wait(stop.wait) : "no wait")
         }
-        .accessibilityElement(children: .combine)
+    }
+
+    private func waitLabel(index: Int, stop: RouteDraft.Stop) -> String {
+        if index == 0 { return stop.wait > 0 ? "Leave in \(RouteText.wait(stop.wait))" : "Leave now" }
+        return stop.wait > 0 ? RouteText.wait(stop.wait) : "No stop"
     }
 
     private func label(for index: Int) -> String {
@@ -185,7 +210,7 @@ struct RouteHistorySheet: View {
                 .background(Brand.indigo.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(saved.name).font(.body.weight(.semibold)).lineLimit(1)
-                Text("\(saved.stops.count) stops · \(RouteText.distance(saved.straightLineMeters))\(saved.repeats == "once" ? "" : " · \(saved.repeats == "loop" ? "loop" : "there & back")")")
+                Text(detail(saved))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -195,5 +220,19 @@ struct RouteHistorySheet: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityHint("Puts this route on the map")
+    }
+
+    /// "3 stops · 4.2 mi · leaves after 30 min · 1 rest · loop"
+    private func detail(_ saved: SavedRoute) -> String {
+        var parts = ["\(saved.stops.count) stops", RouteText.distance(saved.straightLineMeters)]
+        let once = saved.repeats == "once"
+        let applies = saved.stops.indices.filter { !once || $0 < saved.stops.count - 1 }
+        if let first = saved.stops.first, first.wait > 0, applies.contains(0) {
+            parts.append("leaves after \(RouteText.wait(first.wait))")
+        }
+        let rests = applies.dropFirst().filter { saved.stops[$0].wait > 0 }.count
+        if rests > 0 { parts.append("\(rests) rest\(rests == 1 ? "" : "s")") }
+        if !once { parts.append(saved.repeats == "loop" ? "loop" : "there & back") }
+        return parts.joined(separator: " · ")
     }
 }

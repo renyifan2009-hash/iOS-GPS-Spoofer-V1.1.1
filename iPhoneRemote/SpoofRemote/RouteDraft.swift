@@ -33,8 +33,8 @@ final class RouteDraft {
     var stops: [Stop] = []
     var driving = true
     var followRoads = true
-    /// Top speed in km/h for the UI; converted to m/s for the request.
-    var speedKmh: Double = 50
+    /// Top speed in km/h (shown in mph where that's the custom); converted to m/s for the request.
+    var speedKmh: Double = SpeedUnits.current.defaultKmh(driving: true)
     var repeats: Repeat = .once
     var timeOfDayTraffic = false
     /// The name it was saved or loaded under, if any.
@@ -73,13 +73,41 @@ final class RouteDraft {
         stops[index].wait = seconds.isFinite ? min(max(seconds, 0), Self.maxWait) : 0
     }
 
+    /// How long to wait at the start before leaving (a wait at the first stop).
+    var startWait: Double { stops.first?.wait ?? 0 }
+
+    func setStartWait(_ seconds: Double) {
+        if let id = stops.first?.id { setWait(seconds, for: id) }
+    }
+
+    /// A wait counts at every stop except the destination of a one-way route, which stays there anyway.
+    /// At the start it means "leave after this long".
+    func waitApplies(at index: Int) -> Bool {
+        repeats != .once || index < stops.count - 1
+    }
+
+    /// The wait that will actually happen at a stop.
+    func effectiveWait(at index: Int) -> Double {
+        stops.indices.contains(index) && waitApplies(at: index) ? stops[index].wait : 0
+    }
+
+    /// Stops after the start where the route rests.
+    var restCount: Int {
+        stops.indices.dropFirst().filter { effectiveWait(at: $0) > 0 }.count
+    }
+
+    /// All the waiting in one pass, the start's included.
+    var totalWait: Double {
+        stops.indices.reduce(0) { $0 + effectiveWait(at: $1) }
+    }
+
     func clear() {
         stops.removeAll()
         name = nil
     }
 
-    /// The longest wait at one stop: four hours.
-    static let maxWait: Double = 4 * 3600
+    /// The longest wait at one stop: a day.
+    static let maxWait = WaitDuration.maxSeconds
 
     // MARK: - Summary
 
@@ -103,7 +131,7 @@ final class RouteDraft {
     var roughSeconds: Double? {
         let speed = max(0.1, speedKmh / 3.6)
         guard straightLineMeters > 0 else { return nil }
-        return straightLineMeters / speed + stops.reduce(0) { $0 + $1.wait }
+        return straightLineMeters / speed + totalWait
     }
 
     // MARK: - Saved routes
@@ -130,8 +158,10 @@ final class RouteDraft {
     func request(name: String? = nil) -> RouteRequest? {
         guard canDrive else { return nil }
         return RouteRequest(
-            waypoints: stops.map { .init(latitude: $0.latitude, longitude: $0.longitude,
-                                         wait: $0.wait > 0 ? $0.wait : nil) },
+            waypoints: stops.indices.map { i in
+                let wait = effectiveWait(at: i)
+                return .init(latitude: stops[i].latitude, longitude: stops[i].longitude, wait: wait > 0 ? wait : nil)
+            },
             followRoads: followRoads,
             travelMode: driving ? "driving" : "walking",
             loopMode: repeats.rawValue,

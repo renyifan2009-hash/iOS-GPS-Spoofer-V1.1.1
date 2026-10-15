@@ -1,4 +1,5 @@
 import Foundation
+import PhoneOnlyCore
 import Observation
 import SpooferCore
 
@@ -97,7 +98,7 @@ final class Preferences {
     private init() {
         let d = UserDefaults.standard
         units = d.string(forKey: Key.units).flatMap(UnitSystem.init(rawValue:))
-            ?? (Locale.current.measurementSystem == .us ? .imperial : .metric)
+            ?? (SpeedUnits.current.imperial ? .imperial : .metric)
         enginePreference = d.string(forKey: Key.engine).flatMap(EnginePreference.init(rawValue:)) ?? .automatic
         transport = d.string(forKey: Key.transport).flatMap(Transport.init(rawValue:)) ?? .automatic
         pymobiledevice3Path = d.string(forKey: Key.toolPath) ?? ""
@@ -139,7 +140,7 @@ final class Preferences {
                     Key.tripTurns, Key.tripLimits, Key.tripBreaks, Key.autoStop, Key.tripTraffic] {
             UserDefaults.standard.removeObject(forKey: key)
         }
-        units = Locale.current.measurementSystem == .us ? .imperial : .metric
+        units = SpeedUnits.current.imperial ? .imperial : .metric
         enginePreference = .automatic
         transport = .automatic
         pymobiledevice3Path = ""

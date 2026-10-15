@@ -191,7 +191,7 @@ extension AppModel {
             if s.canStream {
                 let started = RoutePlayback(path: path, loopMode: loop)
                 playback = started
-                trip = prefs.realisticTrips ? makeTrip(for: started) : nil
+                trip = usesTripEngine ? makeTrip(for: started) : nil
                 tripETA = nil
                 tripStatus = .moving
                 drift = GPSDrift(size: prefs.positionJitter)
@@ -203,7 +203,7 @@ extension AppModel {
                 do {
                     let started = RoutePlayback(path: path, loopMode: loop)
                     let track: [RoutePoint]
-                    if prefs.realisticTrips {
+                    if usesTripEngine {
                         // The same trip, baked into the timed track pymobiledevice3 replays.
                         track = try RouteBuilder.timedTrack(
                             path: started.path, loopMode: loop, trip: makeTrip(for: started),
@@ -213,7 +213,7 @@ extension AppModel {
                     }
                     let url = try RouteBuilder.writeGPX(track, name: routeName ?? RouteBuilder.defaultTrackName)
                     playback = started
-                    replayTrack = prefs.realisticTrips ? track : nil
+                    replayTrack = usesTripEngine ? track : nil
                     replaySpeed = speed
                     replayStartedAt = nil
                     activity = .routing
@@ -233,7 +233,7 @@ extension AppModel {
         if session.canStream, let old = playback {
             let updated = RoutePlayback(path: routePath, loopMode: loopMode, travelled: old.travelled)
             playback = updated
-            if prefs.realisticTrips { trip = makeTrip(for: updated, speed: trip?.speed ?? deviceSpeed) }
+            if usesTripEngine { trip = makeTrip(for: updated, speed: trip?.speed ?? deviceSpeed) }
             tripETA = nil
             playbackSignature = routeSignature
             announcedArrival = false

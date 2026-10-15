@@ -1,3 +1,4 @@
+import PhoneOnlyCore
 import Foundation
 import SpooferCore
 
@@ -37,9 +38,19 @@ extension AppModel {
     var roadDataReady: Bool { roadDataState == .ready && roadDataPathKey == Self.pathKey(playPath) }
 
     /// The settings for the route being played or edited.
+    /// A route runs on the trip engine when "Drive like a real person" is on, or when one of its stops has a
+    /// wait (only the trip engine stops and waits). With the setting off it keeps to the plain speed:
+    /// no lights, signs, turns, limits or breaks, just the waits you set.
+    var usesTripEngine: Bool { prefs.realisticTrips || waypoints.contains { $0.wait > 0 } }
+
     func tripSettings(paceFactor: Double = 1) -> TripSettings {
         let top = max(0.1, effectiveRouteSpeed)
         let profile = MotionProfile.forSpeed(top)
+        guard prefs.realisticTrips else {
+            return TripSettings(topSpeed: top, profile: profile, trafficLights: false, stopSigns: false,
+                                slowForTurns: false, speedLimits: false, breaks: false,
+                                speedVariation: prefs.speedVariation, paceFactor: paceFactor)
+        }
         // Time-of-day traffic slows driving only (not walking or running), and
         // is re-read from the clock each time settings are rebuilt.
         let traffic = ((remoteTrafficOverride ?? prefs.tripTimeOfDayTraffic) && profile.kind == .drive) ? Congestion.factor(at: Date()) : 1
@@ -103,7 +114,7 @@ extension AppModel {
 
     func setWait(_ seconds: TimeInterval, forWaypoint id: UUID) {
         guard let i = waypoints.firstIndex(where: { $0.id == id }) else { return }
-        waypoints[i].wait = max(0, seconds)
+        waypoints[i].wait = seconds.isFinite ? min(max(0, seconds), WaitDuration.maxSeconds) : 0
     }
 
     /// Only the waits changed: save them, and tell a playing trip.
@@ -265,7 +276,7 @@ extension AppModel {
 
     /// The expected time for one pass (one lap for loops), with the stops.
     var expectedTripPassTime: TimeInterval? {
-        guard prefs.realisticTrips, routeGeometry.count >= 2, effectiveRouteSpeed > 0 else { return nil }
+        guard usesTripEngine, routeGeometry.count >= 2, effectiveRouteSpeed > 0 else { return nil }
         if pacing == .time { return routeDuration > 0 ? routeDuration : nil }
         let key = "\(routeSignature)|\(roadDataPathKey ?? "-")|\(waypoints.map(\.wait))|\(tripSettings())"
         if let cache = lapTimeCache, cache.key == key { return cache.value }

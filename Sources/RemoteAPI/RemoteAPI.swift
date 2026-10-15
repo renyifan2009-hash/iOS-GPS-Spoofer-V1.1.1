@@ -141,7 +141,7 @@ public struct RouteRequest: Codable, Sendable, Equatable {
         public var isValid: Bool {
             latitude.isFinite && longitude.isFinite
                 && (-90...90).contains(latitude) && (-180...180).contains(longitude)
-                && (wait.map { $0.isFinite && $0 >= 0 } ?? true)
+                && (wait.map { $0.isFinite && $0 >= 0 && $0 <= RemoteAPI.maxWaitSeconds } ?? true)
         }
     }
 
@@ -253,12 +253,15 @@ public struct RemoteStatus: Codable, Sendable, Equatable {
     public var routePaused: Bool?
     /// When Auto-stop will put the real location back (seconds since 1970); nil when it is off.
     public var autoStopAt: Double?
+    /// While a route is stopped: why, at which of your stops, and for how much longer. nil while moving.
+    public var routeWait: RouteWait?
 
     public init(connected: Bool, spoofing: Bool, latitude: Double? = nil, longitude: Double? = nil,
                 placeName: String? = nil, phase: SpoofPhase, detail: String? = nil,
                 device: DeviceSummary? = nil, engine: String? = nil, serverName: String,
                 activity: String? = nil, speed: Double? = nil, heading: Double? = nil,
-                routeProgress: Double? = nil, routePaused: Bool? = nil, autoStopAt: Double? = nil) {
+                routeProgress: Double? = nil, routePaused: Bool? = nil, autoStopAt: Double? = nil,
+                routeWait: RouteWait? = nil) {
         self.connected = connected
         self.spoofing = spoofing
         self.latitude = latitude
@@ -275,6 +278,23 @@ public struct RemoteStatus: Codable, Sendable, Equatable {
         self.routeProgress = routeProgress
         self.routePaused = routePaused
         self.autoStopAt = autoStopAt
+        self.routeWait = routeWait
+    }
+}
+
+/// Why a route is standing still, so the iPhone can say "Leaving in 29:41" or "Resting at stop 2".
+public struct RouteWait: Codable, Sendable, Equatable {
+    /// "stop" (one of your stops), "light", "sign", "yield", "crossing", "break", "turnaround" or "arrived".
+    public var reason: String
+    /// Which of your stops, counting the start as 0, when `reason` is "stop".
+    public var stop: Int?
+    /// Seconds left. nil when it stays until you stop it (arrived).
+    public var remaining: Double?
+
+    public init(reason: String, stop: Int? = nil, remaining: Double? = nil) {
+        self.reason = reason
+        self.stop = stop
+        self.remaining = remaining
     }
 }
 
@@ -313,6 +333,8 @@ extension RemoteAPI {
     public static let joystickTimeout: TimeInterval = 1.5
     /// The longest an Auto-stop may be: a day.
     public static let maxAutoStopMinutes = 24 * 60
+    /// The longest wait at one stop of a route: a day (the same as `WaitDuration.maxSeconds` on the iPhone).
+    public static let maxWaitSeconds: Double = 24 * 3600
 }
 
 public struct PauseRequest: Codable, Sendable, Equatable {

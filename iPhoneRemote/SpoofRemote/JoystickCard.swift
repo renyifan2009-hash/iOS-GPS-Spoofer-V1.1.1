@@ -11,7 +11,7 @@ import SwiftUI
 final class JoystickModel {
     /// The speed at full deflection. nil means "Custom" (`customKmh`).
     var preset: JoystickPreset? = .walk
-    var customKmh: Double = 25
+    var customKmh: Double = SpeedUnits.current.imperial ? SpeedUnits.current.kmh(fromDisplay: 15) : 25
     /// Up on the pad is "up on the screen" (turns with the map) instead of north.
     var relativeToMap = false
     /// The map keeps the simulated location in view while steering.
@@ -263,8 +263,11 @@ struct JoystickCardView: View {
             }
             if joystick.preset == nil {
                 HStack(spacing: 12) {
-                    Slider(value: $joystick.customKmh, in: 1...120, step: 1)
+                    Slider(value: Binding(get: { SpeedUnits.current.display(kmh: joystick.customKmh) },
+                                          set: { joystick.customKmh = SpeedUnits.current.kmh(fromDisplay: $0) }),
+                           in: SpeedUnits.current.joystickRange, step: 1)
                         .accessibilityLabel("Top speed")
+                        .accessibilityValue(customSpeedText)
                     Text(customSpeedText)
                         .font(.system(.subheadline, design: .rounded).monospacedDigit())
                         .foregroundStyle(.secondary)

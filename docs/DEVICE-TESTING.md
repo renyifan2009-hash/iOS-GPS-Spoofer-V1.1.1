@@ -80,6 +80,8 @@ not run against a real iPhone, a real network or real roads.
 | F7 | Set the timer to 15 minutes (or 1 minute through Custom on the Mac to save time), start a hold and leave it. | A countdown shows on the card. At zero the real location comes back and the app says so. | |
 | F8 | Save a route, kill the app, open it, **Saved**. | The route is there with its name and stops, and one tap puts it back on the map. | |
 | F9 | Install this build of the iPhone app against a Mac still on 2.3.0 or 2.4.0, then try the joystick. | A plain "update the Mac app" message, not an error code. | |
+| F10 | **Route**: tap a start, a stop and a destination. **Leave** ▸ type `2`. **Stops** ▸ stop 2 ▸ type `1` (1 minute). **Drive Route**. | The card says "Leaving in 1:59" and counts down; Maps stays at the start for 2 minutes, then drives, rests at stop 2 for a minute ("Resting at stop 2 · 0:59 left"), then carries on. Speeds show mph if the iPhone's region is the US or UK. | |
+| F11 | During F10's wait, tap **Pause** for 20 seconds, then **Resume**. | The countdown stops while paused ("Paused · leaves in …") and carries on from the same time. | |
 
 ## What to send back
 
