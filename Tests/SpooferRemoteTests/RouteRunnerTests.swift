@@ -75,6 +75,21 @@ final class RouteRunnerTests: XCTestCase {
         }
     }
 
+    func testALoopWaitsBeforeLeavingOnlyOnceAndShowsNoProgressMeanwhile() throws {
+        var request = straightRequest(realistic: true, loop: "loop")
+        request.waypoints[0].wait = 20
+        let runner = try RouteRunner.build(from: request)
+        let start = runner.start
+        XCTAssertEqual(runner.leaves, 20, accuracy: 1)
+        XCTAssertEqual(runner.progress(at: 10), 0, "parked at the start: no progress yet")
+        XCTAssertLessThan(runner.position(at: 10).point.distance(to: start), 1)
+        // Into the second lap: having waited at the start as it came round, it sets straight off again.
+        let secondLap = runner.duration + 3
+        XCTAssertGreaterThan(runner.position(at: secondLap).point.distance(to: start), 1,
+                             "the wait before leaving isn't repeated every lap")
+        XCTAssertGreaterThan(runner.progress(at: secondLap), 0)
+    }
+
     func testLoopWrapsAndNeverFinishes() throws {
         let runner = try RouteRunner.build(from: straightRequest(realistic: false, speed: 10, loop: "loop"))
         XCTAssertTrue(runner.wraps)

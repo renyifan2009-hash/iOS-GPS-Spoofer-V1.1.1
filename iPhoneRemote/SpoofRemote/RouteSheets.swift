@@ -8,6 +8,7 @@ import SwiftUI
 struct RouteStopsSheet: View {
     @Bindable var route: RouteDraft
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// The stop whose wait is being set.
     @State private var editing: RouteDraft.Stop?
@@ -54,7 +55,7 @@ struct RouteStopsSheet: View {
             WaitEditorSheet(title: index == 0 ? "Leave after" : "Stop \(index + 1)",
                             prompt: index == 0 ? "How long to wait at the start before leaving."
                                                : "How long to stop here before carrying on.",
-                            initial: stop.wait, zeroLabel: index == 0 ? "Leave now" : "No stop") { seconds in
+                            initial: stop.wait, zeroLabel: index == 0 ? "Leave now" : "No wait") { seconds in
                 withAnimation(Brand.snappy) { route.setWait(seconds, for: stop.id) }
             }
         }
@@ -83,15 +84,17 @@ struct RouteStopsSheet: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(stop.wait > 0 ? Brand.indigo : Color.secondary)
                         .labelStyle(.titleAndIcon)
-                        .lineLimit(1)
-                        .fixedSize()
+                        // One line, so "Leave in 30 min" doesn't break; at the largest text sizes it may wrap
+                        // rather than push the row off the screen.
+                        .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                        .fixedSize(horizontal: !typeSize.isAccessibilitySize, vertical: true)
                         .padding(.vertical, 6)
                         .padding(.horizontal, 10)
                         .background(Color.primary.opacity(0.06), in: Capsule())
                 }
                 .buttonStyle(.borderless)
-                .accessibilityLabel(index == 0 ? "Leave" : "Stop at stop \(index + 1)")
-                .accessibilityValue(stop.wait > 0 ? RouteText.wait(stop.wait) : (index == 0 ? "now" : "no stop"))
+                .accessibilityLabel(index == 0 ? "Leave" : "Wait at stop \(index + 1)")
+                .accessibilityValue(stop.wait > 0 ? RouteText.wait(stop.wait) : (index == 0 ? "now" : "no wait"))
                 .accessibilityHint("Choose how long")
             }
         }
@@ -99,7 +102,7 @@ struct RouteStopsSheet: View {
 
     private func waitLabel(index: Int, stop: RouteDraft.Stop) -> String {
         if index == 0 { return stop.wait > 0 ? "Leave in \(RouteText.wait(stop.wait))" : "Leave now" }
-        return stop.wait > 0 ? RouteText.wait(stop.wait) : "No stop"
+        return stop.wait > 0 ? RouteText.wait(stop.wait) : "No wait"
     }
 
     private func label(for index: Int) -> String {

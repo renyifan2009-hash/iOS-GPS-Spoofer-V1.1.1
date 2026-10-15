@@ -233,7 +233,12 @@ extension AppModel {
         if session.canStream, let old = playback {
             let updated = RoutePlayback(path: routePath, loopMode: loopMode, travelled: old.travelled)
             playback = updated
-            if usesTripEngine { trip = makeTrip(for: updated, speed: trip?.speed ?? deviceSpeed) }
+            if usesTripEngine {
+                var fresh = makeTrip(for: updated, speed: trip?.speed ?? deviceSpeed)
+                // Part-way through waiting at a stop (say, before leaving): don't start that wait over.
+                if let old = trip { fresh.carryOverWait(from: old) }
+                trip = fresh
+            }
             tripETA = nil
             playbackSignature = routeSignature
             announcedArrival = false

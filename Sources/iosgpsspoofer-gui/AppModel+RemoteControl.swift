@@ -1,3 +1,4 @@
+import PhoneOnlyCore
 import Foundation
 import RemoteAPI
 import SpooferCore
@@ -21,7 +22,7 @@ extension AppModel {
         routeName = request.name
         savedRouteID = nil
         waypoints = request.waypoints.map {
-            Waypoint(point: GeoPoint($0.latitude, $0.longitude), wait: $0.wait ?? 0)
+            Waypoint(point: GeoPoint($0.latitude, $0.longitude), wait: WaitDuration.clamp($0.wait ?? 0))
         }
         appendLog("iPhone Remote: a \(request.waypoints.count)-point route\(request.name.map { " “\($0)”" } ?? "").", level: .info)
         remoteRouteTask = Task { [weak self] in

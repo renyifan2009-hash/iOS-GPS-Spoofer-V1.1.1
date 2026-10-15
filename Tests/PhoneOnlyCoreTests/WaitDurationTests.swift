@@ -53,6 +53,21 @@ final class WaitDurationTests: XCTestCase {
         XCTAssertEqual(seconds("none"), 0)
     }
 
+    func testADecimalCommaIsADecimal() {
+        XCTAssertEqual(seconds("0,5 h"), 1800)
+        XCTAssertEqual(seconds("1,5"), 90)            // minutes
+        XCTAssertEqual(seconds("1,5h"), 5400)
+        XCTAssertEqual(seconds("1 h, 15 min"), 4500)  // a comma with a space after it still separates
+        XCTAssertEqual(seconds("1h,15m"), 4500)
+    }
+
+    func testWhatAnEditorStartsWithReadsBackAsTheSameWait() {
+        for value: Double in [0, 1, 45, 59, 60, 61, 90, 300, 1800, 3599, 3600, 3601, 3723, 5400, 7200, 86_399, 86_400]
+            + WaitDuration.presets {
+            XCTAssertEqual(WaitDuration.parse(WaitDuration.format(value)), .wait(value), "\(value) s")
+        }
+    }
+
     func testRoundsToWholeSeconds() {
         XCTAssertEqual(seconds("0.51"), 31)   // 30.6 s
     }
@@ -80,7 +95,8 @@ final class WaitDurationTests: XCTestCase {
         XCTAssertEqual(WaitDuration.format(1800), "30 min")
         XCTAssertEqual(WaitDuration.format(3600), "1 h")
         XCTAssertEqual(WaitDuration.format(5400), "1 h 30 min")
-        XCTAssertEqual(WaitDuration.format(3723), "1 h 2 min")     // seconds drop off past an hour
+        XCTAssertEqual(WaitDuration.format(3723), "1 h 2 min 3 sec")
+        XCTAssertEqual(WaitDuration.format(3605), "1 h 5 sec")
         XCTAssertEqual(WaitDuration.format(.nan), "No wait")
         XCTAssertEqual(WaitDuration.format(-5), "No wait")
         XCTAssertEqual(WaitDuration.format(1e300), "24 h")         // never a crash on a silly number
@@ -206,6 +222,11 @@ final class RouteWaitTextTests: XCTestCase {
         XCTAssertEqual(RouteWaitText.describe(reason: "stop", stop: 0, remaining: 1781, paused: true), "Paused · leaves in 29:41")
         XCTAssertEqual(RouteWaitText.describe(reason: "stop", stop: 2, remaining: 60, paused: true), "Paused · 1:00 left at stop 3")
         XCTAssertNil(RouteWaitText.describe(reason: "light", stop: nil, remaining: 20, paused: true))
+    }
+
+    func testAStopNumberFromTheNetworkIsChecked() {
+        XCTAssertEqual(RouteWaitText.describe(reason: "stop", stop: Int.max, remaining: 60), "Resting · 1:00 left")
+        XCTAssertEqual(RouteWaitText.describe(reason: "stop", stop: -1, remaining: 60), "Resting · 1:00 left")
     }
 
     func testASillyTimeLeftNeverCrashes() {

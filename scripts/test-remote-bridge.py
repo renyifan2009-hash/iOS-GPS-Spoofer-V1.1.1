@@ -73,6 +73,7 @@ class MacApp:
         self.proc = subprocess.Popen([EXE, "-remoteControlEnabled", "YES", *extra_args], env=env,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         self.code = {}
+        self.stats = ""
         threading.Thread(target=self._read_output, daemon=True).start()
 
     def _read_output(self):
@@ -80,6 +81,8 @@ class MacApp:
             m = re.match(r"PAIRING-CODE (\d{6})", line)
             if m:
                 self.code["value"] = m.group(1)
+            if line.startswith("SNAPSHOT-STATS"):
+                self.stats = line.strip()   # every 2 s: what the app is doing, roadData=off when realistic trips are off
 
     def sets(self):
         """Every location the phone was told to take, in order, as (lat, lon)."""
@@ -127,8 +130,8 @@ def hold(app, token, place=(37.3349, -122.0090)):
     return wait_for(lambda: (lambda s: s if s.get("phase") == "active" else None)(status_of(token)))
 
 
-def check_waits_before_leaving(app, token, label):
-    """A route whose first stop waits 4 s: it sits at the start, says so, then goes."""
+def check_waits_before_leaving(app, token, label, realistic):
+    """A route whose first stop waits 4 s: it sits at the start, says so for about 4 s, then goes."""
     start = (37.3349, -122.0090)
     route = {"waypoints": [{"latitude": start[0], "longitude": start[1], "wait": 4},
                            {"latitude": 37.3349, "longitude": -122.0050}],
@@ -138,19 +141,28 @@ def check_waits_before_leaving(app, token, label):
     check(status == 200, "%s: a route that waits before leaving is accepted (%s)" % (label, status))
     sent_at = time.time()
     first = len(app.sets())
-    waiting = wait_for(lambda: (lambda s: s if (s.get("routeWait") or {}).get("reason") == "stop" else None)(status_of(token)), 10)
+    waiting = wait_for(lambda: (lambda s: s if (s.get("routeWait") or {}).get("reason") == "stop" else None)(status_of(token)), 10, 0.1)
+    seen_at = time.time()
     wait_info = (waiting or {}).get("routeWait") or {}
+    check((waiting or {}).get("apiVersion") == 2, "%s: the Mac says it speaks protocol 2 (%s)" % (label, (waiting or {}).get("apiVersion")))
     check(wait_info.get("stop") == 0, "%s: the Mac says it is waiting at the start (%s)" % (label, wait_info))
     left = wait_info.get("remaining")
     check(left is not None and 0 < left <= 4.01, "%s: with the time left (%s s)" % (label, left))
-    time.sleep(2.0)
+    # Which engine settings really ran: roadData=off means realistic trips were off.
+    wait_for(lambda: "roadData=" in app.stats, 5)
+    is_off = "roadData=off" in app.stats
+    check(is_off == (not realistic), "%s: realistic trips really were %s (%s)"
+          % (label, "on" if realistic else "off", re.search(r"roadData=\S+", app.stats).group(0) if "roadData=" in app.stats else "no stats"))
+    time.sleep(1.0)
     during = app.sets()[first:]
     far = [p for p in during if abs(p[1] - start[1]) > 0.0001]
     check(not far, "%s: the phone stays at the start while it waits (%d of %d points moved)" % (label, len(far), len(during)))
+    gone = wait_for(lambda: (lambda s: s if (s.get("routeWait") or {}).get("reason") != "stop" else None)(status_of(token)), 10, 0.1)
+    waited = time.time() - seen_at
+    check(bool(gone) and abs(waited - (left or 0)) < 1.5,
+          "%s: the wait lasts as long as it said (%.1f s for %s s)" % (label, waited, left))
     moved = wait_for(lambda: any(p[1] > start[1] + 0.0002 for p in app.sets()[first:]), 20, 0.1)
-    went = time.time() - sent_at
     check(bool(moved), "%s: then it sets off east" % label)
-    check(went >= 3.5, "%s: and not before the wait is over (%.1f s after sending)" % (label, went))
     st = status_of(token)
     check((st.get("routeWait") or {}).get("reason") != "stop", "%s: and the wait is no longer reported (%s)" % (label, st.get("routeWait")))
 
@@ -231,7 +243,7 @@ def main():
         check(c is not None and b is not None and c > b, "and it carries on (%s -> %s)" % (b, c))
 
         print("Wait before leaving (realistic trips on):")
-        check_waits_before_leaving(app, token, "realistic on")
+        check_waits_before_leaving(app, token, "realistic on", True)
 
         print("Auto-stop:")
         status, st = call("POST", "/autostop", {"minutes": 5}, token)
@@ -256,7 +268,7 @@ def main():
     try:
         token = plain.pair()
         check(bool(hold(plain, token)), "the session comes up")
-        check_waits_before_leaving(plain, token, "realistic off")
+        check_waits_before_leaving(plain, token, "realistic off", False)
     finally:
         plain.quit()
 

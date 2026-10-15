@@ -208,8 +208,11 @@ stop-after timer fires, in seconds since 1970) and, while a route stands still,
 `routeWait`: `{"reason": "stop", "stop": 0, "remaining": 1781}`. `reason` is
 `stop` (one of your stops; `stop` counts the start as 0), `light`, `sign`,
 `yield`, `crossing`, `break`, `turnaround` or `arrived`; `remaining` is seconds
-left (none when arrived). These are all optional: a Mac from before they
-existed leaves them out, and the iPhone app copes. The headless
+left (none when arrived). `apiVersion` is the protocol version the Mac speaks
+(2 since waits before leaving; a Mac before that leaves it out). These are all
+optional: a Mac from before they existed leaves them out, and the iPhone app
+copes. If you set a wait before leaving and the Mac is older than protocol 2,
+the iPhone says so under **Leave**, because that Mac drives off right away. The headless
 `iosgpsspoof serve` doesn't send `routeWait` yet; its routes still wait,
 with realistic trips on or off.
 
@@ -219,6 +222,10 @@ the route holds the start for that long before it sets off (a loop or a
 there-and-back also waits there each time it comes back round). A wait on the
 last waypoint of a one-way route does nothing, since the route stays there.
 The Mac honours waits whether or not "Drive like a real person" is on.
+Changing a stop's wait while the trip is waiting there counts from when it
+stopped: shorten it below what has passed (or remove it) and it leaves now. An
+edit to the route itself, applied while it waits, keeps the time already
+waited.
 
 **The joystick is a dead-man switch.** The iPhone keeps sending `/joystick`
 about three times a second while the thumb is down. If nothing arrives for

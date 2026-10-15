@@ -22,7 +22,8 @@ import Foundation
 ///
 /// Errors come back as a non-2xx status with an `APIError` body.
 public enum RemoteAPI {
-    public static let version = 1
+    /// 2: a wait on a route's first stop holds the start before leaving, and `/status` can carry `routeWait`.
+    public static let version = 2
     /// Bonjour service type the Mac advertises and the iPhone browses for.
     public static let serviceType = "_iosgpsspoof._tcp"
     public static let defaultPort: UInt16 = 47_653
@@ -255,13 +256,15 @@ public struct RemoteStatus: Codable, Sendable, Equatable {
     public var autoStopAt: Double?
     /// While a route is stopped: why, at which of your stops, and for how much longer. nil while moving.
     public var routeWait: RouteWait?
+    /// The protocol version the Mac speaks (`RemoteAPI.version`). nil from a Mac before version 2.
+    public var apiVersion: Int?
 
     public init(connected: Bool, spoofing: Bool, latitude: Double? = nil, longitude: Double? = nil,
                 placeName: String? = nil, phase: SpoofPhase, detail: String? = nil,
                 device: DeviceSummary? = nil, engine: String? = nil, serverName: String,
                 activity: String? = nil, speed: Double? = nil, heading: Double? = nil,
                 routeProgress: Double? = nil, routePaused: Bool? = nil, autoStopAt: Double? = nil,
-                routeWait: RouteWait? = nil) {
+                routeWait: RouteWait? = nil, apiVersion: Int? = RemoteAPI.version) {
         self.connected = connected
         self.spoofing = spoofing
         self.latitude = latitude
@@ -279,6 +282,7 @@ public struct RemoteStatus: Codable, Sendable, Equatable {
         self.routePaused = routePaused
         self.autoStopAt = autoStopAt
         self.routeWait = routeWait
+        self.apiVersion = apiVersion
     }
 }
 

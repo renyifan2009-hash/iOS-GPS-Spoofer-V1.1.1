@@ -66,8 +66,12 @@ extension AppModel {
     /// Pacing by duration: the time one lap of the planner should take.
     private var targetLapTime: TimeInterval? {
         guard pacing == .time, routeDuration > 0 else { return nil }
-        return loopMode == .pingPong ? routeDuration * 2 : routeDuration
+        // A one-way trip's wait before leaving comes on top of the duration you set for the drive.
+        return (loopMode == .pingPong ? routeDuration * 2 : routeDuration) + departureWait
     }
+
+    /// The wait at the start before a one-way trip leaves (a loop's is a one-off, outside a lap's time).
+    var departureWait: TimeInterval { loopMode == .once ? (waypoints.first?.wait ?? 0) : 0 }
 
     func makeTripPlanner(path: RoutePath, loopMode: LoopMode) -> TripPlanner {
         var planner = TripPlanner(path: path, loopMode: loopMode, settings: tripSettings(),
@@ -114,7 +118,7 @@ extension AppModel {
 
     func setWait(_ seconds: TimeInterval, forWaypoint id: UUID) {
         guard let i = waypoints.firstIndex(where: { $0.id == id }) else { return }
-        waypoints[i].wait = seconds.isFinite ? min(max(0, seconds), WaitDuration.maxSeconds) : 0
+        waypoints[i].wait = WaitDuration.clamp(seconds)
     }
 
     /// Only the waits changed: save them, and tell a playing trip.
@@ -277,7 +281,7 @@ extension AppModel {
     /// The expected time for one pass (one lap for loops), with the stops.
     var expectedTripPassTime: TimeInterval? {
         guard usesTripEngine, routeGeometry.count >= 2, effectiveRouteSpeed > 0 else { return nil }
-        if pacing == .time { return routeDuration > 0 ? routeDuration : nil }
+        if pacing == .time { return routeDuration > 0 ? routeDuration + departureWait : nil }
         let key = "\(routeSignature)|\(roadDataPathKey ?? "-")|\(waypoints.map(\.wait))|\(tripSettings())"
         if let cache = lapTimeCache, cache.key == key { return cache.value }
         let lap = makeTripPlanner(path: playPath, loopMode: loopMode).expectedLapTime()

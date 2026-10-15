@@ -183,7 +183,7 @@ private struct MovementSettings: View {
                 .padding(.leading, 18)
                 .disabled(!prefs.realisticTrips)
                 Text("""
-                    Routes speed up and brake gradually, and wait at the stops you choose. Traffic lights, \
+                    Routes speed up and brake gradually. (They wait at the stops you choose either way.) Traffic lights, \
                     signs, speed bumps and speed limits come from OpenStreetMap. About half the lights are \
                     red, and most waits are under a minute. Your chosen speed becomes the top speed.
                     """)

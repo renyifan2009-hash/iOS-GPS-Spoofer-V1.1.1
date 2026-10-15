@@ -4,8 +4,10 @@ import Foundation
 /// "Red light · 0:26". The Mac sends the reason, which of your stops (the start is 0) and the time left;
 /// the stop number shown counts from 1, like the pins on the map.
 public enum RouteWaitText {
-    public static func describe(reason: String, stop: Int?, remaining: Double?, paused: Bool = false) -> String? {
+    public static func describe(reason: String, stop rawStop: Int?, remaining: Double?, paused: Bool = false) -> String? {
         let clock = remaining.map { WaitDuration.countdown($0) }
+        // The number comes from the network: only a stop a route could have counts (and `+ 1` can't overflow).
+        let stop = rawStop.flatMap { (0..<10_000).contains($0) ? $0 : nil }
         if paused {
             guard reason == "stop" else { return nil }
             if stop == 0 { return clock.map { "Paused · leaves in \($0)" } ?? "Paused before leaving" }

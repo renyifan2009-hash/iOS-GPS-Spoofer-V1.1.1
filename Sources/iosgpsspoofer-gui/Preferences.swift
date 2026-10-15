@@ -114,7 +114,8 @@ final class Preferences {
         defaultRouteSpeed = Self.clamp(d.object(forKey: Key.routeSpeed) as? Double ?? 1.4, 0.3, 70)
         showDebugLog = d.object(forKey: Key.debugLog) as? Bool ?? false
         recordRecents = d.object(forKey: Key.recents) as? Bool ?? true
-        realisticTrips = d.object(forKey: Key.trips) as? Bool ?? true
+        // bool(forKey:) also reads "NO"/"0" given on the command line (-realisticTrips NO), which `as? Bool` doesn't.
+        realisticTrips = d.object(forKey: Key.trips) == nil ? true : d.bool(forKey: Key.trips)
         tripTrafficLights = d.object(forKey: Key.tripLights) as? Bool ?? true
         tripStopSigns = d.object(forKey: Key.tripSigns) as? Bool ?? true
         tripSlowForTurns = d.object(forKey: Key.tripTurns) as? Bool ?? true

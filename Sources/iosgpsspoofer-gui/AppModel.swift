@@ -969,7 +969,7 @@ final class AppModel {
             let waits = draft.waits ?? []
             // (A draft saved by an older build may hold a point that isn't a place: leave it out.)
             waypoints = draft.waypoints.enumerated().compactMap { i, point in
-                point.isValid ? Waypoint(point: point, wait: i < waits.count ? max(0, waits[i]) : 0) : nil
+                point.isValid ? Waypoint(point: point, wait: i < waits.count ? RouteWaits.clamp(waits[i]) : 0) : nil
             }
             followRoads = draft.followRoads
             travelMode = draft.travelMode

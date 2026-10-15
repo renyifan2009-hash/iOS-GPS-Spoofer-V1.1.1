@@ -37,6 +37,9 @@ public enum WaitDuration {
         default: break
         }
         if s.contains(":") { return clock(s) }
+        // A comma between two digits is a decimal comma ("1,5 h" where that's how decimals are written);
+        // any other comma just separates ("1 h, 15 min").
+        s = s.replacingOccurrences(of: #"(\d),(\d)"#, with: "$1.$2", options: .regularExpression)
         s = s.replacingOccurrences(of: ",", with: " ")
         // "an hour", "a minute": the article is a one.
         s = " " + s + " "
@@ -106,6 +109,11 @@ public enum WaitDuration {
         "h": 3600, "hr": 3600, "hrs": 3600, "hour": 3600, "hours": 3600,
     ]
 
+    /// A wait from a file, the network or a menu, made safe to use: 0 if it isn't a number, at most a day.
+    public static func clamp(_ seconds: Double) -> Double {
+        seconds.isFinite ? min(max(0, seconds), maxSeconds) : 0
+    }
+
     /// Whole seconds in 0...maxSeconds, whatever comes in (NaN, negative, huge), so the arithmetic below
     /// can never trap.
     private static func whole(_ seconds: Double, roundUp: Bool = false) -> Int {
@@ -114,17 +122,17 @@ public enum WaitDuration {
         return Int(roundUp ? bounded.rounded(.up) : bounded.rounded())
     }
 
-    /// "No wait", "45 sec", "1 min 30 sec", "30 min", "1 h 30 min".
+    /// "No wait", "45 sec", "1 min 30 sec", "30 min", "1 h 30 min". Every second it has is shown, so the text
+    /// an editor starts with reads back as the same wait.
     public static func format(_ seconds: Double) -> String {
         let total = whole(seconds)
         guard total > 0 else { return "No wait" }
-        if total < 60 { return "\(total) sec" }
-        if total < 3600 {
-            let m = total / 60, r = total % 60
-            return r > 0 ? "\(m) min \(r) sec" : "\(m) min"
-        }
-        let h = total / 3600, m = (total % 3600) / 60
-        return m > 0 ? "\(h) h \(m) min" : "\(h) h"
+        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        var parts: [String] = []
+        if h > 0 { parts.append("\(h) h") }
+        if m > 0 { parts.append("\(m) min") }
+        if s > 0 { parts.append("\(s) sec") }
+        return parts.joined(separator: " ")
     }
 
     /// For a map pin: "45s", "30m", "1h30", "2h". Empty for no wait.

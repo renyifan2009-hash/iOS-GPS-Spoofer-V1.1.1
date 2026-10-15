@@ -15,6 +15,11 @@ public struct TripController: Sendable {
         var reason: TripStop.Reason
         var remaining: TimeInterval
         var at: Double
+        /// The whole wait, so a change to it can count from when the trip stopped.
+        var full: TimeInterval
+
+        /// How long it has stood here so far.
+        var waited: TimeInterval { full.isFinite && remaining.isFinite ? max(0, full - remaining) : 0 }
     }
 
     private let seed: UInt64
@@ -75,8 +80,42 @@ public struct TripController: Sendable {
     private mutating func rebuildPlan() {
         plan = planner.lapPlan(lap: lap, seed: seed)
         nextPlan = nil
+        // Part-way through waiting at one of your stops when its wait changed (or the stop went): the new wait
+        // counts from when the trip stopped there. Shorter than what has passed already, or gone, it leaves now.
+        if let wait = waiting, case .waypoint = wait.reason {
+            let stop = plan.stops.first { $0.reason == wait.reason && abs($0.distance - wait.at) < 3 }
+            let remaining = stop.map { $0.wait.isFinite ? $0.wait - wait.waited : .infinity } ?? 0
+            if let stop, remaining > 0 {
+                waiting = Waiting(reason: wait.reason, remaining: remaining, at: wait.at, full: stop.wait)
+            } else {
+                waiting = nil
+                status = .moving
+                resync(to: wait.at + 1)     // the stop it was waiting at is behind it now
+                expected = wait.at
+                return
+            }
+        }
         resync(to: waiting.map { $0.at + 0.5 } ?? expected ?? 0)
         if waiting != nil { expected = waiting?.at }
+    }
+
+    /// Made anew under a running route (the route was edited): if `old` was part-way through waiting at one of
+    /// your stops and this trip stands at that same stop, carry on with the time already waited instead of
+    /// starting the wait over.
+    public mutating func carryOverWait(from old: TripController) {
+        guard old.lap == lap, let wait = old.waiting, case .waypoint = wait.reason, let here = expected,
+              let index = plan.stops.firstIndex(where: { $0.reason == wait.reason && abs($0.distance - here) < 3 })
+        else { return }
+        let stop = plan.stops[index]
+        let remaining = stop.wait.isFinite ? stop.wait - wait.waited : .infinity
+        speed = 0
+        if remaining > 0 {
+            waiting = Waiting(reason: stop.reason, remaining: remaining, at: stop.distance, full: stop.wait)
+            nextStop = index
+            status = .stopped(stop.reason, remaining: remaining.isFinite ? remaining : nil)
+        } else {
+            nextStop = index + 1
+        }
     }
 
     private mutating func resync(to s: Double) {
@@ -135,7 +174,7 @@ public struct TripController: Sendable {
                 moved = max(0, stop.distance - s)
                 v = 0
                 if stop.wait > 0 {
-                    waiting = Waiting(reason: stop.reason, remaining: stop.wait, at: stop.distance)
+                    waiting = Waiting(reason: stop.reason, remaining: stop.wait, at: stop.distance, full: stop.wait)
                     status = .stopped(stop.reason, remaining: stop.wait.isFinite ? stop.wait : nil)
                 } else {
                     nextStop += 1
@@ -243,7 +282,8 @@ public struct TripController: Sendable {
             if waiting.remaining.isFinite { extra = waiting.remaining }
         }
         let total = TripTiming.time(plan: plan, from: s, speed: waiting == nil ? speed : 0,
-                                    settings: planner.settings, firstStop: first) + extra
-        return TripPlanner.withBreaks(total, settings: planner.settings, alreadyMoving: drivenSinceBreak)
+                                    settings: planner.settings, firstStop: first)
+        // The wait it is in now isn't driving: no break is due because of it.
+        return TripPlanner.withBreaks(total, settings: planner.settings, alreadyMoving: drivenSinceBreak) + extra
     }
 }

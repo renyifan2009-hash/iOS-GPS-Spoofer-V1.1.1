@@ -253,7 +253,14 @@ public struct TripPlanner: Sendable, Equatable {
             total += TripTiming.time(plan: lapPlan(lap: lap, seed: seed), from: 0, speed: 0,
                                      settings: settings, firstStop: 0)
         }
-        return Self.withBreaks(total / Double(samples), settings: settings)
+        // Waiting to leave isn't driving, so it brings no break forward.
+        let leaving = loopMode == .once ? departureWait : 0
+        return Self.withBreaks(total / Double(samples) - leaving, settings: settings) + leaving
+    }
+
+    /// The wait at the start before leaving (a wait on the first stop), if any.
+    public var departureWait: TimeInterval {
+        waypointStops.first { $0.distance < 0.5 && $0.wait.isFinite }?.wait ?? 0
     }
 
     /// `time` plus the breaks (driving) or pauses (on foot) expected in it.

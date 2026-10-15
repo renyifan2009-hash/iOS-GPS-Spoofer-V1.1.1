@@ -462,7 +462,7 @@ public final class SessionRemoteController: RemoteController, @unchecked Sendabl
                             engine: engine?.label,
                             serverName: options.serverName,
                             activity: activity, speed: speed, heading: heading,
-                            routeProgress: progress, routePaused: paused)
+                            routeProgress: progress, routePaused: paused, apiVersion: RemoteAPI.version)
     }
 
     public static func phase(for state: SessionState) -> SpoofPhase {

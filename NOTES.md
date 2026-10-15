@@ -203,6 +203,19 @@ leaving ("wait half an hour, then drive to a friend's house"); and miles instead
 - Checked: 661+ Swift tests; `scripts/test-remote-bridge.py` now also checks "wait at the start, then go" against the real
   Mac app with realistic trips on and off; simulator run against the real Mac app (screenshots in the README). Not run on a
   real iPhone: `docs/DEVICE-TESTING.md` F10–F11.
+- **Review (4 read-only reviewers, each medium finding re-checked by a skeptic) found, and this branch fixed:** changing a
+  wait while it counted down was ignored (the old countdown kept going; now it counts from when it stopped, or leaves now);
+  applying a route edit during a wait restarted it (now kept); pace-by-duration squeezed the drive to fit the leave-after
+  wait (now on top); "0,5 h" read as 5 h (decimal commas); reopening an editor dropped seconds above an hour; the Mac
+  countdown had no hours ("120:00"); waits read from files weren't capped; `serve` repeated a loop's wait before leaving
+  every lap and showed progress while parked; the realistic-off check in the bridge script ran with realistic ON (a
+  `-realisticTrips NO` launch argument is text, `as? Bool` ignored it; now read with `bool(forKey:)`, and the script
+  checks `roadData=off`); a new iPhone on an older Mac drove off at once (now `apiVersion` 2 in `/status`, and the iPhone
+  warns); large text sizes pushed the Stops pills off screen; loading a saved route reset its speed.
+- **Known, left:** the classic engine (iOS before 17) replays a timed track, which cuts loops at 8 h, so a loop with a
+  wait before leaving of 8 h or more never departs there; seeking back to the very start re-arms the wait before leaving;
+  removing a stop on the Mac before pressing Apply can end a running wait early; the Mac numbers middle stops from 1
+  ("At stop 1") where the iPhone counts every pin ("stop 2"); the iPhone takes mph/km/h from its region only.
 - Note: two `ReleaseInstallTests` failed once while the simulator booted (a leftover test disk image named `test.dmg`
   stayed attached; the test checks the name only). Detached it; they pass. The test's check is name-based and could be
   made path-based.

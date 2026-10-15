@@ -94,4 +94,60 @@ final class DepartureWaitTests: XCTestCase {
                            stops: [WaypointStop(index: 1, distance: 500, wait: 20)])
         XCTAssertEqual(trip.lapPlan(lap: 0, seed: 1).stops.map(\.reason), [.waypoint(0), .waypoint(1), .destination])
     }
+
+    // MARK: Changing the wait while it counts down
+
+    /// 60 s into a 10 min wait before leaving.
+    private func waitingAtTheStart() -> TripController {
+        var trip = TripController(planner: planner(Self.line(1000), .once, startWait: 600), seed: 1)
+        for _ in 0..<60 { _ = trip.step(dt: 1, lapDistance: 0, lap: 0) }
+        return trip
+    }
+
+    private func left(_ trip: TripController) -> Double? {
+        if case .stopped(.waypoint(0), let remaining) = trip.status { return remaining }
+        return nil
+    }
+
+    func testShorteningTheWaitCountsFromWhenItStopped() {
+        var trip = waitingAtTheStart()
+        trip.update(waypointStops: [WaypointStop(index: 0, distance: 0, wait: 120)])
+        _ = trip.step(dt: 1, lapDistance: 0, lap: 0)
+        XCTAssertEqual(left(trip) ?? -1, 59, accuracy: 1.01, "2 min wait, 61 s gone: about a minute left")
+    }
+
+    func testLengtheningTheWaitCountsFromWhenItStopped() {
+        var trip = waitingAtTheStart()
+        trip.update(waypointStops: [WaypointStop(index: 0, distance: 0, wait: 1800)])
+        _ = trip.step(dt: 1, lapDistance: 0, lap: 0)
+        XCTAssertEqual(left(trip) ?? -1, 1739, accuracy: 1.01)
+    }
+
+    func testRemovingTheWaitOrShorteningItBelowWhatHasPassedLeavesNow() {
+        for stops in [[], [WaypointStop(index: 0, distance: 0, wait: 30)]] {
+            var trip = waitingAtTheStart()
+            trip.update(waypointStops: stops)
+            var playback = RoutePlayback(path: trip.planner.path, loopMode: .once)
+            for _ in 0..<10 { playback.advance(by: trip.step(dt: 1, lapDistance: playback.lapDistance, lap: playback.lap)) }
+            XCTAssertGreaterThan(playback.travelled, 5, "leaves straight away (stops: \(stops.count))")
+            XCTAssertNil(left(trip))
+        }
+    }
+
+    func testARebuiltTripCarriesOnWithTheTimeAlreadyWaited() {
+        let old = waitingAtTheStart()
+        var fresh = TripController(planner: planner(Self.line(1200), .once, startWait: 600), seed: 2)
+        fresh.carryOverWait(from: old)
+        XCTAssertEqual(left(fresh) ?? -1, 540, accuracy: 1.01, "the route was edited: 9 min left, not 10")
+        _ = fresh.step(dt: 1, lapDistance: 0, lap: 0)
+        XCTAssertEqual(left(fresh) ?? -1, 539, accuracy: 1.01)
+    }
+
+    func testCarryingOverIgnoresATripThatWasNotWaiting() {
+        let moving = TripController(planner: planner(Self.line(1000), .once, startWait: 0), seed: 1)
+        var fresh = TripController(planner: planner(Self.line(1000), .once, startWait: 600), seed: 2)
+        fresh.carryOverWait(from: moving)
+        _ = fresh.step(dt: 1, lapDistance: 0, lap: 0)
+        XCTAssertEqual(left(fresh) ?? -1, 600, accuracy: 1.01, "a new wait starts from the top")
+    }
 }

@@ -30,14 +30,18 @@ public struct RouteRunner: Sendable, Equatable {
     /// loop or ping-pong: after the track's end, time wraps and it repeats.
     public let wraps: Bool
     public let name: String?
+    /// When the track leaves the start: after the one-off wait there before leaving (0 without one). A
+    /// looping route's later laps begin here, so that wait isn't repeated, and progress counts from here.
+    public let leaves: TimeInterval
 
-    /// Seconds for one pass (one-way) or one unrolled cycle (loops).
+    /// Seconds for one pass (one-way) or one unrolled cycle (loops), the first wait at the start included.
     public var duration: TimeInterval { track.last?.offset ?? 0 }
     public var start: GeoPoint { track.first?.point ?? GeoPoint(0, 0) }
 
-    public init(track: [RoutePoint], wraps: Bool, name: String?) {
+    public init(track: [RoutePoint], wraps: Bool, name: String?, leaves: TimeInterval = 0) {
         self.track = track
         self.wraps = wraps
+        self.leaves = leaves
         self.name = name
     }
 
@@ -73,7 +77,13 @@ public struct RouteRunner: Sendable, Equatable {
         } else {
             track = try RouteBuilder.timedTrack(path: path, speed: max(0.01, request.speed), loopMode: loop)
         }
-        return RouteRunner(track: track, wraps: loop != .once, name: request.name)
+        // Waiting at the start before leaving: the track stands at its first point until then.
+        var leaves: TimeInterval = 0
+        if (request.waypoints.first?.wait ?? 0) > 0, let first = track.first,
+           let moving = track.firstIndex(where: { $0.point.distance(to: first.point) > 0.05 }), moving > 0 {
+            leaves = track[moving - 1].offset
+        }
+        return RouteRunner(track: track, wraps: loop != .once, name: request.name, leaves: leaves)
     }
 
     /// Your stops with a wait, by distance along the route.
@@ -88,10 +98,11 @@ public struct RouteRunner: Sendable, Equatable {
 
     /// How far along one pass or lap the route is `elapsed` seconds in, 0...1. A looping route starts over.
     public func progress(at elapsed: TimeInterval) -> Double {
-        let total = duration
-        guard total > 0, elapsed.isFinite, elapsed > 0 else { return 0 }
-        if wraps { return elapsed.truncatingRemainder(dividingBy: total) / total }
-        return min(1, elapsed / total)
+        let lap = duration - leaves
+        guard lap > 0, elapsed.isFinite, elapsed > leaves else { return 0 }   // still waiting to leave
+        let moving = elapsed - leaves
+        if wraps { return moving.truncatingRemainder(dividingBy: lap) / lap }
+        return min(1, moving / lap)
     }
 
     /// The point to be at `elapsed` seconds in, and whether a one-way route has
@@ -102,7 +113,9 @@ public struct RouteRunner: Sendable, Equatable {
         let total = duration
         var t = max(0, elapsed)
         if wraps, total > 0 {
-            t = t.truncatingRemainder(dividingBy: total)
+            // Later laps start where the first one left the start, so the wait before leaving happens once.
+            let lap = total - leaves
+            if t > total { t = lap > 0 ? leaves + (t - leaves).truncatingRemainder(dividingBy: lap) : t.truncatingRemainder(dividingBy: total) }
         } else if t >= total {
             return (track[track.count - 1].point, true)
         }

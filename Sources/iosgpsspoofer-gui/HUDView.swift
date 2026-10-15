@@ -1,3 +1,4 @@
+import PhoneOnlyCore
 import SpooferCore
 import SwiftUI
 
@@ -327,10 +328,8 @@ struct TripText {
     }
 
     /// "0:34", "12:05".
-    static func countdown(_ seconds: TimeInterval) -> String {
-        let total = max(0, Int(seconds.rounded(.up)))
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
+    /// "0:26", "29:41", "1:02:03" (and never a crash on a silly number).
+    static func countdown(_ seconds: TimeInterval) -> String { WaitDuration.countdown(seconds) }
 }
 
 // MARK: - Joystick

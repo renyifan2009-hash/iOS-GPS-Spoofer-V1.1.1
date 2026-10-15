@@ -237,7 +237,7 @@ extension AppModel {
         let waits = route.waits ?? []
         // A stop that isn't a real place (a hand-edited or damaged file) would crash the map; leave it out.
         waypoints = route.waypoints.enumerated().compactMap { i, point in
-            point.isValid ? Waypoint(point: point, wait: i < waits.count ? max(0, waits[i]) : 0) : nil
+            point.isValid ? Waypoint(point: point, wait: i < waits.count ? RouteWaits.clamp(waits[i]) : 0) : nil
         }
         let skipped = route.waypoints.count - waypoints.count
         if skipped > 0 {

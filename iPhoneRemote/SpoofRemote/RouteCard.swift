@@ -180,8 +180,19 @@ struct RouteCardView: View {
     private var options: some View {
         VStack(alignment: .leading, spacing: 12) {
             leaveRow
+            if route.startWait > 0, macIsTooOldToWait {
+                Label("This Mac's AnyWhere is too old to wait before leaving. Update it, or the route leaves right away.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Brand.warningText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
-            Picker("Travel", selection: $route.driving) {
+            Picker("Travel", selection: Binding(get: { route.driving }, set: { driving in
+                guard driving != route.driving else { return }
+                route.driving = driving
+                route.speedKmh = units.defaultKmh(driving: driving)   // a walk's pace for a walk, a drive's for a drive
+            })) {
                 Text("Driving").tag(true)
                 Text("Walking").tag(false)
             }
@@ -210,9 +221,12 @@ struct RouteCardView: View {
             }
         }
         .font(.subheadline)
-        .onChange(of: route.driving) { _, driving in
-            route.speedKmh = units.defaultKmh(driving: driving)
-        }
+    }
+
+    /// A Mac before protocol version 2 drives a one-way route straight off, whatever the start's wait says.
+    private var macIsTooOldToWait: Bool {
+        guard let status = connection.status else { return false }   // not heard from yet: don't guess
+        return (status.apiVersion ?? 1) < 2
     }
 
     /// When to leave the start: now, or after a wait you type ("leave in half an hour").
