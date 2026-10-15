@@ -178,9 +178,8 @@ should confirm them first (for example a notification that has to be accepted), 
 inside `ViewThatFits` and a preference-key measurement both gave the wrong height and were dropped. The map's follow mode could
 run away when the zoom was computed from the span; it is now clamped (300 to 40,000 m).
 
-**Next release:** bump the iPhone build 4 → 5 (`iPhoneRemote/project.yml` and `SpoofRemote.expected` together) and `VERSION`,
-because the iPhone app now needs a Mac that has `/joystick`, `/pause` and `/autostop` (an older Mac answers 501 and the app says
-to update it). Nothing here has run on a real iPhone: `docs/DEVICE-TESTING.md`, section F.
+**Released in 2.5.0:** the iPhone app went to 1.2 (build 5) and `VERSION` to 2.5.0 together, because the iPhone app now needs a
+Mac that has `/joystick`, `/pause` and `/autostop` (an older Mac answers 501 and the app says to update it). Nothing here has run on a real iPhone: `docs/DEVICE-TESTING.md`, section F.
 
 ## Trips with rest stops, "leave after", and miles (2026-10-14, branch `feature/trip-waits`)
 
