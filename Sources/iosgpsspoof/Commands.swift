@@ -326,7 +326,7 @@ struct ExportPairing: ParsableCommand {
             log("warning: it has no Remote Pairing identity, which newer iOS versions need: \(problem)")
             log("it works only where the iPhone still answers lockdown through LocalDevVPN (older iOS).")
         } else {
-            log("it has both identities, so it works on every iOS version the iPhone-only mode supports.")
+            log("it has both identities, so the iPhone app can try Remote Pairing and, on iOS 17.4+, the lockdown fallback. Verify the connection on your exact iOS build.")
         }
         log("it grants developer access to that iPhone: send it only to that iPhone.")
 

@@ -10,6 +10,8 @@ struct PhoneOnlySetupView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var importing = false
     @State private var confirmRemove = false
+    @State private var importingImage = false
+    @State private var imagePickerError: String?
 
     /// LocalDevVPN on the App Store (the link its GitHub README gives).
     static let localDevVPN = URL(string: "https://apps.apple.com/app/localdevvpn/id6755608044")!
@@ -23,15 +25,16 @@ struct PhoneOnlySetupView: View {
                         header
                         UpdateNoticeView()
                         if !OnDeviceController.isSupported {
-                            step(done: false, symbol: "iphone.slash", title: "Needs iOS 17.4 or later",
+                            step(done: false, symbol: "iphone.slash", title: "Needs iOS 17 or later",
                                  detail: "This iPhone has iOS \(UIDevice.current.systemVersion). Update it in Settings ▸ General ▸ Software Update, or use your Mac instead.")
                         }
                         pairingStep
                         vpnStep
                         step(done: nil, symbol: "hammer.fill", title: "Developer Mode on",
                              detail: "Settings ▸ Privacy & Security ▸ Developer Mode. AnyWhere on your Mac helps you turn it on.")
-                        step(done: nil, symbol: "arrow.clockwise", title: "After a restart",
-                             detail: "When this iPhone restarts, connect it to your Mac once and open AnyWhere. It loads Apple's developer support again.")
+                        developerImageStep
+                        step(done: nil, symbol: "checklist", title: "Compatibility needs a device test",
+                             detail: "This app attempts Remote Pairing on iOS 17 and newer. On iOS 17.0–17.3 that path is unverified. Developer services can change with an iOS update.")
                         if let error = phone.lastError {
                             VStack(alignment: .leading, spacing: 8) {
                                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -79,6 +82,15 @@ struct PhoneOnlySetupView: View {
             } message: {
                 Text("This iPhone goes back to its real location. To use this mode again, open a new pairing file from your Mac.")
             }
+            .fileImporter(isPresented: $importingImage, allowedContentTypes: [.folder]) { result in
+                switch result {
+                case .success(let url):
+                    imagePickerError = nil
+                    Task { await phone.importDeveloperImage(from: url) }
+                case .failure(let error):
+                    if (error as? CocoaError)?.code != .userCancelled { imagePickerError = error.localizedDescription }
+                }
+            }
             .sensoryFeedback(.success, trigger: phone.isSetUp) { _, isSetUp in isSetUp }
             .sensoryFeedback(.error, trigger: phone.importFailures)
             .onChange(of: phone.importFailures) {
@@ -101,6 +113,25 @@ struct PhoneOnlySetupView: View {
     }
 
     // MARK: - Pieces
+
+    private var developerImageStep: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            step(done: phone.developerImageBuild != nil, symbol: "externaldrive.fill",
+                 title: "Developer support after a restart",
+                 detail: phone.developerImageBuild.map { "Stored Apple developer image: \($0)." }
+                    ?? "Copy a matching Apple DDI folder to Files once. Select the folder containing BuildManifest.plist and its image payloads. After a restart, AnyWhere can try loading it from this iPhone; Apple's signing service may need internet.")
+            Button { importingImage = true } label: {
+                Label(phone.importingDeveloperImage ? "Checking developer image…" : "Choose Developer Image Folder",
+                      systemImage: "folder")
+            }
+            .glassButton()
+            .disabled(phone.isSpoofing || phone.isWorking || phone.importingDeveloperImage)
+            if phone.importingDeveloperImage { ProgressView() }
+            if let error = phone.developerImageError ?? imagePickerError {
+                Text(error).font(.footnote).foregroundStyle(Brand.warningText)
+            }
+        }
+    }
 
     private var header: some View {
         VStack(spacing: 10) {
@@ -186,9 +217,9 @@ struct PhoneOnlySetupView: View {
         let reachable = phone.loopbackReachable
         return step(done: phone.checkingLoopback ? nil : reachable,
                     symbol: "network.badge.shield.half.filled",
-                    title: reachable == true ? "LocalDevVPN is on" : "Turn on LocalDevVPN",
+                    title: reachable == true ? "Developer services reachable" : "Check developer connection",
                     detail: reachable == true
-                        ? "It lets this app reach the iPhone's own developer services."
+                        ? "The iPhone’s developer port answered through the local tunnel."
                         : "Get the free LocalDevVPN app, open it and tap Connect. It lets this app reach the iPhone's own developer services, and leaves your other traffic alone.") {
             // Side by side when they fit, one above the other when not.
             ViewThatFits(in: .horizontal) {

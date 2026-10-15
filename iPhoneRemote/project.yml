@@ -11,6 +11,14 @@ options:
 packages:
   iOSGPSSpoofer:
     path: ..
+schemes:
+  SpoofRemote:
+    build:
+      targets:
+        SpoofRemote: all
+    test:
+      targets:
+        - SpoofRemoteTests
 targets:
   SpoofRemote:
     type: application
@@ -75,3 +83,21 @@ targets:
         CODE_SIGN_STYLE: Automatic
         # Your Apple ID team (a free one works for your own iPhone):
         DEVELOPMENT_TEAM: ""
+  SpoofRemoteTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: SpoofRemote
+      - package: iOSGPSSpoofer
+        product: PhoneOnlyCore
+      - package: iOSGPSSpoofer
+        product: RemoteAPI
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/AnyWhere.app/AnyWhere"
+        BUNDLE_LOADER: "$(TEST_HOST)"

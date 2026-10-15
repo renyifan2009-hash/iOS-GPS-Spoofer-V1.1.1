@@ -82,7 +82,7 @@ final class TunnelFailureTests: XCTestCase {
 
     func testDeveloperSupportNotLoaded() {
         let instruments = TunnelFailure(step: .instruments, route: remotePairing, code: 21, message: "ServiceNotFound")
-        XCTAssertTrue(instruments.explanation.hasPrefix("Apple's developer support isn't loaded."))
+        XCTAssertTrue(instruments.explanation.hasPrefix("This iPhone's location service didn't open."))
         let image = TunnelFailure(step: .services, route: .lockdown, code: 29, message: "ImageNotMounted")
         XCTAssertTrue(image.explanation.hasPrefix("Apple's developer support isn't loaded."))
     }

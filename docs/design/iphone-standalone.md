@@ -13,6 +13,8 @@ lockdown as a second chance on older iOS. The pairing file carries an identity
 for each. [PHONE-ONLY.md](../PHONE-ONLY.md#how-it-works) has the current
 design; the rest of this report is as it was written.
 
+**Implementation update, 2026-10-13.** Local joystick/routes/timer, image import/mounting and hold liveness are now implemented on the standalone branch. iOS 17.0–17.3 attempts Remote Pairing only and remains unverified. The report below is historical; use [PHONE-ONLY.md](../PHONE-ONLY.md) and [the current test matrix](../PHONE-STANDALONE-TESTING.md) for current behavior.
+
 ## The short answer
 
 - **Yes, and this repository already does it, as a beta.** SpoofRemote has two

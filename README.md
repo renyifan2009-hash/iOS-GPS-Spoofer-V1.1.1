@@ -8,6 +8,13 @@ on the iPhone, and your real location comes back when you press **Stop**.
 
 The iPhone app, AnyWhere, steers the Mac from your pocket:
 
+**iPhone-only beta (not in a release yet):** in the iPhone app, choose **This iPhone** to run teleport,
+the joystick, routes and the stop-after timer on the iPhone itself, with the Mac turned off after setup.
+It can load Apple's developer-image files after the iPhone restarts. It has **not** been tried on a real
+iPhone; iOS 17.0–17.3 is an experimental attempt, and on iOS 26.4 and newer it may not work at all (Apple
+changed how developer services answer on the iPhone itself). See [setup](docs/PHONE-ONLY.md),
+[device tests](docs/PHONE-STANDALONE-TESTING.md) and [repository audit](docs/REPOSITORY-AUDIT.md).
+
 | Joystick | Plan a trip | Waiting to leave |
 |:---:|:---:|:---:|
 | ![The iPhone app with the joystick pad, a pace picker and a stop-after timer](img/iphone-joystick.png) | ![The iPhone app with a three-stop trip: leave in 30 minutes, a 1 hour 15 minute rest at stop 2, 1.2 miles, about 1 hour 47 minutes](img/iphone-route.png) | ![The iPhone app driving a trip that says Leaving in 29:51, with Pause and Stop buttons](img/iphone-route-progress.png) |

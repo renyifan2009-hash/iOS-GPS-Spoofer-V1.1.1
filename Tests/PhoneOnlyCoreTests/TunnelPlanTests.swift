@@ -3,6 +3,18 @@ import XCTest
 @testable import PhoneOnlyCore
 
 final class TunnelPlanTests: XCTestCase {
+    func testBeforeCoreDeviceProxyOnlyRemotePairingIsAttempted() throws {
+        let record = try Sample.record(Sample.both)
+        XCTAssertEqual(TunnelPlan.readiness(for: record, ports: DeveloperPorts(remotePairing: [49152], lockdown: true),
+                                          allowLockdown: false), .ready([.remotePairing(port: 49152)]))
+        XCTAssertEqual(TunnelPlan.routes(for: record, allowLockdown: false), [.remotePairing(port: 49152)])
+    }
+
+    func testPre174LockdownOnlyFileRequestsRemotePairingIdentity() throws {
+        let record = try Sample.record(Sample.lockdown)
+        XCTAssertEqual(TunnelPlan.readiness(for: record, ports: DeveloperPorts(lockdown: true), allowLockdown: false),
+                       .fileLacksRemotePairing)
+    }
     func testCandidatesPutTheDiscoveredPortFirst() {
         XCTAssertEqual(TunnelPlan.remotePairingCandidates(discovered: nil), [49152])
         XCTAssertEqual(TunnelPlan.remotePairingCandidates(discovered: 49152), [49152])
